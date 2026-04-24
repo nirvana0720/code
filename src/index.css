@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 防止平板雙擊縮放 */
+* {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  overscroll-behavior: none;
+}

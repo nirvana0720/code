@@ -91,9 +91,6 @@ export default function KioskPage() {
   }, [handleKeyDown])
 
   // ── 掃描後查詢學員 ────────────────────────────────────
-  // 開發測試用：在 console 輸入 scan('學員編號') 直接觸發
-  useEffect(() => { window.scan = handleScan }, [])
-
   async function handleScan(code) {
     const event = eventRef.current
     if (!event) return
@@ -241,7 +238,7 @@ export default function KioskPage() {
 
       {/* Main */}
       <main className="flex-1 flex items-center justify-center p-6">
-        {phase === 'idle' && <IdleScreen onTestScan={handleScan} />}
+        {phase === 'idle' && <IdleScreen />}
         {phase === 'loading' && <LoadingScreen />}
         {phase === 'no_event' && <NoEventScreen onRefresh={loadEvent} />}
         {phase === 'not_found' && <NotFoundScreen countdown={countdown} onReset={reset} />}
@@ -277,28 +274,12 @@ export default function KioskPage() {
 
 // ── 各子畫面 ──────────────────────────────────────────────
 
-function IdleScreen({ onTestScan }) {
-  const [testId, setTestId] = useState('')
+function IdleScreen() {
   return (
     <div className="text-center select-none">
       <div className="text-9xl mb-8 animate-pulse">📛</div>
       <p className="text-kiosk-2xl font-bold text-gray-700 mb-4">請刷學員證</p>
       <p className="text-kiosk-base text-gray-500">將學員證條碼對準掃描機</p>
-      {/* 測試用輸入框，部署前移除 */}
-      <div className="mt-10 flex gap-2 justify-center">
-        <input
-          type="text"
-          value={testId}
-          onChange={e => setTestId(e.target.value)}
-          onKeyDown={e => e.stopPropagation()}
-          placeholder="輸入學員編號測試"
-          className="border-2 border-gray-300 rounded-xl px-4 py-2 text-lg w-52 text-center"
-        />
-        <button
-          onClick={() => { if (testId.trim()) onTestScan(testId.trim()) }}
-          className="px-5 py-2 bg-gray-500 text-white rounded-xl text-lg"
-        >測試</button>
-      </div>
     </div>
   )
 }

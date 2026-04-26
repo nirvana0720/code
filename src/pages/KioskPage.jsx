@@ -7,6 +7,7 @@ import {
   updateRegistration,
 } from '../lib/supabase'
 import DynamicForm from '../components/DynamicForm'
+import CameraScanner from '../components/CameraScanner'
 
 const OVERVIEW_IDLE_SECONDS = 30  // 總覽畫面閒置幾秒後自動返回
 const SUCCESS_SECONDS = 3         // 報名成功提示停留秒數
@@ -29,6 +30,8 @@ export default function KioskPage() {
   const [errorMsg, setErrorMsg] = useState('')
   const [successEventName, setSuccessEventName] = useState('')
   const [showSuccess, setShowSuccess] = useState(false)
+
+  const [cameraOpen, setCameraOpen] = useState(false)
 
   const scanBufferRef = useRef('')
   const scanTimerRef = useRef(null)
@@ -68,6 +71,12 @@ export default function KioskPage() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
+
+  // ── 相機掃描回呼 ─────────────────────────────────────────
+  function handleCameraScan(code) {
+    setCameraOpen(false)
+    handleScan(code)
+  }
 
   // ── 刷卡後查詢 ────────────────────────────────────────────
   async function handleScan(code) {
@@ -171,6 +180,14 @@ export default function KioskPage() {
   // ── 渲染 ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
+      {/* 相機掃描覆蓋層 */}
+      {cameraOpen && (
+        <CameraScanner
+          onScan={handleCameraScan}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
+
       {/* Header */}
       <header className="bg-blue-700 text-white px-6 py-4 shadow-md">
         <p className="text-kiosk-sm opacity-80">普宜精舍</p>
@@ -178,7 +195,7 @@ export default function KioskPage() {
       </header>
 
       <main className="flex-1 flex items-center justify-center p-6">
-        {phase === 'idle' && <IdleScreen />}
+        {phase === 'idle' && <IdleScreen onOpenCamera={() => setCameraOpen(true)} />}
         {phase === 'loading' && <LoadingScreen />}
         {phase === 'no_event' && <NoEventScreen onRefresh={loadEvents} />}
         {phase === 'not_found' && <NotFoundScreen onReset={reset} />}
@@ -218,12 +235,19 @@ export default function KioskPage() {
 }
 
 // ── 等待刷卡 ────────────────────────────────────────────────
-function IdleScreen() {
+function IdleScreen({ onOpenCamera }) {
   return (
     <div className="text-center select-none">
       <div className="text-9xl mb-8 animate-pulse">📛</div>
       <p className="text-kiosk-2xl font-bold text-gray-700 mb-4">請刷學員證</p>
-      <p className="text-kiosk-base text-gray-500">將學員證條碼對準掃描機</p>
+      <p className="text-kiosk-base text-gray-500 mb-8">將學員證條碼對準掃描機</p>
+      <button
+        onClick={onOpenCamera}
+        className="inline-flex items-center gap-3 px-8 py-4 bg-white border-2 border-blue-400 text-blue-700 rounded-2xl text-kiosk-base font-semibold shadow-sm active:scale-95 transition-transform"
+      >
+        <span className="text-2xl">📷</span>
+        用手機相機掃描
+      </button>
     </div>
   )
 }

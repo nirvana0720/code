@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import { getAllEvents, getRegistrationForCheckin, checkIn, uncheckIn } from '../../lib/supabase'
+import CameraScanner from '../../components/CameraScanner'
 
 const IDLE_SECONDS = 5 // 成功/失敗畫面停留秒數
 
@@ -12,6 +13,8 @@ export default function CheckinPage() {
   const [result, setResult] = useState(null) // { name, checkedInAt, registrationId }
   const [countdown, setCountdown] = useState(IDLE_SECONDS)
   const [todayCount, setTodayCount] = useState(0)
+
+  const [cameraOpen, setCameraOpen] = useState(false)
 
   const inputRef = useRef('')
   const countdownRef = useRef(null)
@@ -111,8 +114,21 @@ export default function CheckinPage() {
     resetToIdle()
   }
 
+  function handleCameraScan(code) {
+    setCameraOpen(false)
+    handleScan(code)
+  }
+
   return (
     <AdminLayout>
+      {/* 相機掃描覆蓋層 */}
+      {cameraOpen && (
+        <CameraScanner
+          onScan={handleCameraScan}
+          onClose={() => setCameraOpen(false)}
+        />
+      )}
+
       {/* 頂列 */}
       <div className="flex items-center gap-3 mb-6">
         <Link
@@ -132,10 +148,17 @@ export default function CheckinPage() {
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
 
         {status === 'idle' && (
-          <div className="text-center animate-pulse">
-            <div className="text-8xl mb-6">📷</div>
+          <div className="text-center">
+            <div className="text-8xl mb-6 animate-pulse">📷</div>
             <p className="text-2xl font-bold text-gray-700">請刷學員證</p>
-            <p className="text-sm text-gray-400 mt-3">掃描機刷卡後自動報到</p>
+            <p className="text-sm text-gray-400 mt-3 mb-8">掃描機刷卡後自動報到</p>
+            <button
+              onClick={() => setCameraOpen(true)}
+              className="inline-flex items-center gap-2 px-6 py-3 bg-white border-2 border-amber-400 text-amber-700 rounded-xl text-base font-semibold shadow-sm active:scale-95 transition-transform"
+            >
+              <span className="text-xl">📱</span>
+              用手機相機掃描
+            </button>
           </div>
         )}
 

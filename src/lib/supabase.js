@@ -9,11 +9,22 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-// ─── 活動查詢 ─────────────────────────────────────────────
+// ─── Auth ─────────────────────────────────────────────────
+
+export async function signIn(email, password) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
+export async function signOut() {
+  await supabase.auth.signOut()
+}
+
+// ─── 活動查詢（前台）────────────────────────────────────────
 
 /**
  * 取得目前 active 狀態的活動（含動態欄位）
- * @returns {{ event: object|null, fields: array, error: string|null }}
  */
 export async function getActiveEvent() {
   const { data: events, error: eventErr } = await supabase
@@ -39,12 +50,10 @@ export async function getActiveEvent() {
   return { event, fields: fields || [], error: null }
 }
 
-// ─── 學員查詢 ─────────────────────────────────────────────
+// ─── 學員查詢（前台）────────────────────────────────────────
 
 /**
  * 用學員編號查詢學員資料（含班別）
- * @param {string} studentId - 9 位數字學員編號
- * @returns {{ student: object|null, classes: array, error: string|null }}
  */
 export async function getStudentById(studentId) {
   const { data: student, error: studentErr } = await supabase
@@ -71,14 +80,8 @@ export async function getStudentById(studentId) {
   return { student, classes: classes || [], error: null }
 }
 
-// ─── 報名 ─────────────────────────────────────────────────
+// ─── 報名（前台）──────────────────────────────────────────
 
-/**
- * 檢查是否已重複報名
- * @param {string} eventId
- * @param {string} studentId
- * @returns {boolean}
- */
 export async function checkDuplicate(eventId, studentId) {
   const { data, error } = await supabase
     .from('registrations')
@@ -91,14 +94,6 @@ export async function checkDuplicate(eventId, studentId) {
   return data && data.length > 0
 }
 
-/**
- * 送出報名
- * @param {string} eventId
- * @param {string} studentId
- * @param {object} answers - 動態欄位答案 { field_key: value }
- * @param {string} terminal - 裝置識別（可選）
- * @returns {{ success: boolean, error: string|null }}
- */
 export async function submitRegistration(eventId, studentId, answers, terminal = 'tablet-01') {
   const { error } = await supabase
     .from('registrations')
@@ -113,9 +108,6 @@ export async function submitRegistration(eventId, studentId, answers, terminal =
   return { success: true, error: null }
 }
 
-/**
- * 取得現有報名紀錄
- */
 export async function getRegistration(eventId, studentId) {
   const { data, error } = await supabase
     .from('registrations')
@@ -127,9 +119,6 @@ export async function getRegistration(eventId, studentId) {
   return data
 }
 
-/**
- * 更新現有報名紀錄
- */
 export async function updateRegistration(registrationId, answers) {
   const { error } = await supabase
     .from('registrations')
@@ -137,4 +126,189 @@ export async function updateRegistration(registrationId, answers) {
     .eq('registration_id', registrationId)
   if (error) return { success: false, error: error.message }
   return { success: true, error: null }
+}
+
+// ─── 活動管理（後台）────────────────────────────────────────
+
+/**
+ * 取得所有活動
+ */
+export async function getAllEvents() {
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .order('date_start', { ascending: false })
+
+  if (error) return { events: [], error: error.message }
+  return { events: data || [], error: null }
+}
+
+/**
+ * 建立新活動
+ */
+export async function createEvent(payload) {
+  const { data, error } = await supabase
+    .from('events')
+    .insert(payload)
+    .select()
+    .single()
+
+  if (error) return { event: null, error: error.message }
+  return { event: data, error: null }
+}
+
+/**
+ * 更新活動
+ */
+export async function updateEvent(eventId, payload) {
+  const { error } = await supabase
+    .from('events')
+    .update(payload)
+    .eq('event_id', eventId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
+/**
+ * 取得活動的動態欄位
+ */
+export async function getEventFields(eventId) {
+  const { data, error } = await supabase
+    .from('event_fields')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('sort_order', { ascending: true })
+
+  if (error) return { fields: [], error: error.message }
+  return { fields: data || [], error: null }
+}
+
+/**
+ * 儲存活動動態欄位（先刪全部再插入）
+ */
+export async function saveEventFields(eventId, fields) {
+  const { error: delErr } = await supabase
+    .from('event_fields')
+    .delete()
+    .eq('event_id', eventId)
+
+  if (delErr) return { success: false, error: delErr.message }
+
+  if (fields.length === 0) return { success: true, error: null }
+
+  const rows = fields.map((f, i) => ({
+    event_id: eventId,
+    field_key: f.field_key,
+    field_label: f.field_label,
+    field_type: f.field_type,
+    options: f.options || [],
+    show_if: f.show_if || null,
+    sort_order: i + 1,
+    required: f.required ?? true,
+  }))
+
+  const { error: insertErr } = await supabase
+    .from('event_fields')
+    .insert(rows)
+
+  if (insertErr) return { success: false, error: insertErr.message }
+  return { success: true, error: null }
+}
+
+// ─── 報名查詢（後台）────────────────────────────────────────
+
+/**
+ * 取得某活動的所有報名紀錄（含學員姓名）
+ */
+export async function getRegistrationsWithStudents(eventId) {
+  const { data, error } = await supabase
+    .from('registrations')
+    .select(`
+      registration_id,
+      student_id,
+      answers,
+      registered_at,
+      checked_in_at,
+      terminal,
+      students ( name )
+    `)
+    .eq('event_id', eventId)
+    .order('registered_at', { ascending: true })
+
+  if (error) return { registrations: [], error: error.message }
+  return { registrations: data || [], error: null }
+}
+
+// ─── 現場報到（後台）────────────────────────────────────────
+
+/**
+ * 查詢某活動中某學員的報名紀錄（報到用）
+ */
+export async function getRegistrationForCheckin(eventId, studentId) {
+  const { data, error } = await supabase
+    .from('registrations')
+    .select('registration_id, answers, checked_in_at, students(name)')
+    .eq('event_id', eventId)
+    .eq('student_id', studentId)
+    .single()
+
+  if (error) {
+    if (error.code === 'PGRST116') return { registration: null, error: 'NOT_REGISTERED' }
+    return { registration: null, error: error.message }
+  }
+  return { registration: data, error: null }
+}
+
+/**
+ * 報到打卡
+ */
+export async function checkIn(registrationId) {
+  const { error } = await supabase
+    .from('registrations')
+    .update({ checked_in_at: new Date().toISOString() })
+    .eq('registration_id', registrationId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
+/**
+ * 取消報到
+ */
+export async function uncheckIn(registrationId) {
+  const { error } = await supabase
+    .from('registrations')
+    .update({ checked_in_at: null })
+    .eq('registration_id', registrationId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
+// ─── 學員管理（後台）────────────────────────────────────────
+
+/**
+ * 取得所有學員（含班別），支援姓名搜尋
+ */
+export async function getAllStudents(search = '') {
+  let query = supabase
+    .from('students')
+    .select(`
+      student_id,
+      name,
+      active,
+      created_at,
+      student_classes ( class_name, group_name )
+    `)
+    .order('student_id', { ascending: true })
+
+  if (search.trim()) {
+    query = query.ilike('name', `%${search.trim()}%`)
+  }
+
+  const { data, error } = await query
+
+  if (error) return { students: [], error: error.message }
+  return { students: data || [], error: null }
 }

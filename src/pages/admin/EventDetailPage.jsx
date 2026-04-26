@@ -25,6 +25,58 @@ const FIELD_TYPE_LABEL = {
   time: 'time（時間）',
 }
 
+// ── 預設報名模板 ────────────────────────────────────────────
+const DEFAULT_TEMPLATE_FIELDS = [
+  {
+    field_key: 'identity',
+    field_label: '身分別',
+    field_type: 'radio',
+    options: ['義工', '信眾'],
+    show_if: null,
+    required: true,
+  },
+  {
+    field_key: 'transport',
+    field_label: '交通方式',
+    field_type: 'radio',
+    options: ['精舍共乘', '自行開車', '其他'],
+    show_if: null,
+    required: true,
+  },
+  {
+    field_key: 'plate_no',
+    field_label: '車牌號碼',
+    field_type: 'plate',
+    options: [],
+    show_if: { transport: '自行開車' },
+    required: true,
+  },
+  {
+    field_key: 'arrive_time',
+    field_label: '預計到達山上時間',
+    field_type: 'datetime',
+    options: [],
+    show_if: { identity: '義工' },
+    required: true,
+  },
+  {
+    field_key: 'leave_time',
+    field_label: '預計離開山上時間',
+    field_type: 'datetime',
+    options: [],
+    show_if: { identity: '義工' },
+    required: true,
+  },
+  {
+    field_key: 'volunteer_group',
+    field_label: '發心組別',
+    field_type: 'radio',
+    options: ['交通組', '行堂組', '茶水間', '大寮', '客寮', '機動組', '環保組', '大會安排', '其他'],
+    show_if: { identity: '義工' },
+    required: true,
+  },
+]
+
 // ── 動態欄位編輯列 ─────────────────────────────────────────
 function FieldRow({ field, onChange, onRemove, allFields }) {
   const options = field.options || []
@@ -652,7 +704,7 @@ export default function EventDetailPage() {
               onRemove={() => setFields(prev => prev.filter((_, j) => j !== i))}
             />
           ))}
-          <div className="flex gap-3 pt-2">
+          <div className="flex flex-wrap gap-3 pt-2">
             <button
               onClick={addField}
               className="border border-dashed border-amber-400 text-amber-700 hover:bg-amber-50 text-sm px-4 py-2 rounded-lg transition-colors"
@@ -660,9 +712,22 @@ export default function EventDetailPage() {
               ＋ 新增欄位
             </button>
             <button
+              onClick={() => {
+                if (
+                  fields.length === 0 ||
+                  window.confirm('套用預設模板後，目前設定的欄位將全部被取代。確定要繼續嗎？')
+                ) {
+                  setFields(DEFAULT_TEMPLATE_FIELDS.map(f => ({ ...f })))
+                }
+              }}
+              className="border border-dashed border-gray-300 text-gray-500 hover:bg-gray-50 text-sm px-4 py-2 rounded-lg transition-colors"
+            >
+              📋 套用預設模板
+            </button>
+            <button
               onClick={handleSaveFields}
               disabled={saving}
-              className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors disabled:opacity-50 ml-auto"
             >
               {saving ? '儲存中…' : '儲存欄位'}
             </button>

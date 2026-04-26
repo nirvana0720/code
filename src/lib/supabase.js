@@ -323,6 +323,15 @@ export async function uncheckIn(registrationId) {
 /**
  * 取得所有學員（含班別），支援姓名搜尋
  */
+export async function deleteRegistration(registrationId) {
+  const { error } = await supabase
+    .from('registrations')
+    .delete()
+    .eq('registration_id', registrationId)
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
 export async function getAllStudents(search = '') {
   let query = supabase
     .from('students')

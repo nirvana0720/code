@@ -7,6 +7,7 @@ import {
   getEventFields,
   saveEventFields,
   getRegistrationsWithStudents,
+  deleteRegistration,
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
@@ -252,6 +253,13 @@ export default function EventDetailPage() {
     setTimeout(() => setSaveMsg(''), 3000)
   }
 
+  async function handleDeleteRegistration(registrationId, studentName) {
+    if (!window.confirm(`確定要取消「${studentName}」的報名嗎？此動作無法復原。`)) return
+    const { success, error } = await deleteRegistration(registrationId)
+    if (!success) { alert(`取消失敗：${error}`); return }
+    setRegistrations(prev => prev.filter(r => r.registration_id !== registrationId))
+  }
+
   function addField() {
     setFields(prev => [...prev, {
       field_key: '',
@@ -436,6 +444,7 @@ export default function EventDetailPage() {
                     ))}
                     <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">報到</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">報名時間</th>
+                    <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
@@ -461,6 +470,14 @@ export default function EventDetailPage() {
                         {r.registered_at
                           ? new Date(r.registered_at).toLocaleString('zh-TW', { hour12: false })
                           : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => handleDeleteRegistration(r.registration_id, r.students?.name ?? r.student_id)}
+                          className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
+                        >
+                          取消報名
+                        </button>
                       </td>
                     </tr>
                   ))}

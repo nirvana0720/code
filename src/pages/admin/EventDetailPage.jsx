@@ -26,8 +26,15 @@ const FIELD_TYPE_LABEL = {
 }
 
 // ── 動態欄位編輯列 ─────────────────────────────────────────
-function FieldRow({ field, onChange, onRemove }) {
+function FieldRow({ field, onChange, onRemove, allFields }) {
   const options = field.options || []
+
+  // 顯示名稱改變時，若程式識別碼還是空的就自動帶入（方便不打英文的師父）
+  function handleLabelChange(label) {
+    const updates = { ...field, field_label: label }
+    if (!field.field_key) updates.field_key = label
+    onChange(updates)
+  }
 
   function setOption(i, val) {
     const next = [...options]
@@ -43,12 +50,16 @@ function FieldRow({ field, onChange, onRemove }) {
     onChange({ ...field, options: options.filter((_, j) => j !== i) })
   }
 
-  // 條件顯示：用兩個獨立輸入框取代 JSON 手打
+  // 條件顯示
   const showIfKey = field.show_if ? Object.keys(field.show_if)[0] ?? '' : ''
   const showIfVal = field.show_if ? Object.values(field.show_if)[0] ?? '' : ''
 
+  // 找到目前選中的父欄位，取其選項
+  const parentField = allFields.find(f => f.field_key === showIfKey)
+  const parentOptions = parentField?.options || []
+
   function updateShowIf(key, val) {
-    if (!key && !val) {
+    if (!key) {
       onChange({ ...field, show_if: null })
     } else {
       onChange({ ...field, show_if: { [key]: val } })
@@ -59,21 +70,24 @@ function FieldRow({ field, onChange, onRemove }) {
     <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">程式識別碼</label>
-          <input
-            value={field.field_key}
-            onChange={e => onChange({ ...field, field_key: e.target.value })}
-            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
-            placeholder="identity"
-          />
-        </div>
-        <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">顯示名稱</label>
           <input
             value={field.field_label}
-            onChange={e => onChange({ ...field, field_label: e.target.value })}
+            onChange={e => handleLabelChange(e.target.value)}
             className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
             placeholder="身分別"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">
+            程式識別碼
+            <span className="text-gray-400 font-normal ml-1">（自動填入，通常不需更改）</span>
+          </label>
+          <input
+            value={field.field_key}
+            onChange={e => onChange({ ...field, field_key: e.target.value })}
+            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
+            placeholder="自動填入"
           />
         </div>
         <div>
@@ -138,31 +152,52 @@ function FieldRow({ field, onChange, onRemove }) {
         </div>
       )}
 
-      {/* 條件顯示：兩個獨立欄位，不用手打 JSON */}
+      {/* 條件顯示：下拉選單，不需手打程式識別碼 */}
       <div>
         <label className="block text-xs font-medium text-gray-500 mb-1">
-          條件顯示（當某欄位選了特定值才出現，不需要請留空）
+          條件顯示（當某欄位選了特定值才出現；不需要請選「不設條件」）
         </label>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-gray-400">當</span>
-          <input
+          <select
             value={showIfKey}
-            onChange={e => updateShowIf(e.target.value, showIfVal)}
-            className="w-36 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
-            placeholder="程式識別碼"
-          />
-          <span className="text-xs text-gray-400">選了</span>
-          <input
-            value={showIfVal}
-            onChange={e => updateShowIf(showIfKey, e.target.value)}
-            className="w-28 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
-            placeholder="選項名稱"
-          />
-          <span className="text-xs text-gray-400">時顯示</span>
+            onChange={e => updateShowIf(e.target.value, '')}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
+          >
+            <option value="">不設條件</option>
+            {allFields.filter(f => f.field_label).map((f, i) => (
+              <option key={f.field_key || i} value={f.field_key}>
+                {f.field_label}
+              </option>
+            ))}
+          </select>
+
+          {showIfKey && (
+            <>
+              <span className="text-xs text-gray-400">選了</span>
+              {parentOptions.length > 0 ? (
+                <select
+                  value={showIfVal}
+                  onChange={e => updateShowIf(showIfKey, e.target.value)}
+                  className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
+                >
+                  <option value="">請選擇</option>
+                  {parentOptions.map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={showIfVal}
+                  onChange={e => updateShowIf(showIfKey, e.target.value)}
+                  className="w-28 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  placeholder="輸入值"
+                />
+              )}
+              <span className="text-xs text-gray-400">時顯示</span>
+            </>
+          )}
         </div>
-        <p className="text-xs text-gray-400 mt-1">
-          例：程式識別碼填 <code className="bg-gray-100 px-1 rounded">identity</code>，選項名稱填 <code className="bg-gray-100 px-1 rounded">義工</code>
-        </p>
       </div>
     </div>
   )
@@ -606,6 +641,7 @@ export default function EventDetailPage() {
             <FieldRow
               key={i}
               field={f}
+              allFields={fields.filter((_, j) => j !== i)}
               onChange={updated => setFields(prev => prev.map((x, j) => j === i ? updated : x))}
               onRemove={() => setFields(prev => prev.filter((_, j) => j !== i))}
             />

@@ -391,8 +391,10 @@ export default function EventDetailPage() {
     setSaving(true)
     const { success, error } = await saveEventFields(id, fields)
     setSaving(false)
-    setSaveMsg(success ? '✅ 欄位已儲存' : `❌ ${error}`)
-    setTimeout(() => setSaveMsg(''), 3000)
+    const msg = success ? '✅ 欄位已儲存' : `❌ 儲存失敗：${error}`
+    setSaveMsg(msg)
+    // 成功才自動消失；失敗則保留讓師父看到錯誤
+    if (success) setTimeout(() => setSaveMsg(''), 3000)
   }
 
   function openGuestModal() {

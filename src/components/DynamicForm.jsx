@@ -1,7 +1,9 @@
 /**
  * DynamicForm — 根據 event_fields 動態渲染表單
  *
- * field_type 支援：radio / checkbox / text
+ * field_type 支援：radio / checkbox / text / plate / datetime
+ *   plate    — 車牌號碼，自動大寫、置中大字
+ *   datetime — 日期時間選取器（datetime-local），放大顯示
  * show_if 邏輯：{ field_key: value } — 當對應欄位的答案等於指定值時才顯示
  */
 
@@ -100,6 +102,35 @@ export default function DynamicForm({ fields, answers, onChange }) {
               className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-kiosk-base focus:outline-none focus:border-blue-500"
               placeholder={`請輸入${field.field_label}`}
             />
+          )}
+
+          {/* 車牌號碼 — 自動大寫、置中、追蹤間距 */}
+          {field.field_type === 'plate' && (
+            <div>
+              <input
+                type="text"
+                inputMode="text"
+                value={answers[field.field_key] || ''}
+                onChange={e => handleChange(field.field_key, e.target.value.toUpperCase())}
+                className="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-kiosk-base font-bold tracking-widest text-center uppercase focus:outline-none focus:border-blue-500"
+                placeholder="ABC-1234"
+                maxLength={10}
+              />
+              <p className="text-sm text-gray-400 mt-2 text-center">請輸入車牌號碼，英文會自動轉大寫</p>
+            </div>
+          )}
+
+          {/* 日期時間 — 原生 datetime-local，放大顯示 */}
+          {field.field_type === 'datetime' && (
+            <div>
+              <input
+                type="datetime-local"
+                value={answers[field.field_key] || ''}
+                onChange={e => handleChange(field.field_key, e.target.value)}
+                className="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-kiosk-base focus:outline-none focus:border-blue-500"
+              />
+              <p className="text-sm text-gray-400 mt-2">請選擇日期與時間（年 / 月 / 日　時 : 分）</p>
+            </div>
           )}
         </div>
       ))}

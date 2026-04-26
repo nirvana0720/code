@@ -14,7 +14,16 @@ import {
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
-const FIELD_TYPES = ['radio', 'checkbox', 'text', 'date', 'time']
+const FIELD_TYPES = ['radio', 'checkbox', 'text', 'plate', 'datetime', 'date', 'time']
+const FIELD_TYPE_LABEL = {
+  radio: 'radio（單選按鈕）',
+  checkbox: 'checkbox（多選）',
+  text: 'text（文字輸入）',
+  plate: 'plate（車牌號碼）',
+  datetime: 'datetime（日期時間）',
+  date: 'date（日期）',
+  time: 'time（時間）',
+}
 
 // ── 動態欄位編輯列 ─────────────────────────────────────────
 function FieldRow({ field, onChange, onRemove }) {
@@ -74,7 +83,7 @@ function FieldRow({ field, onChange, onRemove }) {
             onChange={e => onChange({ ...field, field_type: e.target.value })}
             className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
           >
-            {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            {FIELD_TYPES.map(t => <option key={t} value={t}>{FIELD_TYPE_LABEL[t] ?? t}</option>)}
           </select>
         </div>
         <div className="flex items-end gap-2">
@@ -159,6 +168,18 @@ function FieldRow({ field, onChange, onRemove }) {
   )
 }
 
+// ── 欄位值顯示格式化 ────────────────────────────────────────
+// datetime-local 回傳格式 "2026-04-25T08:00" → "2026/04/25 08:00"
+function formatFieldValue(field, val) {
+  if (val === undefined || val === null || val === '') return '-'
+  if (Array.isArray(val)) return val.join('、')
+  if (field.field_type === 'datetime' && typeof val === 'string' && val.includes('T')) {
+    const [date, time] = val.split('T')
+    return `${date.replaceAll('-', '/')} ${time.slice(0, 5)}`
+  }
+  return val
+}
+
 // ── 活動日期格式化 ──────────────────────────────────────────
 function formatEventDate(ev) {
   if (!ev?.date_start) return ''
@@ -185,8 +206,8 @@ function exportCSV(registrations, fields) {
     const checkinAt = r.checked_in_at ? new Date(r.checked_in_at).toLocaleString('zh-TW') : ''
     const answerCols = fields.map(f => {
       const val = r.answers?.[f.field_key]
-      if (Array.isArray(val)) return val.join('、')
-      return val ?? ''
+      const formatted = formatFieldValue(f, val)
+      return formatted === '-' ? '' : formatted
     })
     return [r.student_id ?? '訪客', name, regAt, checkinAt, ...answerCols]
   })
@@ -656,14 +677,11 @@ export default function EventDetailPage() {
                         {r.student_id ?? <span className="text-amber-600 font-sans">訪客</span>}
                       </td>
                       <td className="px-4 py-3 font-medium">{getDisplayName(r)}</td>
-                      {fields.map(f => {
-                        const val = r.answers?.[f.field_key]
-                        return (
-                          <td key={f.field_id} className="px-4 py-3 text-gray-700">
-                            {Array.isArray(val) ? val.join('、') : (val ?? '-')}
-                          </td>
-                        )
-                      })}
+                      {fields.map(f => (
+                        <td key={f.field_id} className="px-4 py-3 text-gray-700">
+                          {formatFieldValue(f, r.answers?.[f.field_key])}
+                        </td>
+                      ))}
                       <td className="px-4 py-3">
                         {r.checked_in_at
                           ? <span className="text-green-600 text-xs font-medium">✓ 已報到</span>

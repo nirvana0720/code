@@ -14,17 +14,31 @@ const FIELD_TYPES = ['radio', 'checkbox', 'text', 'date', 'time']
 
 // ── 動態欄位編輯列 ─────────────────────────────────────────
 function FieldRow({ field, onChange, onRemove }) {
-  function updateOptions(raw) {
-    const opts = raw.split('\n').map(s => s.trim()).filter(Boolean)
-    onChange({ ...field, options: opts })
+  const options = field.options || []
+
+  function setOption(i, val) {
+    const next = [...options]
+    next[i] = val
+    onChange({ ...field, options: next })
   }
 
-  function updateShowIf(raw) {
-    try {
-      const parsed = raw.trim() ? JSON.parse(raw) : null
-      onChange({ ...field, show_if: parsed })
-    } catch {
-      // 讓使用者繼續打，不立刻報錯
+  function addOption() {
+    onChange({ ...field, options: [...options, ''] })
+  }
+
+  function removeOption(i) {
+    onChange({ ...field, options: options.filter((_, j) => j !== i) })
+  }
+
+  // 條件顯示：用兩個獨立輸入框取代 JSON 手打
+  const showIfKey = field.show_if ? Object.keys(field.show_if)[0] ?? '' : ''
+  const showIfVal = field.show_if ? Object.values(field.show_if)[0] ?? '' : ''
+
+  function updateShowIf(key, val) {
+    if (!key && !val) {
+      onChange({ ...field, show_if: null })
+    } else {
+      onChange({ ...field, show_if: { [key]: val } })
     }
   }
 
@@ -78,29 +92,64 @@ function FieldRow({ field, onChange, onRemove }) {
         </div>
       </div>
 
+      {/* 選項列表：每項獨立輸入框 */}
       {(field.field_type === 'radio' || field.field_type === 'checkbox') && (
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">選項（每行一個）</label>
-          <textarea
-            rows={3}
-            value={(field.options || []).join('\n')}
-            onChange={e => updateOptions(e.target.value)}
-            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-amber-400"
-            placeholder={"信眾\n義工"}
-          />
+          <label className="block text-xs font-medium text-gray-500 mb-2">選項</label>
+          <div className="space-y-2">
+            {options.map((opt, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 w-4 text-right">{i + 1}.</span>
+                <input
+                  value={opt}
+                  onChange={e => setOption(i, e.target.value)}
+                  className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
+                  placeholder={`選項 ${i + 1}`}
+                />
+                <button
+                  onClick={() => removeOption(i)}
+                  className="text-gray-300 hover:text-red-400 text-lg leading-none px-1 transition-colors"
+                  title="刪除此選項"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={addOption}
+              className="text-sm text-amber-700 hover:text-amber-900 border border-dashed border-amber-300 hover:border-amber-500 px-3 py-1 rounded transition-colors"
+            >
+              ＋ 新增選項
+            </button>
+          </div>
         </div>
       )}
 
+      {/* 條件顯示：兩個獨立欄位，不用手打 JSON */}
       <div>
         <label className="block text-xs font-medium text-gray-500 mb-1">
-          條件顯示（show_if，JSON 格式，留空代表無條件顯示）
+          條件顯示（當某欄位選了特定值才出現，不需要請留空）
         </label>
-        <input
-          value={field.show_if ? JSON.stringify(field.show_if) : ''}
-          onChange={e => updateShowIf(e.target.value)}
-          className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-amber-400"
-          placeholder={`{"identity":"義工"}`}
-        />
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">當</span>
+          <input
+            value={showIfKey}
+            onChange={e => updateShowIf(e.target.value, showIfVal)}
+            className="w-36 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
+            placeholder="程式識別碼"
+          />
+          <span className="text-xs text-gray-400">選了</span>
+          <input
+            value={showIfVal}
+            onChange={e => updateShowIf(showIfKey, e.target.value)}
+            className="w-28 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
+            placeholder="選項名稱"
+          />
+          <span className="text-xs text-gray-400">時顯示</span>
+        </div>
+        <p className="text-xs text-gray-400 mt-1">
+          例：程式識別碼填 <code className="bg-gray-100 px-1 rounded">identity</code>，選項名稱填 <code className="bg-gray-100 px-1 rounded">義工</code>
+        </p>
       </div>
     </div>
   )

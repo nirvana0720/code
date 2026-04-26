@@ -275,7 +275,7 @@ export async function getRegistrationsWithStudents(eventId) {
 // ─── 現場報到（後台）────────────────────────────────────────
 
 /**
- * 查詢某活動中某學員的報名紀錄（報到用）
+ * 查詢某活動中某學員的報名紀錄（報到用，用學員編號查）
  */
 export async function getRegistrationForCheckin(eventId, studentId) {
   const { data, error } = await supabase
@@ -283,6 +283,24 @@ export async function getRegistrationForCheckin(eventId, studentId) {
     .select('registration_id, answers, checked_in_at, students(name)')
     .eq('event_id', eventId)
     .eq('student_id', studentId)
+    .single()
+
+  if (error) {
+    if (error.code === 'PGRST116') return { registration: null, error: 'NOT_REGISTERED' }
+    return { registration: null, error: error.message }
+  }
+  return { registration: data, error: null }
+}
+
+/**
+ * 查詢某活動中某報名紀錄（訪客報到用，用 registration_id 查）
+ */
+export async function getGuestRegistrationForCheckin(eventId, registrationId) {
+  const { data, error } = await supabase
+    .from('registrations')
+    .select('registration_id, answers, checked_in_at')
+    .eq('registration_id', registrationId)
+    .eq('event_id', eventId)
     .single()
 
   if (error) {
@@ -316,6 +334,28 @@ export async function uncheckIn(registrationId) {
 
   if (error) return { success: false, error: error.message }
   return { success: true, error: null }
+}
+
+// ─── 訪客報名（後台）────────────────────────────────────────
+
+/**
+ * 後台手動新增訪客報名
+ */
+export async function createGuestRegistration(eventId, guestName, answers) {
+  const allAnswers = { guest_name: guestName, ...answers }
+  const { data, error } = await supabase
+    .from('registrations')
+    .insert({
+      event_id: eventId,
+      student_id: null,
+      answers: allAnswers,
+      terminal: 'admin-guest',
+    })
+    .select('registration_id')
+    .single()
+
+  if (error) return { registrationId: null, error: error.message }
+  return { registrationId: data.registration_id, error: null }
 }
 
 // ─── 學員管理（後台）────────────────────────────────────────

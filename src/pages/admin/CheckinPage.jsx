@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
-import { getAllEvents, getRegistrationForCheckin, checkIn, uncheckIn } from '../../lib/supabase'
+import { getAllEvents, getRegistrationForCheckin, getGuestRegistrationForCheckin, checkIn, uncheckIn } from '../../lib/supabase'
 import CameraScanner from '../../components/CameraScanner'
 
 const IDLE_SECONDS = 5 // 成功/失敗畫面停留秒數
@@ -65,11 +65,21 @@ export default function CheckinPage() {
     }, 1000)
   }
 
-  async function handleScan(studentId) {
+  async function handleScan(scanned) {
     setStatus('loading')
     clearInterval(countdownRef.current)
 
-    const { registration, error } = await getRegistrationForCheckin(id, studentId)
+    // 先用學員編號查
+    let { registration, error } = await getRegistrationForCheckin(id, scanned)
+    let isGuest = false
+
+    // 找不到學員報名 → 再試當訪客報名 ID 查
+    if (error === 'NOT_REGISTERED') {
+      const guestResult = await getGuestRegistrationForCheckin(id, scanned)
+      registration = guestResult.registration
+      error = guestResult.error
+      isGuest = true
+    }
 
     if (error === 'NOT_REGISTERED') {
       setStatus('not_found')
@@ -84,17 +94,17 @@ export default function CheckinPage() {
       return
     }
 
-    const name = registration.students?.name ?? studentId
+    const name = isGuest
+      ? (registration.answers?.guest_name ?? '訪客')
+      : (registration.students?.name ?? scanned)
 
     if (registration.checked_in_at) {
-      // 已報到過
       setStatus('already')
       setResult({ name, checkedInAt: registration.checked_in_at, registrationId: registration.registration_id })
       startCountdown()
       return
     }
 
-    // 執行報到
     const { success } = await checkIn(registration.registration_id)
     if (success) {
       setTodayCount(c => c + 1)

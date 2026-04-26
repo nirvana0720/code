@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { QRCodeSVG } from 'qrcode.react'
 import AdminLayout from '../../components/AdminLayout'
+import DynamicForm from '../../components/DynamicForm'
 import {
   getAllEvents,
   updateEvent,
@@ -8,6 +10,7 @@ import {
   saveEventFields,
   getRegistrationsWithStudents,
   deleteRegistration,
+  createGuestRegistration,
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
@@ -156,13 +159,20 @@ function FieldRow({ field, onChange, onRemove }) {
   )
 }
 
+// ── 取得顯示名稱（學員或訪客）────────────────────────────────
+function getDisplayName(r) {
+  if (r.students?.name) return r.students.name
+  if (r.answers?.guest_name) return r.answers.guest_name
+  return '-'
+}
+
 // ── CSV 匯出 ───────────────────────────────────────────────
 function exportCSV(registrations, fields) {
   const answerHeaders = fields.map(f => f.field_label)
   const header = ['學員編號', '姓名', '報名時間', '報到時間', ...answerHeaders]
 
   const rows = registrations.map(r => {
-    const name = r.students?.name ?? ''
+    const name = getDisplayName(r)
     const regAt = r.registered_at ? new Date(r.registered_at).toLocaleString('zh-TW') : ''
     const checkinAt = r.checked_in_at ? new Date(r.checked_in_at).toLocaleString('zh-TW') : ''
     const answerCols = fields.map(f => {
@@ -170,7 +180,7 @@ function exportCSV(registrations, fields) {
       if (Array.isArray(val)) return val.join('、')
       return val ?? ''
     })
-    return [r.student_id, name, regAt, checkinAt, ...answerCols]
+    return [r.student_id ?? '訪客', name, regAt, checkinAt, ...answerCols]
   })
 
   const csv = [header, ...rows]
@@ -202,6 +212,13 @@ export default function EventDetailPage() {
 
   // 活動基本資料（編輯用）
   const [form, setForm] = useState({})
+
+  // 訪客報名 modal
+  const [guestModal, setGuestModal] = useState(false)
+  const [guestName, setGuestName] = useState('')
+  const [guestAnswers, setGuestAnswers] = useState({})
+  const [guestSaving, setGuestSaving] = useState(false)
+  const [guestRegId, setGuestRegId] = useState(null) // 新增成功後的 registration_id
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -253,6 +270,29 @@ export default function EventDetailPage() {
     setTimeout(() => setSaveMsg(''), 3000)
   }
 
+  function openGuestModal() {
+    setGuestName('')
+    setGuestAnswers({})
+    setGuestRegId(null)
+    setGuestModal(true)
+  }
+
+  function closeGuestModal() {
+    setGuestModal(false)
+    setGuestRegId(null)
+  }
+
+  async function handleGuestSubmit(e) {
+    e.preventDefault()
+    if (!guestName.trim()) return
+    setGuestSaving(true)
+    const { registrationId, error } = await createGuestRegistration(id, guestName.trim(), guestAnswers)
+    setGuestSaving(false)
+    if (error) { alert(`新增失敗：${error}`); return }
+    setGuestRegId(registrationId)
+    await load() // 重新載入報名名單
+  }
+
   async function handleDeleteRegistration(registrationId, studentName) {
     if (!window.confirm(`確定要取消「${studentName}」的報名嗎？此動作無法復原。`)) return
     const { success, error } = await deleteRegistration(registrationId)
@@ -281,6 +321,71 @@ export default function EventDetailPage() {
 
   return (
     <AdminLayout>
+      {/* ── 訪客報名 Modal ── */}
+      {guestModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            {guestRegId ? (
+              /* 新增成功：顯示 QR code */
+              <div className="text-center">
+                <div className="text-4xl mb-3">✅</div>
+                <h3 className="text-lg font-bold text-gray-800 mb-1">訪客報名成功！</h3>
+                <p className="text-sm text-gray-500 mb-5">請截圖將 QR code 傳給訪客，報到時掃描即可</p>
+                <div className="flex justify-center mb-4">
+                  <div className="p-4 bg-white border-2 border-gray-200 rounded-xl inline-block">
+                    <QRCodeSVG value={guestRegId} size={180} />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-300 font-mono break-all mb-5">{guestRegId}</p>
+                <button
+                  onClick={closeGuestModal}
+                  className="w-full bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors"
+                >
+                  關閉
+                </button>
+              </div>
+            ) : (
+              /* 填寫訪客資料 */
+              <form onSubmit={handleGuestSubmit}>
+                <h3 className="text-lg font-bold text-gray-800 mb-4">新增訪客報名</h3>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    姓名 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    required
+                    value={guestName}
+                    onChange={e => setGuestName(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="請輸入姓名"
+                  />
+                </div>
+                {fields.length > 0 && (
+                  <div className="mb-4">
+                    <DynamicForm fields={fields} answers={guestAnswers} onChange={setGuestAnswers} />
+                  </div>
+                )}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={closeGuestModal}
+                    className="flex-1 border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={guestSaving}
+                    className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {guestSaving ? '新增中…' : '確認報名'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
       {/* 麵包屑 */}
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
         <Link to="/admin/events" className="hover:text-amber-700">活動管理</Link>
@@ -418,14 +523,22 @@ export default function EventDetailPage() {
         <div>
           <div className="flex justify-between items-center mb-4">
             <p className="text-sm text-gray-500">共 {registrations.length} 筆報名</p>
-            {registrations.length > 0 && (
+            <div className="flex gap-2">
               <button
-                onClick={() => exportCSV(registrations, fields)}
-                className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                onClick={openGuestModal}
+                className="bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               >
-                ⬇️ 匯出 CSV
+                ＋ 新增訪客
               </button>
-            )}
+              {registrations.length > 0 && (
+                <button
+                  onClick={() => exportCSV(registrations, fields)}
+                  className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  ⬇️ 匯出 CSV
+                </button>
+              )}
+            </div>
           </div>
 
           {registrations.length === 0 ? (
@@ -450,8 +563,10 @@ export default function EventDetailPage() {
                 <tbody>
                   {registrations.map(r => (
                     <tr key={r.registration_id} className="border-b border-gray-50 hover:bg-amber-50/30">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">{r.student_id}</td>
-                      <td className="px-4 py-3 font-medium">{r.students?.name ?? '-'}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                        {r.student_id ?? <span className="text-amber-600 font-sans">訪客</span>}
+                      </td>
+                      <td className="px-4 py-3 font-medium">{getDisplayName(r)}</td>
                       {fields.map(f => {
                         const val = r.answers?.[f.field_key]
                         return (
@@ -473,7 +588,7 @@ export default function EventDetailPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
-                          onClick={() => handleDeleteRegistration(r.registration_id, r.students?.name ?? r.student_id)}
+                          onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
                           className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
                         >
                           取消報名

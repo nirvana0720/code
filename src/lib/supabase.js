@@ -24,30 +24,62 @@ export async function signOut() {
 // ─── 活動查詢（前台）────────────────────────────────────────
 
 /**
- * 取得目前 active 狀態的活動（含動態欄位）
+ * 取得所有 active 活動，每場附帶動態欄位
+ * @returns {{ events: Array<{event, fields}>, error: string|null }}
  */
-export async function getActiveEvent() {
+export async function getActiveEvents() {
   const { data: events, error: eventErr } = await supabase
     .from('events')
     .select('*')
     .eq('status', 'active')
     .order('date_start', { ascending: true })
-    .limit(1)
 
-  if (eventErr) return { event: null, fields: [], error: eventErr.message }
-  if (!events || events.length === 0) return { event: null, fields: [], error: null }
+  if (eventErr) return { events: [], error: eventErr.message }
+  if (!events || events.length === 0) return { events: [], error: null }
 
-  const event = events[0]
-
-  const { data: fields, error: fieldErr } = await supabase
+  // 同時撈所有活動的欄位
+  const { data: allFields, error: fieldErr } = await supabase
     .from('event_fields')
     .select('*')
-    .eq('event_id', event.event_id)
+    .in('event_id', events.map(e => e.event_id))
     .order('sort_order', { ascending: true })
 
-  if (fieldErr) return { event, fields: [], error: fieldErr.message }
+  if (fieldErr) return { events: [], error: fieldErr.message }
 
-  return { event, fields: fields || [], error: null }
+  const fieldsMap = {}
+  for (const f of (allFields || [])) {
+    if (!fieldsMap[f.event_id]) fieldsMap[f.event_id] = []
+    fieldsMap[f.event_id].push(f)
+  }
+
+  return {
+    events: events.map(ev => ({
+      event: ev,
+      fields: fieldsMap[ev.event_id] || [],
+    })),
+    error: null,
+  }
+}
+
+/**
+ * 取得學員在多場活動中的報名狀態
+ * @returns {{ [eventId]: registration|null }}
+ */
+export async function getStudentEventStatuses(studentId, eventIds) {
+  if (!eventIds.length) return {}
+
+  const { data, error } = await supabase
+    .from('registrations')
+    .select('registration_id, event_id, answers')
+    .eq('student_id', studentId)
+    .in('event_id', eventIds)
+
+  if (error) return {}
+
+  const map = {}
+  for (const id of eventIds) map[id] = null
+  for (const r of (data || [])) map[r.event_id] = r
+  return map
 }
 
 // ─── 學員查詢（前台）────────────────────────────────────────

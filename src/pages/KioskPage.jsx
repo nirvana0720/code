@@ -1,137 +1,108 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  getActiveEvent,
+  getActiveEvents,
   getStudentById,
-  checkDuplicate,
+  getStudentEventStatuses,
   submitRegistration,
-  getRegistration,
-  updateRegistration
+  updateRegistration,
 } from '../lib/supabase'
 import DynamicForm from '../components/DynamicForm'
 
-// 成功畫面停留秒數後自動 reset
-const AUTO_RESET_SECONDS = 6
-// 表單閒置幾秒後自動 reset（防止無人操作卡在表單頁）
-const IDLE_RESET_SECONDS = 60
-
-// ─── 畫面狀態 ────────────────────────────────────────────
-// idle      → 等待刷卡
-// loading   → 查詢學員中
-// form      → 顯示表單
-// submitting→ 送出中
-// success   → 報名成功
-// duplicate → 已報名過
-// not_found → 找不到學員
-// no_event  → 目前無進行中活動
-// error     → 其他錯誤
+const OVERVIEW_IDLE_SECONDS = 30  // 總覽畫面閒置幾秒後自動返回
+const SUCCESS_SECONDS = 3         // 報名成功提示停留秒數
 
 export default function KioskPage() {
-  const [phase, setPhase] = useState('idle')
-  const [event, setEvent] = useState(null)
-  const [fields, setFields] = useState([])
+  // 所有進行中活動（含欄位）
+  const [eventItems, setEventItems] = useState([]) // [{event, fields}, ...]
+
+  // 刷卡後狀態
+  const [phase, setPhase] = useState('idle') // idle | loading | overview | form | submitting | not_found | error | no_event
   const [student, setStudent] = useState(null)
   const [classes, setClasses] = useState([])
+  const [statuses, setStatuses] = useState({}) // { eventId: registration|null }
+
+  // 填表狀態（選擇某場活動後）
+  const [selectedItem, setSelectedItem] = useState(null) // { event, fields }
   const [answers, setAnswers] = useState({})
+  const [isUpdate, setIsUpdate] = useState(false)
+  const [currentReg, setCurrentReg] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
-  const [countdown, setCountdown] = useState(AUTO_RESET_SECONDS)
-  const [registration, setRegistration] = useState(null)  // 已存在的報名紀錄
-  const [isUpdate, setIsUpdate] = useState(false)         // 修改模式
+  const [successEventName, setSuccessEventName] = useState('')
+  const [showSuccess, setShowSuccess] = useState(false)
 
   const scanBufferRef = useRef('')
   const scanTimerRef = useRef(null)
-  const resetTimerRef = useRef(null)
-  const countdownIntervalRef = useRef(null)
   const idleTimerRef = useRef(null)
-  // ref 保存最新 event，避免 handleKeyDown closure 讀到舊值
-  const eventRef = useRef(null)
 
-  // ── 初始化：載入活動 ───────────────────────────────────
-  useEffect(() => {
-    loadEvent()
-  }, [])
+  // ── 初始載入活動 ──────────────────────────────────────────
+  useEffect(() => { loadEvents() }, [])
 
-  async function loadEvent() {
-    const { event, fields, error } = await getActiveEvent()
+  async function loadEvents() {
+    const { events, error } = await getActiveEvents()
     if (error) { setPhase('error'); setErrorMsg(error); return }
-    if (!event) { setPhase('no_event'); return }
-    eventRef.current = event
-    setEvent(event)
-    setFields(fields)
+    if (!events.length) { setPhase('no_event'); return }
+    setEventItems(events)
     setPhase('idle')
   }
 
-  // ── 全域鍵盤監聽（QR 掃描機輸入）──────────────────────
+  // ── 鍵盤監聽（掃描機）────────────────────────────────────
   const handleKeyDown = useCallback((e) => {
-    // 只在 idle 狀態接受掃描輸入
     if (phase !== 'idle') return
-
-    // 掃描機輸入通常是一連串數字＋最後一個 Enter
     if (e.key === 'Enter') {
       const code = scanBufferRef.current.trim()
       scanBufferRef.current = ''
       clearTimeout(scanTimerRef.current)
       if (code.length > 0) handleScan(code)
     } else if (e.key.length === 1) {
-      // 只接受可見字元
       scanBufferRef.current += e.key
-      // 如果 300ms 內沒有 Enter，也自動觸發（部分掃描機不送 Enter）
       clearTimeout(scanTimerRef.current)
       scanTimerRef.current = setTimeout(() => {
         const code = scanBufferRef.current.trim()
         scanBufferRef.current = ''
         if (code.length >= 6) handleScan(code)
-        else scanBufferRef.current = ''
       }, 300)
     }
-  }, [phase]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase]) // eslint-disable-line
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
 
-  // ── 掃描後查詢學員 ────────────────────────────────────
+  // ── 刷卡後查詢 ────────────────────────────────────────────
   async function handleScan(code) {
-    const event = eventRef.current
-    if (!event) return
     setPhase('loading')
-
     const { student, classes, error } = await getStudentById(code)
+    if (error === 'NOT_FOUND') { setPhase('not_found'); scheduleAutoReset(4); return }
+    if (error) { setPhase('error'); setErrorMsg(error); scheduleAutoReset(5); return }
 
-    if (error === 'NOT_FOUND') { setPhase('not_found'); scheduleReset(4); return }
-    if (error) { setPhase('error'); setErrorMsg(error); scheduleReset(5); return }
-
-    const isDuplicate = await checkDuplicate(event.event_id, student.student_id)
-    if (isDuplicate) {
-      const reg = await getRegistration(event.event_id, student.student_id)
-      setStudent(student)
-      setClasses(classes)
-      setRegistration(reg)
-      setPhase('duplicate')
-      scheduleReset(10)
-      return
-    }
+    const eventIds = eventItems.map(i => i.event.event_id)
+    const statusMap = await getStudentEventStatuses(student.student_id, eventIds)
 
     setStudent(student)
     setClasses(classes)
-    setAnswers({})
+    setStatuses(statusMap)
+    setPhase('overview')
+    startIdleTimer()
+  }
+
+  // ── 選擇某場活動（填表）──────────────────────────────────
+  function handleSelectEvent(item) {
+    clearTimeout(idleTimerRef.current)
+    const reg = statuses[item.event.event_id]
+    setSelectedItem(item)
+    setCurrentReg(reg)
+    setIsUpdate(!!reg)
+    setAnswers(reg?.answers || {})
+    setErrorMsg('')
     setPhase('form')
     startIdleTimer()
   }
 
-  // ── 修改現有報名 ──────────────────────────────────────
-  function handleModify() {
-    clearTimeout(resetTimerRef.current)
-    clearInterval(countdownIntervalRef.current)
-    setAnswers(registration?.answers || {})
-    setIsUpdate(true)
-    setPhase('form')
-    startIdleTimer()
-  }
-
-  // ── 表單送出 ──────────────────────────────────────────
+  // ── 送出表單 ──────────────────────────────────────────────
   async function handleSubmit() {
-    // 驗證必填欄位
+    const { event, fields } = selectedItem
+    // 驗證必填
     const visibleRequired = fields.filter(f => {
       if (!f.required) return false
       if (!f.show_if) return true
@@ -150,121 +121,95 @@ export default function KioskPage() {
     setPhase('submitting')
 
     let success, error
-    if (isUpdate && registration) {
-      // 修改模式：直接更新
-      ;({ success, error } = await updateRegistration(registration.registration_id, answers))
+    if (isUpdate && currentReg) {
+      ;({ success, error } = await updateRegistration(currentReg.registration_id, answers))
     } else {
-      // 新增模式：嘗試 INSERT
       ;({ success, error } = await submitRegistration(event.event_id, student.student_id, answers))
-      // 若撞到 UNIQUE 約束（已有報名），自動改走 UPDATE
-      if (!success && error && error.includes('unique_registration')) {
-        const reg = await getRegistration(event.event_id, student.student_id)
-        if (reg) {
-          ;({ success, error } = await updateRegistration(reg.registration_id, answers))
-          if (success) setIsUpdate(true)  // 讓成功畫面顯示「修改成功」
-        }
-      }
     }
 
-    if (!success) { setPhase('error'); setErrorMsg(error); scheduleReset(5); return }
+    if (!success) { setPhase('form'); setErrorMsg(error); startIdleTimer(); return }
 
-    setPhase('success')
-    setCountdown(AUTO_RESET_SECONDS)
-    scheduleReset(AUTO_RESET_SECONDS)
+    // 更新本地狀態
+    const newReg = { registration_id: currentReg?.registration_id || 'new', event_id: event.event_id, answers }
+    setStatuses(prev => ({ ...prev, [event.event_id]: newReg }))
+    setSuccessEventName(event.name)
+    setShowSuccess(true)
+    setTimeout(() => setShowSuccess(false), SUCCESS_SECONDS * 1000)
+
+    // 回到總覽
+    setPhase('overview')
+    startIdleTimer()
   }
 
-  // ── 計時 reset ────────────────────────────────────────
-  function scheduleReset(seconds) {
-    // 清掉上一組計時器
-    clearTimeout(resetTimerRef.current)
-    clearInterval(countdownIntervalRef.current)
-    setCountdown(seconds)
-
-    // 倒數顯示
-    let remaining = seconds
-    countdownIntervalRef.current = setInterval(() => {
-      remaining -= 1
-      setCountdown(remaining)
-      if (remaining <= 0) clearInterval(countdownIntervalRef.current)
-    }, 1000)
-
-    resetTimerRef.current = setTimeout(() => {
-      clearInterval(countdownIntervalRef.current)
-      reset()
-    }, seconds * 1000)
+  // ── 計時 ──────────────────────────────────────────────────
+  function scheduleAutoReset(sec) {
+    clearTimeout(idleTimerRef.current)
+    idleTimerRef.current = setTimeout(() => reset(), sec * 1000)
   }
 
   function startIdleTimer() {
     clearTimeout(idleTimerRef.current)
-    idleTimerRef.current = setTimeout(() => {
-      reset()
-    }, IDLE_RESET_SECONDS * 1000)
+    idleTimerRef.current = setTimeout(() => reset(), OVERVIEW_IDLE_SECONDS * 1000)
   }
 
   function reset() {
-    clearTimeout(resetTimerRef.current)
-    clearInterval(countdownIntervalRef.current)
     clearTimeout(idleTimerRef.current)
+    clearTimeout(scanTimerRef.current)
     scanBufferRef.current = ''
     setStudent(null)
     setClasses([])
+    setStatuses({})
+    setSelectedItem(null)
     setAnswers({})
-    setErrorMsg('')
-    setRegistration(null)
     setIsUpdate(false)
-    setPhase('idle')
+    setCurrentReg(null)
+    setErrorMsg('')
+    setShowSuccess(false)
+    setPhase(eventItems.length ? 'idle' : 'no_event')
   }
 
-  // ── 畫面渲染 ──────────────────────────────────────────
+  // ── 渲染 ──────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Header */}
-      <header className="bg-blue-700 text-white px-6 py-4 shadow-md flex items-center justify-between">
-        <div>
-          <p className="text-kiosk-sm opacity-80">普宜精舍</p>
-          <h1 className="text-kiosk-lg font-bold leading-tight">
-            {event ? event.name : '報名系統'}
-          </h1>
-        </div>
-        {event && (
-          <div className="text-right text-kiosk-sm opacity-80">
-            <p>{event.date_start}
-              {event.date_end && event.date_end !== event.date_start && ` ～ ${event.date_end}`}
-            </p>
-            {event.location && <p>{event.location}</p>}
-          </div>
-        )}
+      <header className="bg-blue-700 text-white px-6 py-4 shadow-md">
+        <p className="text-kiosk-sm opacity-80">普宜精舍</p>
+        <h1 className="text-kiosk-lg font-bold leading-tight">活動報名</h1>
       </header>
 
-      {/* Main */}
       <main className="flex-1 flex items-center justify-center p-6">
         {phase === 'idle' && <IdleScreen />}
         {phase === 'loading' && <LoadingScreen />}
-        {phase === 'no_event' && <NoEventScreen onRefresh={loadEvent} />}
-        {phase === 'not_found' && <NotFoundScreen countdown={countdown} onReset={reset} />}
-        {phase === 'duplicate' && (
-          <DuplicateScreen
+        {phase === 'no_event' && <NoEventScreen onRefresh={loadEvents} />}
+        {phase === 'not_found' && <NotFoundScreen onReset={reset} />}
+        {phase === 'error' && <ErrorScreen message={errorMsg} onReset={reset} />}
+
+        {phase === 'overview' && (
+          <OverviewScreen
             student={student}
-            registration={registration}
-            fields={fields}
-            countdown={countdown}
-            onModify={handleModify}
-            onReset={reset}
+            classes={classes}
+            eventItems={eventItems}
+            statuses={statuses}
+            showSuccess={showSuccess}
+            successEventName={successEventName}
+            onSelectEvent={handleSelectEvent}
+            onDone={reset}
           />
         )}
-        {phase === 'error' && <ErrorScreen message={errorMsg} onReset={reset} />}
-        {phase === 'success' && <SuccessScreen student={student} answers={answers} countdown={countdown} onReset={reset} isUpdate={isUpdate} />}
-        {(phase === 'form' || phase === 'submitting') && (
+
+        {(phase === 'form' || phase === 'submitting') && selectedItem && (
           <FormScreen
             student={student}
             classes={classes}
-            fields={fields}
+            event={selectedItem.event}
+            fields={selectedItem.fields}
             answers={answers}
+            isUpdate={isUpdate}
             errorMsg={errorMsg}
             submitting={phase === 'submitting'}
             onChange={setAnswers}
             onSubmit={handleSubmit}
-            onCancel={reset}
+            onBack={() => { clearTimeout(idleTimerRef.current); setPhase('overview'); startIdleTimer() }}
           />
         )}
       </main>
@@ -272,8 +217,7 @@ export default function KioskPage() {
   )
 }
 
-// ── 各子畫面 ──────────────────────────────────────────────
-
+// ── 等待刷卡 ────────────────────────────────────────────────
 function IdleScreen() {
   return (
     <div className="text-center select-none">
@@ -298,65 +242,23 @@ function NoEventScreen({ onRefresh }) {
     <div className="text-center">
       <div className="text-8xl mb-6">📅</div>
       <p className="text-kiosk-xl font-bold text-gray-700 mb-3">目前沒有進行中的活動</p>
-      <p className="text-kiosk-base text-gray-500 mb-8">請師父在後台將活動設為「開放報名」</p>
-      <button
-        onClick={onRefresh}
-        className="px-8 py-4 bg-blue-600 text-white rounded-2xl text-kiosk-base font-semibold"
-      >
+      <p className="text-kiosk-base text-gray-500 mb-8">請師父在後台將活動設為「進行中」</p>
+      <button onClick={onRefresh} className="px-8 py-4 bg-blue-600 text-white rounded-2xl text-kiosk-base font-semibold">
         重新整理
       </button>
     </div>
   )
 }
 
-function NotFoundScreen({ countdown, onReset }) {
+function NotFoundScreen({ onReset }) {
   return (
     <div className="text-center">
       <div className="text-8xl mb-6">🔍</div>
       <p className="text-kiosk-xl font-bold text-red-600 mb-3">找不到學員資料</p>
       <p className="text-kiosk-base text-gray-500 mb-8">請確認學員證是否正確，或洽現場師兄協助</p>
-      <p className="text-kiosk-sm text-gray-400">{countdown} 秒後自動返回</p>
-      <button onClick={onReset} className="mt-4 px-8 py-3 border-2 border-gray-400 rounded-2xl text-kiosk-base text-gray-600">
-        立即返回
+      <button onClick={onReset} className="px-8 py-4 border-2 border-gray-400 rounded-2xl text-kiosk-base text-gray-600">
+        返回
       </button>
-    </div>
-  )
-}
-
-function DuplicateScreen({ student, registration, fields, countdown, onModify, onReset }) {
-  const answers = registration?.answers || {}
-  return (
-    <div className="text-center w-full max-w-lg">
-      <div className="text-8xl mb-4">✅</div>
-      <p className="text-kiosk-xl font-bold text-green-600 mb-2">您已完成報名</p>
-      <p className="text-kiosk-lg text-gray-700 mb-4">{student?.name} 師兄</p>
-      {/* 顯示目前報名資料 */}
-      <div className="bg-white rounded-2xl shadow p-5 mb-6 text-left">
-        <p className="text-kiosk-sm font-bold text-gray-500 mb-3">目前報名資料</p>
-        {fields.map(f => {
-          if (f.show_if) {
-            const ok = Object.entries(f.show_if).every(([k, v]) => answers[k] === v)
-            if (!ok) return null
-          }
-          const val = answers[f.field_key]
-          if (!val) return null
-          return (
-            <p key={f.field_key} className="text-kiosk-base text-gray-700 mb-1">
-              <span className="font-medium">{f.field_label}：</span>
-              {Array.isArray(val) ? val.join('、') : val}
-            </p>
-          )
-        })}
-      </div>
-      <div className="flex gap-3 justify-center mb-4">
-        <button onClick={onModify} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl text-kiosk-base font-bold shadow-md">
-          修改報名
-        </button>
-        <button onClick={onReset} className="flex-1 py-4 border-2 border-gray-400 rounded-2xl text-kiosk-base text-gray-600">
-          返回
-        </button>
-      </div>
-      <p className="text-kiosk-sm text-gray-400">{countdown} 秒後自動返回</p>
     </div>
   )
 }
@@ -374,36 +276,111 @@ function ErrorScreen({ message, onReset }) {
   )
 }
 
-function SuccessScreen({ student, answers, countdown, onReset, isUpdate }) {
+// ── 總覽畫面：所有活動報名狀態 ────────────────────────────
+function OverviewScreen({ student, classes, eventItems, statuses, showSuccess, successEventName, onSelectEvent, onDone }) {
   return (
-    <div className="text-center">
-      <div className="text-9xl mb-6 animate-bounce">🙏</div>
-      <p className="text-kiosk-2xl font-bold text-green-600 mb-3">{isUpdate ? '修改成功！' : '報名成功！'}</p>
-      <p className="text-kiosk-lg text-gray-700 mb-2">{student?.name} 師兄</p>
-      {answers.identity && (
-        <p className="text-kiosk-base text-gray-500 mb-1">身分：{answers.identity}</p>
+    <div className="w-full max-w-lg">
+      {/* 學員資訊卡 */}
+      <div className="bg-white rounded-2xl shadow-md p-5 mb-5 border-l-8 border-blue-600">
+        <p className="text-kiosk-xl font-bold text-gray-800">{student?.name} 師兄，您好！</p>
+        <div className="flex flex-wrap gap-2 mt-2">
+          {classes.map((c, i) => (
+            <span key={i} className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-kiosk-sm">
+              {c.class_name}{c.group_name ? `・${c.group_name}` : ''}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* 報名成功提示 */}
+      {showSuccess && (
+        <div className="bg-green-50 border-2 border-green-400 rounded-2xl px-5 py-3 mb-4 text-center">
+          <p className="text-green-700 font-bold text-kiosk-base">✅ {successEventName} 報名完成！</p>
+        </div>
       )}
-      {answers.volunteer_group && (
-        <p className="text-kiosk-base text-gray-500 mb-1">組別：{answers.volunteer_group}</p>
-      )}
-      {answers.time_slot && (
-        <p className="text-kiosk-base text-gray-500 mb-1">時段：{answers.time_slot}</p>
-      )}
-      <p className="text-kiosk-base text-blue-600 font-medium mt-4">阿彌陀佛，感恩護持！</p>
-      <p className="text-kiosk-sm text-gray-400 mt-6">{countdown} 秒後自動返回</p>
-      <button onClick={onReset} className="mt-3 px-8 py-3 border-2 border-gray-300 rounded-2xl text-kiosk-sm text-gray-500">
-        立即返回
+
+      {/* 活動列表 */}
+      <div className="space-y-3 mb-5">
+        {eventItems.map(({ event, fields }) => {
+          const reg = statuses[event.event_id]
+          const registered = !!reg
+          return (
+            <div
+              key={event.event_id}
+              className={`bg-white rounded-2xl shadow-sm border-2 p-5 transition-all ${
+                registered ? 'border-green-300' : 'border-gray-200'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-kiosk-base font-bold text-gray-800">{event.name}</p>
+                  <p className="text-kiosk-sm text-gray-500 mt-0.5">
+                    {event.date_start || ''}
+                    {event.date_end && event.date_end !== event.date_start ? ` ～ ${event.date_end}` : ''}
+                    {event.location ? `　${event.location}` : ''}
+                  </p>
+                  {/* 已報名則顯示報名資料摘要 */}
+                  {registered && reg.answers && (
+                    <div className="mt-2 text-kiosk-sm text-gray-600 space-y-0.5">
+                      {Object.entries(reg.answers).map(([k, v]) => {
+                        const f = fields.find(f => f.field_key === k)
+                        if (!f) return null
+                        return (
+                          <p key={k}>
+                            <span className="text-gray-400">{f.field_label}：</span>
+                            {Array.isArray(v) ? v.join('、') : v}
+                          </p>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className="flex-shrink-0">
+                  {registered ? (
+                    <button
+                      onClick={() => onSelectEvent({ event, fields })}
+                      className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
+                    >
+                      ✓ 已報名<br/>
+                      <span className="text-xs font-normal">點此修改</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onSelectEvent({ event, fields })}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-kiosk-sm font-bold shadow active:scale-95 transition-transform"
+                    >
+                      立即報名
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* 完成按鈕 */}
+      <button
+        onClick={onDone}
+        className="w-full py-4 border-2 border-gray-300 rounded-2xl text-kiosk-base text-gray-600 font-medium"
+      >
+        完成，返回首頁
       </button>
+      <p className="text-center text-kiosk-sm text-gray-400 mt-3">{OVERVIEW_IDLE_SECONDS} 秒無操作自動返回</p>
     </div>
   )
 }
 
-function FormScreen({ student, classes, fields, answers, errorMsg, submitting, onChange, onSubmit, onCancel }) {
+// ── 填表畫面 ─────────────────────────────────────────────
+const OVERVIEW_IDLE_SECONDS = 30
+
+function FormScreen({ student, classes, event, fields, answers, isUpdate, errorMsg, submitting, onChange, onSubmit, onBack }) {
   return (
     <div className="w-full max-w-lg">
       {/* 學員資訊卡 */}
-      <div className="bg-white rounded-2xl shadow-md p-5 mb-6 border-l-8 border-blue-600">
+      <div className="bg-white rounded-2xl shadow-md p-5 mb-4 border-l-8 border-blue-600">
         <p className="text-kiosk-xl font-bold text-gray-800">{student?.name} 師兄</p>
+        <p className="text-kiosk-base text-blue-700 font-medium mt-1">{event.name}</p>
         <div className="flex flex-wrap gap-2 mt-2">
           {classes.map((c, i) => (
             <span key={i} className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-kiosk-sm">
@@ -427,21 +404,21 @@ function FormScreen({ student, classes, fields, answers, errorMsg, submitting, o
         </p>
       )}
 
-      {/* 操作按鈕 */}
+      {/* 按鈕 */}
       <div className="flex gap-3">
         <button
-          onClick={onCancel}
+          onClick={onBack}
           disabled={submitting}
           className="flex-1 py-4 border-2 border-gray-300 rounded-2xl text-kiosk-base text-gray-600 font-medium disabled:opacity-50"
         >
-          取消
+          ← 返回
         </button>
         <button
           onClick={onSubmit}
           disabled={submitting}
-          className="flex-2 flex-grow-[2] py-4 bg-blue-600 text-white rounded-2xl text-kiosk-base font-bold shadow-md disabled:opacity-50 active:scale-95 transition-transform"
+          className="flex-grow-[2] py-4 bg-blue-600 text-white rounded-2xl text-kiosk-base font-bold shadow-md disabled:opacity-50 active:scale-95 transition-transform"
         >
-          {submitting ? '送出中…' : '確認報名'}
+          {submitting ? '送出中…' : isUpdate ? '確認修改' : '確認報名'}
         </button>
       </div>
     </div>

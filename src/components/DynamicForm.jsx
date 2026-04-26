@@ -1,7 +1,8 @@
 /**
  * DynamicForm — 根據 event_fields 動態渲染表單
  *
- * field_type 支援：radio / checkbox / text / plate / datetime
+ * field_type 支援：radio / checkbox / boolean / text / plate / datetime
+ *   boolean  — 單一勾選項目（點一下打勾，再點取消）
  *   plate    — 車牌號碼，自動大寫、置中大字
  *   datetime — 日期時間選取器（datetime-local），放大顯示
  * show_if 邏輯：{ field_key: value } — 當對應欄位的答案等於指定值時才顯示
@@ -92,6 +93,32 @@ export default function DynamicForm({ fields, answers, onChange }) {
                 )
               })}
             </div>
+          )}
+
+          {/* 單一勾選 — 點一下打勾，再點取消，適合「報名三皈依」等獨立項目 */}
+          {field.field_type === 'boolean' && (
+            <button
+              type="button"
+              onClick={() => handleChange(field.field_key, !answers[field.field_key])}
+              className={`
+                px-6 py-4 rounded-xl text-kiosk-base font-medium border-2 transition-all flex items-center gap-4
+                ${answers[field.field_key]
+                  ? 'bg-green-600 text-white border-green-600 shadow-md'
+                  : 'bg-white text-gray-700 border-gray-300 hover:border-green-400'
+                }
+              `}
+            >
+              <span className={`
+                w-8 h-8 rounded-md border-2 flex items-center justify-center text-xl flex-shrink-0
+                ${answers[field.field_key]
+                  ? 'border-white/60 text-white'
+                  : 'border-gray-400 text-transparent'
+                }
+              `}>
+                ✓
+              </span>
+              <span>{answers[field.field_key] ? '已勾選' : '點此勾選'}</span>
+            </button>
           )}
 
           {field.field_type === 'text' && (

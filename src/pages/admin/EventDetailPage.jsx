@@ -14,10 +14,11 @@ import {
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
-const FIELD_TYPES = ['radio', 'checkbox', 'text', 'plate', 'datetime', 'date', 'time']
+const FIELD_TYPES = ['radio', 'checkbox', 'boolean', 'text', 'plate', 'datetime', 'date', 'time']
 const FIELD_TYPE_LABEL = {
   radio: 'radio（單選按鈕）',
   checkbox: 'checkbox（多選）',
+  boolean: 'boolean（單一勾選，如：報名三皈依）',
   text: 'text（文字輸入）',
   plate: 'plate（車牌號碼）',
   datetime: 'datetime（日期時間）',
@@ -177,7 +178,7 @@ function FieldRow({ field, onChange, onRemove, allFields }) {
         </div>
       </div>
 
-      {/* 選項列表：每項獨立輸入框 */}
+      {/* 選項列表：每項獨立輸入框（boolean 不需要選項） */}
       {(field.field_type === 'radio' || field.field_type === 'checkbox') && (
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-2">選項</label>
@@ -265,6 +266,7 @@ function FieldRow({ field, onChange, onRemove, allFields }) {
 // datetime-local 回傳格式 "2026-04-25T08:00" → "2026/04/25 08:00"
 function formatFieldValue(field, val) {
   if (val === undefined || val === null || val === '') return '-'
+  if (field.field_type === 'boolean') return val === true ? '✓ 是' : '✗ 否'
   if (Array.isArray(val)) return val.join('、')
   if (field.field_type === 'datetime' && typeof val === 'string' && val.includes('T')) {
     const [date, time] = val.split('T')

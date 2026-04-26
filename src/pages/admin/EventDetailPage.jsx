@@ -29,11 +29,16 @@ const FIELD_TYPE_LABEL = {
 function FieldRow({ field, onChange, onRemove, allFields }) {
   const options = field.options || []
 
-  // 顯示名稱改變時，若程式識別碼還是空的就自動帶入（方便不打英文的師父）
+  // 顯示名稱改變時，只更新 label（不在打字過程中動 field_key，避免抓到注音中間狀態）
   function handleLabelChange(label) {
-    const updates = { ...field, field_label: label }
-    if (!field.field_key) updates.field_key = label
-    onChange(updates)
+    onChange({ ...field, field_label: label })
+  }
+
+  // 離開顯示名稱欄位時，若程式識別碼還是空的才自動帶入
+  function handleLabelBlur(label) {
+    if (!field.field_key && label) {
+      onChange({ ...field, field_label: label, field_key: label })
+    }
   }
 
   function setOption(i, val) {
@@ -74,6 +79,7 @@ function FieldRow({ field, onChange, onRemove, allFields }) {
           <input
             value={field.field_label}
             onChange={e => handleLabelChange(e.target.value)}
+            onBlur={e => handleLabelBlur(e.target.value)}
             className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400"
             placeholder="身分別"
           />

@@ -357,6 +357,7 @@ function OverviewScreen({
                 confirming ? 'border-red-300 bg-red-50' : registered ? 'border-green-300' : 'border-gray-200'
               }`}
             >
+              {/* 上方：活動資訊 + 主要按鈕 */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="text-kiosk-base font-bold text-gray-800">{event.name}</p>
@@ -395,43 +396,45 @@ function OverviewScreen({
                       立即報名
                     </button>
                   )}
-
                   {registered && !confirming && (
-                    <div className="flex flex-col gap-2 items-end">
-                      <button
-                        onClick={() => onSelectEvent({ event, fields })}
-                        className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
-                      >
-                        ✓ 已報名<br/>
-                        <span className="text-xs font-normal">點此修改</span>
-                      </button>
-                      <button
-                        onClick={() => onRequestCancel(event.event_id)}
-                        className="px-4 py-1.5 text-red-400 border border-red-200 rounded-xl text-xs active:scale-95 transition-transform"
-                      >
-                        取消報名
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => onSelectEvent({ event, fields })}
+                      className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
+                    >
+                      ✓ 已報名<br/>
+                      <span className="text-xs font-normal">點此修改</span>
+                    </button>
                   )}
-
                   {confirming && (
-                    <div className="flex flex-col gap-2 items-end">
-                      <button
-                        onClick={() => onConfirmCancel(event.event_id)}
-                        className="px-4 py-2 bg-red-500 text-white rounded-xl text-kiosk-sm font-bold active:scale-95 transition-transform"
-                      >
-                        確認取消
-                      </button>
+                    <div className="flex gap-2">
                       <button
                         onClick={() => onRequestCancel(null)}
                         className="px-4 py-2 border-2 border-gray-300 text-gray-600 rounded-xl text-kiosk-sm active:scale-95 transition-transform"
                       >
                         不了
                       </button>
+                      <button
+                        onClick={() => onConfirmCancel(event.event_id)}
+                        className="px-4 py-2 bg-red-500 text-white rounded-xl text-kiosk-sm font-bold active:scale-95 transition-transform"
+                      >
+                        確認取消
+                      </button>
                     </div>
                   )}
                 </div>
               </div>
+
+              {/* 下方：取消報名按鈕（已報名且非確認中才顯示） */}
+              {registered && !confirming && (
+                <div className="mt-3 pt-3 border-t border-gray-100 text-right">
+                  <button
+                    onClick={() => onRequestCancel(event.event_id)}
+                    className="text-kiosk-sm text-red-400 border border-red-200 px-4 py-1.5 rounded-xl active:scale-95 transition-transform"
+                  >
+                    取消報名
+                  </button>
+                </div>
+              )}
             </div>
           )
         })}

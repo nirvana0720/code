@@ -5,6 +5,7 @@ import {
   getStudentEventStatuses,
   submitRegistration,
   updateRegistration,
+  deleteRegistration,
 } from '../lib/supabase'
 import DynamicForm from '../components/DynamicForm'
 import CameraScanner from '../components/CameraScanner'
@@ -32,6 +33,7 @@ export default function KioskPage() {
   const [showSuccess, setShowSuccess] = useState(false)
 
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [cancellingEventId, setCancellingEventId] = useState(null) // 正在確認取消的活動 ID
 
   const scanBufferRef = useRef('')
   const scanTimerRef = useRef(null)
@@ -108,6 +110,17 @@ export default function KioskPage() {
     startIdleTimer()
   }
 
+  // ── 取消報名 ──────────────────────────────────────────────
+  async function handleCancelRegistration(eventId) {
+    const reg = statuses[eventId]
+    if (!reg) return
+    const { success } = await deleteRegistration(reg.registration_id)
+    if (!success) return
+    setStatuses(prev => ({ ...prev, [eventId]: null }))
+    setCancellingEventId(null)
+    startIdleTimer()
+  }
+
   // ── 送出表單 ──────────────────────────────────────────────
   async function handleSubmit() {
     const { event, fields } = selectedItem
@@ -174,6 +187,7 @@ export default function KioskPage() {
     setCurrentReg(null)
     setErrorMsg('')
     setShowSuccess(false)
+    setCancellingEventId(null)
     setPhase(eventItems.length ? 'idle' : 'no_event')
   }
 
@@ -209,7 +223,10 @@ export default function KioskPage() {
             statuses={statuses}
             showSuccess={showSuccess}
             successEventName={successEventName}
+            cancellingEventId={cancellingEventId}
             onSelectEvent={handleSelectEvent}
+            onRequestCancel={setCancellingEventId}
+            onConfirmCancel={handleCancelRegistration}
             onDone={reset}
           />
         )}
@@ -301,7 +318,10 @@ function ErrorScreen({ message, onReset }) {
 }
 
 // ── 總覽畫面：所有活動報名狀態 ────────────────────────────
-function OverviewScreen({ student, classes, eventItems, statuses, showSuccess, successEventName, onSelectEvent, onDone }) {
+function OverviewScreen({
+  student, classes, eventItems, statuses, showSuccess, successEventName,
+  cancellingEventId, onSelectEvent, onRequestCancel, onConfirmCancel, onDone,
+}) {
   return (
     <div className="w-full max-w-lg">
       {/* 學員資訊卡 */}
@@ -328,11 +348,13 @@ function OverviewScreen({ student, classes, eventItems, statuses, showSuccess, s
         {eventItems.map(({ event, fields }) => {
           const reg = statuses[event.event_id]
           const registered = !!reg
+          const confirming = cancellingEventId === event.event_id
+
           return (
             <div
               key={event.event_id}
               className={`bg-white rounded-2xl shadow-sm border-2 p-5 transition-all ${
-                registered ? 'border-green-300' : 'border-gray-200'
+                confirming ? 'border-red-300 bg-red-50' : registered ? 'border-green-300' : 'border-gray-200'
               }`}
             >
               <div className="flex items-start justify-between gap-3">
@@ -344,7 +366,7 @@ function OverviewScreen({ student, classes, eventItems, statuses, showSuccess, s
                     {event.location ? `　${event.location}` : ''}
                   </p>
                   {/* 已報名則顯示報名資料摘要 */}
-                  {registered && reg.answers && (
+                  {registered && !confirming && reg.answers && (
                     <div className="mt-2 text-kiosk-sm text-gray-600 space-y-0.5">
                       {Object.entries(reg.answers).map(([k, v]) => {
                         const f = fields.find(f => f.field_key === k)
@@ -358,23 +380,55 @@ function OverviewScreen({ student, classes, eventItems, statuses, showSuccess, s
                       })}
                     </div>
                   )}
+                  {/* 取消確認提示 */}
+                  {confirming && (
+                    <p className="mt-2 text-kiosk-sm text-red-600 font-medium">確定要取消此活動的報名嗎？</p>
+                  )}
                 </div>
+
                 <div className="flex-shrink-0">
-                  {registered ? (
-                    <button
-                      onClick={() => onSelectEvent({ event, fields })}
-                      className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
-                    >
-                      ✓ 已報名<br/>
-                      <span className="text-xs font-normal">點此修改</span>
-                    </button>
-                  ) : (
+                  {!registered && (
                     <button
                       onClick={() => onSelectEvent({ event, fields })}
                       className="px-4 py-2 bg-blue-600 text-white rounded-xl text-kiosk-sm font-bold shadow active:scale-95 transition-transform"
                     >
                       立即報名
                     </button>
+                  )}
+
+                  {registered && !confirming && (
+                    <div className="flex flex-col gap-2 items-end">
+                      <button
+                        onClick={() => onSelectEvent({ event, fields })}
+                        className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
+                      >
+                        ✓ 已報名<br/>
+                        <span className="text-xs font-normal">點此修改</span>
+                      </button>
+                      <button
+                        onClick={() => onRequestCancel(event.event_id)}
+                        className="px-4 py-1.5 text-red-400 border border-red-200 rounded-xl text-xs active:scale-95 transition-transform"
+                      >
+                        取消報名
+                      </button>
+                    </div>
+                  )}
+
+                  {confirming && (
+                    <div className="flex flex-col gap-2 items-end">
+                      <button
+                        onClick={() => onConfirmCancel(event.event_id)}
+                        className="px-4 py-2 bg-red-500 text-white rounded-xl text-kiosk-sm font-bold active:scale-95 transition-transform"
+                      >
+                        確認取消
+                      </button>
+                      <button
+                        onClick={() => onRequestCancel(null)}
+                        className="px-4 py-2 border-2 border-gray-300 text-gray-600 rounded-xl text-kiosk-sm active:scale-95 transition-transform"
+                      >
+                        不了
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

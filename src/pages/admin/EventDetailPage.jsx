@@ -159,6 +159,14 @@ function FieldRow({ field, onChange, onRemove }) {
   )
 }
 
+// ── 活動日期格式化 ──────────────────────────────────────────
+function formatEventDate(ev) {
+  if (!ev?.date_start) return ''
+  const fmt = d => d.replaceAll('-', '/')
+  if (!ev.date_end || ev.date_end === ev.date_start) return fmt(ev.date_start)
+  return `${fmt(ev.date_start)} ～ ${fmt(ev.date_end)}`
+}
+
 // ── 取得顯示名稱（學員或訪客）────────────────────────────────
 function getDisplayName(r) {
   if (r.students?.name) return r.students.name
@@ -221,7 +229,7 @@ export default function EventDetailPage() {
   const [guestRegId, setGuestRegId] = useState(null) // 新增成功後的 registration_id
 
   // 補看 QR code modal（訪客用）
-  const [qrModal, setQrModal] = useState(null) // null | registrationId
+  const [qrModal, setQrModal] = useState(null) // null | { registrationId, name }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -326,24 +334,54 @@ export default function EventDetailPage() {
     <AdminLayout>
       {/* ── 補看 QR code Modal ── */}
       {qrModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
-            <h3 className="text-lg font-bold text-gray-800 mb-1">訪客 QR code</h3>
-            <p className="text-sm text-gray-500 mb-5">截圖後傳給訪客，報到時掃描即可</p>
-            <div className="flex justify-center mb-4">
-              <div className="p-4 bg-white border-2 border-gray-200 rounded-xl inline-block">
-                <QRCodeSVG value={qrModal} size={180} />
+        <>
+          {/* 列印時只顯示卡片，隱藏其他所有內容 */}
+          <style>{`
+            @media print {
+              body * { visibility: hidden; }
+              .qr-print-card, .qr-print-card * { visibility: visible; }
+              .qr-print-card {
+                position: fixed;
+                top: 50%; left: 50%;
+                transform: translate(-50%, -50%);
+              }
+            }
+          `}</style>
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+              <p className="text-sm text-gray-400 mb-4">截圖或列印後交給訪客，報到時掃描即可</p>
+
+              {/* 可列印卡片 */}
+              <div className="qr-print-card border-2 border-gray-200 rounded-xl p-5 mb-4 bg-white">
+                <p className="text-sm font-semibold text-gray-400 tracking-widest mb-3">普宜精舍</p>
+                <div className="flex justify-center mb-4">
+                  <QRCodeSVG value={qrModal.registrationId} size={160} />
+                </div>
+                <p className="text-2xl font-bold text-gray-800 mb-1">{qrModal.name}</p>
+                <p className="text-sm text-gray-600">{event.name}</p>
+                {event.date_start && (
+                  <p className="text-sm text-gray-500 mt-0.5">{formatEventDate(event)}</p>
+                )}
+                <p className="text-xs text-gray-300 mt-3">掃描此 QR code 即可報到</p>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 border-2 border-amber-400 text-amber-700 hover:bg-amber-50 font-medium py-2.5 rounded-xl transition-colors"
+                >
+                  🖨️ 列印
+                </button>
+                <button
+                  onClick={() => setQrModal(null)}
+                  className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors"
+                >
+                  關閉
+                </button>
               </div>
             </div>
-            <p className="text-xs text-gray-300 font-mono break-all mb-5">{qrModal}</p>
-            <button
-              onClick={() => setQrModal(null)}
-              className="w-full bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors"
-            >
-              關閉
-            </button>
           </div>
-        </div>
+        </>
       )}
 
       {/* ── 訪客報名 Modal ── */}
@@ -351,24 +389,50 @@ export default function EventDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             {guestRegId ? (
-              /* 新增成功：顯示 QR code */
-              <div className="text-center">
-                <div className="text-4xl mb-3">✅</div>
-                <h3 className="text-lg font-bold text-gray-800 mb-1">訪客報名成功！</h3>
-                <p className="text-sm text-gray-500 mb-5">請截圖將 QR code 傳給訪客，報到時掃描即可</p>
-                <div className="flex justify-center mb-4">
-                  <div className="p-4 bg-white border-2 border-gray-200 rounded-xl inline-block">
-                    <QRCodeSVG value={guestRegId} size={180} />
+              /* 新增成功：顯示可列印 QR code 卡片 */
+              <>
+                <style>{`
+                  @media print {
+                    body * { visibility: hidden; }
+                    .qr-print-card, .qr-print-card * { visibility: visible; }
+                    .qr-print-card {
+                      position: fixed;
+                      top: 50%; left: 50%;
+                      transform: translate(-50%, -50%);
+                    }
+                  }
+                `}</style>
+                <div className="text-center">
+                  <div className="text-3xl mb-2">✅</div>
+                  <p className="text-sm text-gray-400 mb-4">截圖或列印後交給訪客，報到時掃描即可</p>
+                  <div className="qr-print-card border-2 border-gray-200 rounded-xl p-5 mb-4 bg-white">
+                    <p className="text-sm font-semibold text-gray-400 tracking-widest mb-3">普宜精舍</p>
+                    <div className="flex justify-center mb-4">
+                      <QRCodeSVG value={guestRegId} size={160} />
+                    </div>
+                    <p className="text-2xl font-bold text-gray-800 mb-1">{guestName}</p>
+                    <p className="text-sm text-gray-600">{event.name}</p>
+                    {event.date_start && (
+                      <p className="text-sm text-gray-500 mt-0.5">{formatEventDate(event)}</p>
+                    )}
+                    <p className="text-xs text-gray-300 mt-3">掃描此 QR code 即可報到</p>
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => window.print()}
+                      className="flex-1 border-2 border-amber-400 text-amber-700 hover:bg-amber-50 font-medium py-2.5 rounded-xl transition-colors"
+                    >
+                      🖨️ 列印
+                    </button>
+                    <button
+                      onClick={closeGuestModal}
+                      className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors"
+                    >
+                      關閉
+                    </button>
                   </div>
                 </div>
-                <p className="text-xs text-gray-300 font-mono break-all mb-5">{guestRegId}</p>
-                <button
-                  onClick={closeGuestModal}
-                  className="w-full bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors"
-                >
-                  關閉
-                </button>
-              </div>
+              </>
             ) : (
               /* 填寫訪客資料 */
               <form onSubmit={handleGuestSubmit}>
@@ -615,7 +679,7 @@ export default function EventDetailPage() {
                         <div className="flex gap-2 justify-end">
                           {!r.student_id && (
                             <button
-                              onClick={() => setQrModal(r.registration_id)}
+                              onClick={() => setQrModal({ registrationId: r.registration_id, name: getDisplayName(r) })}
                               className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 hover:border-amber-400 px-2 py-1 rounded transition-colors"
                             >
                               QR code

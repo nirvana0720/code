@@ -10,8 +10,9 @@ import {
 import DynamicForm from '../components/DynamicForm'
 import CameraScanner from '../components/CameraScanner'
 
-const OVERVIEW_IDLE_SECONDS = 30  // 總覽畫面閒置幾秒後自動返回
-const SUCCESS_SECONDS = 3         // 報名成功提示停留秒數
+const OVERVIEW_IDLE_SECONDS = 30   // 總覽畫面閒置幾秒後自動返回
+const FORM_IDLE_SECONDS = 120      // 填表畫面閒置幾秒後自動返回（長者填表需要較多時間）
+const SUCCESS_SECONDS = 3          // 報名成功提示停留秒數
 
 export default function KioskPage() {
   // 所有進行中活動（含欄位）
@@ -107,7 +108,7 @@ export default function KioskPage() {
     setAnswers(reg?.answers || {})
     setErrorMsg('')
     setPhase('form')
-    startIdleTimer()
+    startFormTimer()
   }
 
   // ── 取消報名 ──────────────────────────────────────────────
@@ -149,7 +150,7 @@ export default function KioskPage() {
       ;({ success, error } = await submitRegistration(event.event_id, student.student_id, answers))
     }
 
-    if (!success) { setPhase('form'); setErrorMsg(error); startIdleTimer(); return }
+    if (!success) { setPhase('form'); setErrorMsg(error); startFormTimer(); return }
 
     // 更新本地狀態
     const newReg = { registration_id: currentReg?.registration_id || 'new', event_id: event.event_id, answers }
@@ -172,6 +173,11 @@ export default function KioskPage() {
   function startIdleTimer() {
     clearTimeout(idleTimerRef.current)
     idleTimerRef.current = setTimeout(() => reset(), OVERVIEW_IDLE_SECONDS * 1000)
+  }
+
+  function startFormTimer() {
+    clearTimeout(idleTimerRef.current)
+    idleTimerRef.current = setTimeout(() => reset(), FORM_IDLE_SECONDS * 1000)
   }
 
   function reset() {

@@ -7,7 +7,12 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
   throw new Error('請在 .env.local 設定 VITE_SUPABASE_URL 與 VITE_SUPABASE_ANON_KEY')
 }
 
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  global: {
+    // 強制繞過瀏覽器 HTTP 快取，確保每次查詢都取得最新資料
+    fetch: (url, options = {}) => fetch(url, { ...options, cache: 'no-store' }),
+  },
+})
 
 // ─── Auth ─────────────────────────────────────────────────
 
@@ -66,7 +71,7 @@ export async function getActiveEvents() {
  * @returns {{ [eventId]: registration|null }}
  */
 export async function getStudentEventStatuses(studentId, eventIds) {
-  if (!eventIds.length) return {}
+  if (!eventIds.length) return { map: {}, error: null }
 
   const { data, error } = await supabase
     .from('registrations')
@@ -74,12 +79,15 @@ export async function getStudentEventStatuses(studentId, eventIds) {
     .eq('student_id', studentId)
     .in('event_id', eventIds)
 
-  if (error) return {}
+  if (error) {
+    console.error('[getStudentEventStatuses] error:', error)
+    return { map: {}, error: error.message }
+  }
 
   const map = {}
   for (const id of eventIds) map[id] = null
   for (const r of (data || [])) map[r.event_id] = r
-  return map
+  return { map, error: null }
 }
 
 // ─── 學員查詢（前台）────────────────────────────────────────

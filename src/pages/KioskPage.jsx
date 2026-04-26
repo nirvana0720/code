@@ -97,11 +97,13 @@ export default function KioskPage() {
     if (error) { setPhase('error'); setErrorMsg(error); scheduleAutoReset(5); return }
 
     const eventIds = eventItems.map(i => i.event.event_id)
-    const statusMap = await getStudentEventStatuses(student.student_id, eventIds)
+    const { map: statusMap, error: statusErr } = await getStudentEventStatuses(student.student_id, eventIds)
 
     setStudent(student)
     setClasses(classes)
     setStatuses(statusMap)
+    if (statusErr) setErrorMsg(`報名狀態查詢失敗：${statusErr}`)
+    else setErrorMsg('')
     setPhase('overview')
     startIdleTimer()
   }
@@ -238,6 +240,7 @@ export default function KioskPage() {
             showSuccess={showSuccess}
             successEventName={successEventName}
             cancellingEventId={cancellingEventId}
+            errorMsg={errorMsg}
             onSelectEvent={handleSelectEvent}
             onRequestCancel={setCancellingEventId}
             onConfirmCancel={handleCancelRegistration}
@@ -334,10 +337,16 @@ function ErrorScreen({ message, onReset }) {
 // ── 總覽畫面：所有活動報名狀態 ────────────────────────────
 function OverviewScreen({
   student, classes, eventItems, statuses, showSuccess, successEventName,
-  cancellingEventId, onSelectEvent, onRequestCancel, onConfirmCancel, onDone,
+  cancellingEventId, errorMsg, onSelectEvent, onRequestCancel, onConfirmCancel, onDone,
 }) {
   return (
     <div className="w-full max-w-lg">
+      {/* 報名狀態查詢失敗提示 */}
+      {errorMsg && (
+        <div className="bg-red-50 border-2 border-red-300 rounded-2xl px-5 py-3 mb-4 text-center">
+          <p className="text-red-700 text-kiosk-sm">⚠ {errorMsg}</p>
+        </div>
+      )}
       {/* 學員資訊卡 */}
       <div className="bg-white rounded-2xl shadow-md p-5 mb-5 border-l-8 border-blue-600">
         <p className="text-kiosk-xl font-bold text-gray-800">{student?.name} 師兄，您好！</p>

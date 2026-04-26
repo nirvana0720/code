@@ -220,6 +220,9 @@ export default function EventDetailPage() {
   const [guestSaving, setGuestSaving] = useState(false)
   const [guestRegId, setGuestRegId] = useState(null) // 新增成功後的 registration_id
 
+  // 補看 QR code modal（訪客用）
+  const [qrModal, setQrModal] = useState(null) // null | registrationId
+
   const load = useCallback(async () => {
     setLoading(true)
     const [{ events }, { fields: f }, { registrations: r }] = await Promise.all([
@@ -321,6 +324,28 @@ export default function EventDetailPage() {
 
   return (
     <AdminLayout>
+      {/* ── 補看 QR code Modal ── */}
+      {qrModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">訪客 QR code</h3>
+            <p className="text-sm text-gray-500 mb-5">截圖後傳給訪客，報到時掃描即可</p>
+            <div className="flex justify-center mb-4">
+              <div className="p-4 bg-white border-2 border-gray-200 rounded-xl inline-block">
+                <QRCodeSVG value={qrModal} size={180} />
+              </div>
+            </div>
+            <p className="text-xs text-gray-300 font-mono break-all mb-5">{qrModal}</p>
+            <button
+              onClick={() => setQrModal(null)}
+              className="w-full bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors"
+            >
+              關閉
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── 訪客報名 Modal ── */}
       {guestModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -587,12 +612,22 @@ export default function EventDetailPage() {
                           : '-'}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
-                          className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
-                        >
-                          取消報名
-                        </button>
+                        <div className="flex gap-2 justify-end">
+                          {!r.student_id && (
+                            <button
+                              onClick={() => setQrModal(r.registration_id)}
+                              className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 hover:border-amber-400 px-2 py-1 rounded transition-colors"
+                            >
+                              QR code
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
+                            className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
+                          >
+                            取消報名
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

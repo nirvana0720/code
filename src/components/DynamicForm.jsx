@@ -95,30 +95,32 @@ export default function DynamicForm({ fields, answers, onChange }) {
             </div>
           )}
 
-          {/* 單一勾選 — 點一下打勾，再點取消，適合「報名三皈依」等獨立項目 */}
+          {/* 單一是／否 — 兩個大按鈕並排，選中後明顯反色 */}
           {field.field_type === 'boolean' && (
-            <button
-              type="button"
-              onClick={() => handleChange(field.field_key, !answers[field.field_key])}
-              className={`
-                px-6 py-4 rounded-xl text-kiosk-base font-medium border-2 transition-all flex items-center gap-4
-                ${answers[field.field_key]
-                  ? 'bg-green-600 text-white border-green-600 shadow-md'
-                  : 'bg-white text-gray-700 border-gray-300 hover:border-green-400'
-                }
-              `}
-            >
-              <span className={`
-                w-8 h-8 rounded-md border-2 flex items-center justify-center text-xl flex-shrink-0
-                ${answers[field.field_key]
-                  ? 'border-white/60 text-white'
-                  : 'border-gray-400 text-transparent'
-                }
-              `}>
-                ✓
-              </span>
-              <span>{answers[field.field_key] ? '已勾選' : '點此勾選'}</span>
-            </button>
+            <div className="flex gap-4">
+              {[{ label: '是', value: true }, { label: '否', value: false }].map(({ label, value }) => {
+                const selected = answers[field.field_key] === value
+                const isYes = value === true
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => handleChange(field.field_key, value)}
+                    className={`
+                      flex-1 py-4 rounded-xl text-kiosk-lg font-semibold border-2 transition-all
+                      ${selected
+                        ? isYes
+                          ? 'bg-green-600 text-white border-green-600 shadow-md'
+                          : 'bg-red-500 text-white border-red-500 shadow-md'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                      }
+                    `}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
           )}
 
           {field.field_type === 'text' && (

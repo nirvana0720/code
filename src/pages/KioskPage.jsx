@@ -43,6 +43,14 @@ export default function KioskPage() {
   // ── 初始載入活動 ──────────────────────────────────────────
   useEffect(() => { loadEvents() }, [])
 
+  // ── 閒置時定期重載（確保程式碼與資料保持最新）──────────────
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (phase === 'idle') window.location.reload()
+    }, 10 * 60 * 1000) // 閒置 10 分鐘自動重載
+    return () => clearInterval(timer)
+  }, [phase])
+
   async function loadEvents() {
     const { events, error } = await getActiveEvents()
     if (error) { setPhase('error'); setErrorMsg(error); return }

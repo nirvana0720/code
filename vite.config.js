@@ -23,7 +23,17 @@ export default defineConfig({
       },
       workbox: {
         // 快取所有靜態資源，讓 PWA 在弱網環境也能運作
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        // 新版 SW 安裝後立刻接管，不等舊頁面關閉
+        skipWaiting: true,
+        clientsClaim: true,
+        runtimeCaching: [
+          {
+            // Supabase API 一律走網路，不快取（確保報名狀態即時）
+            urlPattern: ({ url }) => url.hostname.includes('supabase.co'),
+            handler: 'NetworkOnly',
+          }
+        ]
       }
     })
   ]

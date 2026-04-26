@@ -372,8 +372,6 @@ function OverviewScreen({ student, classes, eventItems, statuses, showSuccess, s
 }
 
 // ── 填表畫面 ─────────────────────────────────────────────
-const OVERVIEW_IDLE_SECONDS = 30
-
 function FormScreen({ student, classes, event, fields, answers, isUpdate, errorMsg, submitting, onChange, onSubmit, onBack }) {
   return (
     <div className="w-full max-w-lg">

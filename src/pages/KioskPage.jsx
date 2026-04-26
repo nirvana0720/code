@@ -389,12 +389,12 @@ function OverviewScreen({
                     {event.date_end && event.date_end !== event.date_start ? ` ～ ${event.date_end}` : ''}
                     {event.location ? `　${event.location}` : ''}
                   </p>
-                  {/* 已報名則顯示報名資料摘要 */}
+                  {/* 已報名則顯示報名資料摘要（依後台欄位順序） */}
                   {registered && !confirming && reg.answers && (
                     <div className="mt-2 text-kiosk-sm text-gray-600 space-y-0.5">
-                      {Object.entries(reg.answers).map(([k, v]) => {
-                        const f = fields.find(f => f.field_key === k)
-                        if (!f) return null
+                      {fields.map(f => {
+                        const v = reg.answers[f.field_key]
+                        if (v === undefined || v === null || v === '') return null
                         let display
                         if (f.field_type === 'boolean') {
                           display = v === true ? '是' : v === false ? '否' : ''
@@ -405,8 +405,9 @@ function OverviewScreen({
                         } else {
                           display = v
                         }
+                        if (!display && display !== 0) return null
                         return (
-                          <p key={k}>
+                          <p key={f.field_key}>
                             <span className="text-gray-400">{f.field_label}：</span>
                             {display}
                           </p>

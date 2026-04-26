@@ -79,7 +79,7 @@ const DEFAULT_TEMPLATE_FIELDS = [
 ]
 
 // ── 動態欄位編輯列 ─────────────────────────────────────────
-function FieldRow({ field, onChange, onRemove, allFields }) {
+function FieldRow({ field, onChange, onRemove, allFields, index, onDragStart, onDragOver, onDrop, isDragOver }) {
   const options = field.options || []
 
   // 顯示名稱改變時，只更新 label（不在打字過程中動 field_key，避免抓到注音中間狀態）
@@ -125,7 +125,26 @@ function FieldRow({ field, onChange, onRemove, allFields }) {
   }
 
   return (
-    <div className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+    <div
+      draggable
+      onDragStart={() => onDragStart(index)}
+      onDragOver={e => { e.preventDefault(); onDragOver(index) }}
+      onDrop={() => onDrop(index)}
+      onDragEnd={() => onDragOver(null)}
+      className={`border rounded-xl p-4 bg-gray-50 space-y-3 transition-all ${
+        isDragOver ? 'border-amber-400 bg-amber-50 scale-[1.01]' : 'border-gray-200'
+      }`}
+    >
+      {/* 拖曳把手 */}
+      <div className="flex items-center gap-2 -mb-1">
+        <span
+          className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none text-base leading-none px-0.5"
+          title="拖曳調整順序"
+        >
+          ⠿
+        </span>
+        <span className="text-xs text-gray-400">拖曳調整順序</span>
+      </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">顯示名稱</label>
@@ -336,6 +355,20 @@ export default function EventDetailPage() {
 
   // 活動基本資料（編輯用）
   const [form, setForm] = useState({})
+
+  // 欄位拖曳排序
+  const [dragIndex, setDragIndex] = useState(null)
+  const [dragOverIndex, setDragOverIndex] = useState(null)
+
+  function handleFieldDrop(toIndex) {
+    if (dragIndex === null || dragIndex === toIndex) { setDragIndex(null); return }
+    const next = [...fields]
+    const [moved] = next.splice(dragIndex, 1)
+    next.splice(toIndex, 0, moved)
+    setFields(next)
+    setDragIndex(null)
+    setDragOverIndex(null)
+  }
 
   // 訪客報名 modal
   const [guestModal, setGuestModal] = useState(false)
@@ -702,10 +735,15 @@ export default function EventDetailPage() {
           {fields.map((f, i) => (
             <FieldRow
               key={i}
+              index={i}
               field={f}
               allFields={fields.filter((_, j) => j !== i)}
               onChange={updated => setFields(prev => prev.map((x, j) => j === i ? updated : x))}
               onRemove={() => setFields(prev => prev.filter((_, j) => j !== i))}
+              onDragStart={setDragIndex}
+              onDragOver={setDragOverIndex}
+              onDrop={handleFieldDrop}
+              isDragOver={dragOverIndex === i}
             />
           ))}
           <div className="flex flex-wrap gap-3 pt-2">

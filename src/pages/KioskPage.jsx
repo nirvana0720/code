@@ -378,10 +378,20 @@ function OverviewScreen({
                       {Object.entries(reg.answers).map(([k, v]) => {
                         const f = fields.find(f => f.field_key === k)
                         if (!f) return null
+                        let display
+                        if (f.field_type === 'boolean') {
+                          display = v === true ? '是' : v === false ? '否' : ''
+                        } else if (f.field_type === 'datetime' && typeof v === 'string') {
+                          display = v.replace('T', ' ')
+                        } else if (Array.isArray(v)) {
+                          display = v.join('、')
+                        } else {
+                          display = v
+                        }
                         return (
                           <p key={k}>
                             <span className="text-gray-400">{f.field_label}：</span>
-                            {Array.isArray(v) ? v.join('、') : v}
+                            {display}
                           </p>
                         )
                       })}

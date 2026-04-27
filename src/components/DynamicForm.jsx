@@ -27,6 +27,21 @@ export default function DynamicForm({ fields, answers, onChange }) {
       }
     })
 
+    // 車牌自動帶入：當某個 plate 欄位剛因本次選擇而出現，且目前沒有值，
+    // 自動複製畫面上另一個已填的 plate 欄位的值（例如上山選自行開車後帶入下山車牌）
+    fields.forEach(f => {
+      if (
+        f.field_type === 'plate' &&
+        f.show_if && f.show_if[fieldKey] === value &&
+        !next[f.field_key]
+      ) {
+        const donor = fields.find(
+          pf => pf.field_type === 'plate' && pf.field_key !== f.field_key && next[pf.field_key]
+        )
+        if (donor) next[f.field_key] = next[donor.field_key]
+      }
+    })
+
     onChange(next)
   }
 

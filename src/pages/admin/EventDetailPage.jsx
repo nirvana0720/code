@@ -324,7 +324,7 @@ function SortTh({ label, colKey, current, dir, onSort, className = '' }) {
   return (
     <th
       onClick={() => onSort(colKey)}
-      className={`text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap cursor-pointer select-none hover:text-amber-700 hover:bg-amber-50/60 transition-colors ${className}`}
+      className={`text-left px-3 py-2 font-medium text-gray-600 whitespace-nowrap cursor-pointer select-none hover:text-amber-700 hover:bg-amber-50/60 transition-colors ${className}`}
     >
       <span className="inline-flex items-center gap-1">
         {label}
@@ -385,6 +385,10 @@ export default function EventDetailPage() {
   // 報名名單排序
   const [sortKey, setSortKey] = useState('registered_at')
   const [sortDir, setSortDir] = useState('desc')
+
+  // 欄位顯隱切換
+  const [showCheckin, setShowCheckin] = useState(false)
+  const [showRegTime, setShowRegTime] = useState(false)
 
   function handleSort(key) {
     if (sortKey === key) {
@@ -1107,13 +1111,33 @@ export default function EventDetailPage() {
         <div>
           {/* 工具列 */}
           <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <p className="text-sm text-gray-500">共 {registrations.length} 筆報名</p>
               {hasGuests && selectedGuestIds.size > 0 && (
                 <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
                   已選 {selectedGuestIds.size} 位訪客
                 </span>
               )}
+              {/* 欄位顯隱切換 */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-gray-400">顯示欄位：</span>
+                {[
+                  { key: 'checkin', label: '報到', val: showCheckin, set: setShowCheckin },
+                  { key: 'regtime', label: '報名時間', val: showRegTime, set: setShowRegTime },
+                ].map(col => (
+                  <button
+                    key={col.key}
+                    onClick={() => col.set(v => !v)}
+                    className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                      col.val
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    {col.val ? '✓ ' : ''}{col.label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {/* 批次列印按鈕（有選取時才顯示）*/}
@@ -1173,9 +1197,9 @@ export default function EventDetailPage() {
                         onSort={handleSort}
                       />
                     ))}
-                    <SortTh label="報到" colKey="checked_in_at" current={sortKey} dir={sortDir} onSort={handleSort} />
-                    <SortTh label="報名時間" colKey="registered_at" current={sortKey} dir={sortDir} onSort={handleSort} />
-                    <th className="px-4 py-3" />
+                    {showCheckin && <SortTh label="報到" colKey="checked_in_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
+                    {showRegTime && <SortTh label="報名時間" colKey="registered_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
+                    <th className="px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
@@ -1191,7 +1215,7 @@ export default function EventDetailPage() {
                       >
                         {/* Checkbox（有訪客才顯示此欄） */}
                         {hasGuests && (
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-3 py-1.5 text-center">
                             {isGuest && (
                               <input
                                 type="checkbox"
@@ -1202,27 +1226,31 @@ export default function EventDetailPage() {
                             )}
                           </td>
                         )}
-                        <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                        <td className="px-3 py-1.5 font-mono text-xs text-gray-500">
                           {r.student_id ?? <span className="text-amber-600 font-sans">訪客</span>}
                         </td>
-                        <td className="px-4 py-3 font-medium">{getDisplayName(r)}</td>
+                        <td className="px-3 py-1.5 font-medium">{getDisplayName(r)}</td>
                         {fields.map(f => (
-                          <td key={f.field_id} className="px-4 py-3 text-gray-700">
+                          <td key={f.field_id} className="px-3 py-1.5 text-gray-700">
                             {formatFieldValue(f, r.answers?.[f.field_key])}
                           </td>
                         ))}
-                        <td className="px-4 py-3">
-                          {r.checked_in_at
-                            ? <span className="text-green-600 text-xs font-medium">✓ 已報到</span>
-                            : <span className="text-gray-300 text-xs">—</span>
-                          }
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                          {r.registered_at
-                            ? new Date(r.registered_at).toLocaleString('zh-TW', { hour12: false })
-                            : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-right">
+                        {showCheckin && (
+                          <td className="px-3 py-1.5">
+                            {r.checked_in_at
+                              ? <span className="text-green-600 text-xs font-medium">✓ 已報到</span>
+                              : <span className="text-gray-300 text-xs">—</span>
+                            }
+                          </td>
+                        )}
+                        {showRegTime && (
+                          <td className="px-3 py-1.5 text-xs text-gray-400 whitespace-nowrap">
+                            {r.registered_at
+                              ? new Date(r.registered_at).toLocaleString('zh-TW', { hour12: false })
+                              : '-'}
+                          </td>
+                        )}
+                        <td className="px-3 py-1.5 text-right">
                           <div className="flex gap-2 justify-end">
                             {isGuest && (
                               <button

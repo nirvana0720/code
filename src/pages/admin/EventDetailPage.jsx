@@ -1175,7 +1175,7 @@ export default function EventDetailPage() {
                   <tr className="border-b border-gray-100 bg-gray-50">
                     {/* 訪客 checkbox 欄（有訪客才顯示） */}
                     {hasGuests && (
-                      <th className="px-3 py-3 text-center">
+                      <th className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
                           checked={allGuestsSelected}
@@ -1186,7 +1186,14 @@ export default function EventDetailPage() {
                       </th>
                     )}
                     <SortTh label="學員編號" colKey="student_id" current={sortKey} dir={sortDir} onSort={handleSort} />
-                    <SortTh label="姓名" colKey="name" current={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortTh
+                      label="姓名"
+                      colKey="name"
+                      current={sortKey}
+                      dir={sortDir}
+                      onSort={handleSort}
+                      className="sticky left-0 z-20 bg-gray-50 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.08)]"
+                    />
                     {fields.map(f => (
                       <SortTh
                         key={f.field_id ?? f.field_key}
@@ -1199,7 +1206,7 @@ export default function EventDetailPage() {
                     ))}
                     {showCheckin && <SortTh label="報到" colKey="checked_in_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
                     {showRegTime && <SortTh label="報名時間" colKey="registered_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
-                    <th className="px-3 py-2" />
+                    <th className="sticky right-0 z-20 bg-gray-50 px-3 py-2 shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.08)]" />
                   </tr>
                 </thead>
                 <tbody>
@@ -1229,7 +1236,9 @@ export default function EventDetailPage() {
                         <td className="px-3 py-1.5 font-mono text-xs text-gray-500">
                           {r.student_id ?? <span className="text-amber-600 font-sans">訪客</span>}
                         </td>
-                        <td className="px-3 py-1.5 font-medium">{getDisplayName(r)}</td>
+                        <td className={`px-3 py-1.5 font-medium sticky left-0 z-[1] shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
+                          {getDisplayName(r)}
+                        </td>
                         {fields.map(f => (
                           <td key={f.field_id} className="px-3 py-1.5 text-gray-700">
                             {formatFieldValue(f, r.answers?.[f.field_key])}
@@ -1250,7 +1259,7 @@ export default function EventDetailPage() {
                               : '-'}
                           </td>
                         )}
-                        <td className="px-3 py-1.5 text-right">
+                        <td className={`px-3 py-1.5 text-right sticky right-0 z-[1] shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                           <div className="flex gap-2 justify-end">
                             {isGuest && (
                               <button

@@ -349,7 +349,13 @@ function OverviewScreen({
       )}
       {/* 學員資訊卡 */}
       <div className="bg-white rounded-2xl shadow-md p-5 mb-5 border-l-8 border-blue-600">
-        <p className="text-kiosk-xl font-bold text-gray-800">{student?.name} 師兄，您好！</p>
+        {/* 手機：兩行；電腦（sm 以上）：一行 */}
+        <p className="text-kiosk-xl font-bold text-gray-800 hidden sm:block">
+          {student?.name} 師兄，您好 🙏
+        </p>
+        <p className="text-kiosk-xl font-bold text-gray-800 sm:hidden">
+          {student?.name} 師兄<br />您好 🙏
+        </p>
         <div className="flex flex-wrap gap-2 mt-2">
           {classes.map((c, i) => (
             <span key={i} className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-kiosk-sm">

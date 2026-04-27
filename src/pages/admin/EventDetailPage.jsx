@@ -792,6 +792,7 @@ export default function EventDetailPage() {
 
       {/* ── Tab: 活動設定 ── */}
       {tab === 'info' && (
+        <>
         <form onSubmit={handleSaveInfo} className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
@@ -882,6 +883,7 @@ export default function EventDetailPage() {
             {locking ? '處理中…' : event.locked ? '🔓 解除鎖定' : '🔒 停止異動'}
           </button>
         </div>
+        </>
       )}
 
       {/* ── Tab: 動態欄位 ── */}

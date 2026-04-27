@@ -149,18 +149,36 @@ export default function DynamicForm({ fields, answers, onChange }) {
             </div>
           )}
 
-          {/* 日期時間 — 原生 datetime-local，放大顯示 */}
-          {field.field_type === 'datetime' && (
-            <div>
-              <input
-                type="datetime-local"
-                value={answers[field.field_key] || ''}
-                onChange={e => handleChange(field.field_key, e.target.value)}
-                className="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-kiosk-base focus:outline-none focus:border-blue-500"
-              />
-              <p className="text-sm text-gray-400 mt-2">請選擇日期與時間（年 / 月 / 日　時 : 分）</p>
-            </div>
-          )}
+          {/* 日期時間 — 拆成日期 + 時間兩個輸入框，確保 24 小時制 */}
+          {field.field_type === 'datetime' && (() => {
+            const raw = answers[field.field_key] || ''
+            const [datePart, timePart] = raw.includes('T') ? raw.split('T') : [raw, '']
+            function onDateChange(d) {
+              handleChange(field.field_key, d ? `${d}T${timePart || ''}` : '')
+            }
+            function onTimeChange(t) {
+              handleChange(field.field_key, datePart ? `${datePart}T${t}` : '')
+            }
+            return (
+              <div>
+                <div className="flex gap-3">
+                  <input
+                    type="date"
+                    value={datePart}
+                    onChange={e => onDateChange(e.target.value)}
+                    className="flex-1 border-2 border-gray-300 rounded-xl px-4 py-4 text-kiosk-base focus:outline-none focus:border-blue-500"
+                  />
+                  <input
+                    type="time"
+                    value={timePart}
+                    onChange={e => onTimeChange(e.target.value)}
+                    className="w-36 border-2 border-gray-300 rounded-xl px-4 py-4 text-kiosk-base focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <p className="text-sm text-gray-400 mt-2">請選擇日期與時間（年 / 月 / 日　時 : 分）</p>
+              </div>
+            )
+          })()}
         </div>
       ))}
     </div>

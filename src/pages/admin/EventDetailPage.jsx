@@ -82,12 +82,10 @@ const DEFAULT_TEMPLATE_FIELDS = [
 function FieldRow({ field, onChange, onRemove, allFields, index, onDragStart, onDragOver, onDrop, isDragOver }) {
   const options = field.options || []
 
-  // 顯示名稱改變時，只更新 label（不在打字過程中動 field_key，避免抓到注音中間狀態）
   function handleLabelChange(label) {
     onChange({ ...field, field_label: label })
   }
 
-  // 離開顯示名稱欄位時，若程式識別碼還是空的才自動帶入
   function handleLabelBlur(label) {
     if (!field.field_key && label) {
       onChange({ ...field, field_label: label, field_key: label })
@@ -108,11 +106,8 @@ function FieldRow({ field, onChange, onRemove, allFields, index, onDragStart, on
     onChange({ ...field, options: options.filter((_, j) => j !== i) })
   }
 
-  // 條件顯示
   const showIfKey = field.show_if ? Object.keys(field.show_if)[0] ?? '' : ''
   const showIfVal = field.show_if ? Object.values(field.show_if)[0] ?? '' : ''
-
-  // 找到目前選中的父欄位，取其選項
   const parentField = allFields.find(f => f.field_key === showIfKey)
   const parentOptions = parentField?.options || []
 
@@ -135,7 +130,6 @@ function FieldRow({ field, onChange, onRemove, allFields, index, onDragStart, on
         isDragOver ? 'border-amber-400 bg-amber-50 scale-[1.01]' : 'border-gray-200'
       }`}
     >
-      {/* 拖曳把手 */}
       <div className="flex items-center gap-2 -mb-1">
         <span
           className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 select-none text-base leading-none px-0.5"
@@ -197,7 +191,6 @@ function FieldRow({ field, onChange, onRemove, allFields, index, onDragStart, on
         </div>
       </div>
 
-      {/* 選項列表：每項獨立輸入框（boolean 不需要選項） */}
       {(field.field_type === 'radio' || field.field_type === 'checkbox') && (
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-2">選項</label>
@@ -230,7 +223,6 @@ function FieldRow({ field, onChange, onRemove, allFields, index, onDragStart, on
         </div>
       )}
 
-      {/* 條件顯示：下拉選單，不需手打程式識別碼 */}
       <div>
         <label className="block text-xs font-medium text-gray-500 mb-1">
           條件顯示（當某欄位選了特定值才出現；不需要請選「不設條件」）
@@ -281,8 +273,7 @@ function FieldRow({ field, onChange, onRemove, allFields, index, onDragStart, on
   )
 }
 
-// ── 欄位值顯示格式化 ────────────────────────────────────────
-// datetime-local 回傳格式 "2026-04-25T08:00" → "2026/04/25 08:00"
+// ── 欄位值格式化 ────────────────────────────────────────────
 function formatFieldValue(field, val) {
   if (val === undefined || val === null || val === '') return '-'
   if (field.field_type === 'boolean') return val === true ? '✓ 是' : '✗ 否'
@@ -302,7 +293,7 @@ function formatEventDate(ev) {
   return `${fmt(ev.date_start)} ～ ${fmt(ev.date_end)}`
 }
 
-// ── 取得顯示名稱（學員或訪客）────────────────────────────────
+// ── 顯示名稱（學員或訪客）────────────────────────────────────
 function getDisplayName(r) {
   if (r.students?.name) return r.students.name
   if (r.answers?.guest_name) return r.answers.guest_name
@@ -349,11 +340,9 @@ export default function EventDetailPage() {
   const [fields, setFields] = useState([])
   const [registrations, setRegistrations] = useState([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('info') // info | fields | registrations
+  const [tab, setTab] = useState('info')
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
-
-  // 活動基本資料（編輯用）
   const [form, setForm] = useState({})
 
   // 欄位拖曳排序
@@ -375,10 +364,14 @@ export default function EventDetailPage() {
   const [guestName, setGuestName] = useState('')
   const [guestAnswers, setGuestAnswers] = useState({})
   const [guestSaving, setGuestSaving] = useState(false)
-  const [guestRegId, setGuestRegId] = useState(null) // 新增成功後的 registration_id
+  const [guestRegId, setGuestRegId] = useState(null)
 
-  // 補看 QR code modal（訪客用）
+  // 補看 QR code modal（單張）
   const [qrModal, setQrModal] = useState(null) // null | { registrationId, name }
+
+  // 批次列印
+  const [selectedGuestIds, setSelectedGuestIds] = useState(new Set())
+  const [batchPrintOpen, setBatchPrintOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -399,10 +392,34 @@ export default function EventDetailPage() {
     })
     setFields(f)
     setRegistrations(r)
+    setSelectedGuestIds(new Set()) // 重新載入後清除選取
     setLoading(false)
   }, [id, navigate])
 
   useEffect(() => { load() }, [load])
+
+  // 批次列印相關衍生狀態
+  const guestRegistrations = registrations.filter(r => !r.student_id)
+  const hasGuests = guestRegistrations.length > 0
+  const allGuestsSelected = hasGuests && guestRegistrations.every(r => selectedGuestIds.has(r.registration_id))
+  const selectedGuestRegs = guestRegistrations.filter(r => selectedGuestIds.has(r.registration_id))
+
+  function toggleGuestSelect(regId) {
+    setSelectedGuestIds(prev => {
+      const next = new Set(prev)
+      if (next.has(regId)) next.delete(regId)
+      else next.add(regId)
+      return next
+    })
+  }
+
+  function toggleSelectAllGuests() {
+    if (allGuestsSelected) {
+      setSelectedGuestIds(new Set())
+    } else {
+      setSelectedGuestIds(new Set(guestRegistrations.map(r => r.registration_id)))
+    }
+  }
 
   // 儲存活動基本資料
   async function handleSaveInfo(e) {
@@ -428,7 +445,6 @@ export default function EventDetailPage() {
     setSaving(false)
     const msg = success ? '✅ 欄位已儲存' : `❌ 儲存失敗：${error}`
     setSaveMsg(msg)
-    // 成功才自動消失；失敗則保留讓師父看到錯誤
     if (success) setTimeout(() => setSaveMsg(''), 3000)
   }
 
@@ -452,7 +468,7 @@ export default function EventDetailPage() {
     setGuestSaving(false)
     if (error) { alert(`新增失敗：${error}`); return }
     setGuestRegId(registrationId)
-    await load() // 重新載入報名名單
+    await load()
   }
 
   async function handleDeleteRegistration(registrationId, studentName) {
@@ -460,6 +476,11 @@ export default function EventDetailPage() {
     const { success, error } = await deleteRegistration(registrationId)
     if (!success) { alert(`取消失敗：${error}`); return }
     setRegistrations(prev => prev.filter(r => r.registration_id !== registrationId))
+    setSelectedGuestIds(prev => {
+      const next = new Set(prev)
+      next.delete(registrationId)
+      return next
+    })
   }
 
   function addField() {
@@ -483,10 +504,111 @@ export default function EventDetailPage() {
 
   return (
     <AdminLayout>
-      {/* ── 補看 QR code Modal ── */}
+      {/* ── 批次列印 Modal ── */}
+      {batchPrintOpen && (
+        <>
+          <style>{`
+            @page { size: A4 portrait; margin: 6mm; }
+            @media print {
+              body * { visibility: hidden !important; }
+              .batch-print-cards, .batch-print-cards * { visibility: visible !important; }
+              .batch-print-overlay {
+                position: static !important;
+                background: transparent !important;
+                overflow: visible !important;
+                display: block !important;
+                height: auto !important;
+              }
+              .batch-print-toolbar { display: none !important; }
+              .batch-print-preview {
+                overflow: visible !important;
+                padding: 0 !important;
+                flex: none !important;
+              }
+              .batch-print-cards {
+                display: grid !important;
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 4mm !important;
+                max-width: none !important;
+                margin: 0 !important;
+                width: 100% !important;
+              }
+              .batch-print-card {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+              }
+            }
+          `}</style>
+          <div className="batch-print-overlay fixed inset-0 z-50 flex flex-col bg-gray-100">
+            {/* 頂部工具列 */}
+            <div className="batch-print-toolbar bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 shrink-0 shadow-sm">
+              <div>
+                <h3 className="text-base font-bold text-gray-800">批次列印訪客通行證</h3>
+                <p className="text-xs text-gray-400">共 {selectedGuestRegs.length} 張・一張 A4 可印 8 張・列印後沿虛線剪開，每人一張</p>
+              </div>
+              <div className="ml-auto flex gap-3">
+                <button
+                  onClick={() => window.print()}
+                  className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+                >
+                  🖨️ 列印
+                </button>
+                <button
+                  onClick={() => setBatchPrintOpen(false)}
+                  className="border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+                >
+                  關閉
+                </button>
+              </div>
+            </div>
+
+            {/* 卡片預覽區 */}
+            <div className="batch-print-preview flex-1 overflow-auto p-6">
+              <div
+                className="batch-print-cards"
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', maxWidth: '600px', margin: '0 auto' }}
+              >
+                {selectedGuestRegs.map(r => (
+                  <div
+                    key={r.registration_id}
+                    className="batch-print-card"
+                    style={{
+                      border: '1.5px dashed #d1d5db',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      textAlign: 'center',
+                      background: 'white',
+                      breakInside: 'avoid',
+                      pageBreakInside: 'avoid',
+                    }}
+                  >
+                    <p style={{ fontSize: '9px', color: '#9ca3af', letterSpacing: '3px', marginBottom: '6px', fontWeight: '600' }}>
+                      普宜精舍
+                    </p>
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
+                      <QRCodeSVG value={r.registration_id} size={80} />
+                    </div>
+                    <p style={{ fontSize: '15px', fontWeight: 'bold', color: '#1f2937', margin: '0 0 3px' }}>
+                      {getDisplayName(r)}
+                    </p>
+                    <p style={{ fontSize: '11px', color: '#4b5563', margin: '0 0 2px' }}>{event.name}</p>
+                    {event.date_start && (
+                      <p style={{ fontSize: '10px', color: '#6b7280', margin: 0 }}>{formatEventDate(event)}</p>
+                    )}
+                    <p style={{ fontSize: '8px', color: '#d1d5db', marginTop: '6px' }}>
+                      掃描此 QR code 即可報到
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── 補看 QR code Modal（單張）── */}
       {qrModal && (
         <>
-          {/* 列印時只顯示卡片，隱藏其他所有內容 */}
           <style>{`
             @media print {
               body * { visibility: hidden; }
@@ -501,8 +623,6 @@ export default function EventDetailPage() {
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center">
               <p className="text-sm text-gray-400 mb-4">截圖或列印後交給訪客，報到時掃描即可</p>
-
-              {/* 可列印卡片 */}
               <div className="qr-print-card border-2 border-gray-200 rounded-xl p-5 mb-4 bg-white">
                 <p className="text-sm font-semibold text-gray-400 tracking-widest mb-3">普宜精舍</p>
                 <div className="flex justify-center mb-4">
@@ -515,7 +635,6 @@ export default function EventDetailPage() {
                 )}
                 <p className="text-xs text-gray-300 mt-3">掃描此 QR code 即可報到</p>
               </div>
-
               <div className="flex gap-3">
                 <button
                   onClick={() => window.print()}
@@ -540,7 +659,6 @@ export default function EventDetailPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
             {guestRegId ? (
-              /* 新增成功：顯示可列印 QR code 卡片 */
               <>
                 <style>{`
                   @media print {
@@ -585,7 +703,6 @@ export default function EventDetailPage() {
                 </div>
               </>
             ) : (
-              /* 填寫訪客資料 */
               <form onSubmit={handleGuestSubmit}>
                 <h3 className="text-lg font-bold text-gray-800 mb-4">新增訪客報名</h3>
                 <div className="mb-4">
@@ -626,6 +743,7 @@ export default function EventDetailPage() {
           </div>
         </div>
       )}
+
       {/* 麵包屑 */}
       <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
         <Link to="/admin/events" className="hover:text-amber-700">活動管理</Link>
@@ -780,9 +898,26 @@ export default function EventDetailPage() {
       {/* ── Tab: 報名名單 ── */}
       {tab === 'registrations' && (
         <div>
-          <div className="flex justify-between items-center mb-4">
-            <p className="text-sm text-gray-500">共 {registrations.length} 筆報名</p>
-            <div className="flex gap-2">
+          {/* 工具列 */}
+          <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-gray-500">共 {registrations.length} 筆報名</p>
+              {hasGuests && selectedGuestIds.size > 0 && (
+                <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
+                  已選 {selectedGuestIds.size} 位訪客
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {/* 批次列印按鈕（有選取時才顯示）*/}
+              {selectedGuestIds.size > 0 && (
+                <button
+                  onClick={() => setBatchPrintOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  🖨️ 批次列印（{selectedGuestIds.size}）
+                </button>
+              )}
               <button
                 onClick={openGuestModal}
                 className="bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -807,6 +942,18 @@ export default function EventDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
+                    {/* 訪客 checkbox 欄（有訪客才顯示） */}
+                    {hasGuests && (
+                      <th className="px-3 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={allGuestsSelected}
+                          onChange={toggleSelectAllGuests}
+                          title="全選訪客"
+                          className="accent-amber-600 cursor-pointer w-4 h-4"
+                        />
+                      </th>
+                    )}
                     <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">學員編號</th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">姓名</th>
                     {fields.map(f => (
@@ -820,48 +967,70 @@ export default function EventDetailPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {registrations.map(r => (
-                    <tr key={r.registration_id} className="border-b border-gray-50 hover:bg-amber-50/30">
-                      <td className="px-4 py-3 font-mono text-xs text-gray-500">
-                        {r.student_id ?? <span className="text-amber-600 font-sans">訪客</span>}
-                      </td>
-                      <td className="px-4 py-3 font-medium">{getDisplayName(r)}</td>
-                      {fields.map(f => (
-                        <td key={f.field_id} className="px-4 py-3 text-gray-700">
-                          {formatFieldValue(f, r.answers?.[f.field_key])}
+                  {registrations.map(r => {
+                    const isGuest = !r.student_id
+                    const isSelected = isGuest && selectedGuestIds.has(r.registration_id)
+                    return (
+                      <tr
+                        key={r.registration_id}
+                        className={`border-b border-gray-50 transition-colors ${
+                          isSelected ? 'bg-blue-50' : 'hover:bg-amber-50/30'
+                        }`}
+                      >
+                        {/* Checkbox（有訪客才顯示此欄） */}
+                        {hasGuests && (
+                          <td className="px-3 py-3 text-center">
+                            {isGuest && (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleGuestSelect(r.registration_id)}
+                                className="accent-amber-600 cursor-pointer w-4 h-4"
+                              />
+                            )}
+                          </td>
+                        )}
+                        <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                          {r.student_id ?? <span className="text-amber-600 font-sans">訪客</span>}
                         </td>
-                      ))}
-                      <td className="px-4 py-3">
-                        {r.checked_in_at
-                          ? <span className="text-green-600 text-xs font-medium">✓ 已報到</span>
-                          : <span className="text-gray-300 text-xs">—</span>
-                        }
-                      </td>
-                      <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
-                        {r.registered_at
-                          ? new Date(r.registered_at).toLocaleString('zh-TW', { hour12: false })
-                          : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex gap-2 justify-end">
-                          {!r.student_id && (
+                        <td className="px-4 py-3 font-medium">{getDisplayName(r)}</td>
+                        {fields.map(f => (
+                          <td key={f.field_id} className="px-4 py-3 text-gray-700">
+                            {formatFieldValue(f, r.answers?.[f.field_key])}
+                          </td>
+                        ))}
+                        <td className="px-4 py-3">
+                          {r.checked_in_at
+                            ? <span className="text-green-600 text-xs font-medium">✓ 已報到</span>
+                            : <span className="text-gray-300 text-xs">—</span>
+                          }
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                          {r.registered_at
+                            ? new Date(r.registered_at).toLocaleString('zh-TW', { hour12: false })
+                            : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex gap-2 justify-end">
+                            {isGuest && (
+                              <button
+                                onClick={() => setQrModal({ registrationId: r.registration_id, name: getDisplayName(r) })}
+                                className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 hover:border-amber-400 px-2 py-1 rounded transition-colors"
+                              >
+                                QR code
+                              </button>
+                            )}
                             <button
-                              onClick={() => setQrModal({ registrationId: r.registration_id, name: getDisplayName(r) })}
-                              className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 hover:border-amber-400 px-2 py-1 rounded transition-colors"
+                              onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
+                              className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
                             >
-                              QR code
+                              取消報名
                             </button>
-                          )}
-                          <button
-                            onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
-                            className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
-                          >
-                            取消報名
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

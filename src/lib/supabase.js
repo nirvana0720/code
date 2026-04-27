@@ -380,6 +380,68 @@ export async function deleteRegistration(registrationId) {
   return { success: true, error: null }
 }
 
+// ─── 學員匯入（後台）────────────────────────────────────────
+
+/**
+ * 批次匯入學員資料
+ * @param {Array<{student_id, name, class_name, group_name}>} rows
+ */
+export async function importStudents(rows) {
+  // 依 student_id 去重，建立唯一學員清單
+  const studentMap = new Map()
+  for (const row of rows) {
+    if (row.student_id && row.name && !studentMap.has(row.student_id)) {
+      studentMap.set(row.student_id, {
+        student_id: row.student_id,
+        name: row.name,
+        qr_code: row.student_id,
+        active: true,
+      })
+    }
+  }
+
+  const studentRows = [...studentMap.values()]
+  const studentIds = studentRows.map(s => s.student_id)
+
+  if (studentRows.length === 0) {
+    return { success: false, imported: 0, error: '沒有有效的學員資料' }
+  }
+
+  // 1. Upsert students（衝突時更新 name、qr_code，不動 created_at）
+  const { error: studentErr } = await supabase
+    .from('students')
+    .upsert(studentRows, { onConflict: 'student_id' })
+
+  if (studentErr) return { success: false, imported: 0, error: studentErr.message }
+
+  // 2. 刪除這些學員的舊班別紀錄
+  const { error: delErr } = await supabase
+    .from('student_classes')
+    .delete()
+    .in('student_id', studentIds)
+
+  if (delErr) return { success: false, imported: 0, error: delErr.message }
+
+  // 3. 插入新班別紀錄（跳過沒有班級的列）
+  const classRows = rows
+    .filter(r => r.student_id && r.class_name?.trim())
+    .map(r => ({
+      student_id: r.student_id,
+      class_name: r.class_name.trim(),
+      group_name: r.group_name?.trim() || null,
+    }))
+
+  if (classRows.length > 0) {
+    const { error: classErr } = await supabase
+      .from('student_classes')
+      .insert(classRows)
+
+    if (classErr) return { success: false, imported: 0, error: classErr.message }
+  }
+
+  return { success: true, imported: studentRows.length, error: null }
+}
+
 export async function getAllStudents(search = '') {
   let query = supabase
     .from('students')

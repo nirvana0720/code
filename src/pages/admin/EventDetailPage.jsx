@@ -38,19 +38,35 @@ const DEFAULT_TEMPLATE_FIELDS = [
     required: true,
   },
   {
-    field_key: 'transport',
-    field_label: '交通方式',
+    field_key: 'transport_up',
+    field_label: '上山交通方式',
     field_type: 'radio',
     options: ['精舍共乘', '自行開車', '其他'],
-    show_if: null,
+    show_if: { identity: '義工' },
     required: true,
   },
   {
-    field_key: 'plate_no',
-    field_label: '車牌號碼',
+    field_key: 'plate_up',
+    field_label: '上山車牌號碼',
     field_type: 'plate',
     options: [],
-    show_if: { transport: '自行開車' },
+    show_if: { transport_up: '自行開車' },
+    required: true,
+  },
+  {
+    field_key: 'transport_down',
+    field_label: '下山交通方式',
+    field_type: 'radio',
+    options: ['精舍共乘', '自行開車', '其他'],
+    show_if: { identity: '義工' },
+    required: true,
+  },
+  {
+    field_key: 'plate_down',
+    field_label: '下山車牌號碼',
+    field_type: 'plate',
+    options: [],
+    show_if: { transport_down: '自行開車' },
     required: true,
   },
   {
@@ -301,6 +317,24 @@ function getDisplayName(r) {
   return '-'
 }
 
+// ── 可排序表頭欄 ────────────────────────────────────────────
+function SortTh({ label, colKey, current, dir, onSort, className = '' }) {
+  const active = current === colKey
+  return (
+    <th
+      onClick={() => onSort(colKey)}
+      className={`text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap cursor-pointer select-none hover:text-amber-700 hover:bg-amber-50/60 transition-colors ${className}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <span className={`text-xs leading-none ${active ? 'text-amber-600' : 'text-gray-300'}`}>
+          {active ? (dir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </span>
+    </th>
+  )
+}
+
 // ── CSV 匯出 ───────────────────────────────────────────────
 function exportCSV(registrations, fields) {
   const answerHeaders = fields.map(f => f.field_label)
@@ -346,6 +380,19 @@ export default function EventDetailPage() {
   const [saveMsg, setSaveMsg] = useState('')
   const [form, setForm] = useState({})
   const [locking, setLocking] = useState(false)
+
+  // 報名名單排序
+  const [sortKey, setSortKey] = useState('registered_at')
+  const [sortDir, setSortDir] = useState('desc')
+
+  function handleSort(key) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
 
   // 欄位拖曳排序
   const [dragIndex, setDragIndex] = useState(null)
@@ -399,6 +446,35 @@ export default function EventDetailPage() {
   }, [id, navigate])
 
   useEffect(() => { load() }, [load])
+
+  // 排序後的報名名單
+  const sortedRegistrations = [...registrations].sort((a, b) => {
+    let aVal = '', bVal = ''
+    if (sortKey === 'student_id') {
+      aVal = a.student_id ?? '\uFFFF'  // 訪客排最後
+      bVal = b.student_id ?? '\uFFFF'
+    } else if (sortKey === 'name') {
+      aVal = getDisplayName(a)
+      bVal = getDisplayName(b)
+    } else if (sortKey === 'checked_in_at') {
+      aVal = a.checked_in_at ?? ''
+      bVal = b.checked_in_at ?? ''
+    } else if (sortKey === 'registered_at') {
+      aVal = a.registered_at ?? ''
+      bVal = b.registered_at ?? ''
+    } else if (sortKey.startsWith('field:')) {
+      const fKey = sortKey.slice(6)
+      let av = a.answers?.[fKey] ?? ''
+      let bv = b.answers?.[fKey] ?? ''
+      if (typeof av === 'boolean') av = av ? '是' : '否'
+      if (typeof bv === 'boolean') bv = bv ? '是' : '否'
+      if (Array.isArray(av)) av = av.join('、')
+      if (Array.isArray(bv)) bv = bv.join('、')
+      aVal = av; bVal = bv
+    }
+    const cmp = String(aVal).localeCompare(String(bVal), 'zh-TW', { numeric: true })
+    return sortDir === 'asc' ? cmp : -cmp
+  })
 
   // 批次列印相關衍生狀態
   const guestRegistrations = registrations.filter(r => !r.student_id)
@@ -996,20 +1072,25 @@ export default function EventDetailPage() {
                         />
                       </th>
                     )}
-                    <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">學員編號</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">姓名</th>
+                    <SortTh label="學員編號" colKey="student_id" current={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortTh label="姓名" colKey="name" current={sortKey} dir={sortDir} onSort={handleSort} />
                     {fields.map(f => (
-                      <th key={f.field_id} className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">
-                        {f.field_label}
-                      </th>
+                      <SortTh
+                        key={f.field_id ?? f.field_key}
+                        label={f.field_label}
+                        colKey={`field:${f.field_key}`}
+                        current={sortKey}
+                        dir={sortDir}
+                        onSort={handleSort}
+                      />
                     ))}
-                    <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">報到</th>
-                    <th className="text-left px-4 py-3 font-medium text-gray-600 whitespace-nowrap">報名時間</th>
+                    <SortTh label="報到" colKey="checked_in_at" current={sortKey} dir={sortDir} onSort={handleSort} />
+                    <SortTh label="報名時間" colKey="registered_at" current={sortKey} dir={sortDir} onSort={handleSort} />
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
-                  {registrations.map(r => {
+                  {sortedRegistrations.map(r => {
                     const isGuest = !r.student_id
                     const isSelected = isGuest && selectedGuestIds.has(r.registration_id)
                     return (

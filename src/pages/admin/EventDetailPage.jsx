@@ -6,6 +6,7 @@ import DynamicForm from '../../components/DynamicForm'
 import {
   getAllEvents,
   updateEvent,
+  toggleEventLock,
   getEventFields,
   saveEventFields,
   getRegistrationsWithStudents,
@@ -344,6 +345,7 @@ export default function EventDetailPage() {
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [form, setForm] = useState({})
+  const [locking, setLocking] = useState(false)
 
   // 欄位拖曳排序
   const [dragIndex, setDragIndex] = useState(null)
@@ -842,6 +844,44 @@ export default function EventDetailPage() {
             </button>
           </div>
         </form>
+
+        {/* 停止異動區塊 */}
+        <div className={`mt-4 rounded-xl border-2 p-5 flex items-start gap-4 ${
+          event.locked
+            ? 'border-red-300 bg-red-50'
+            : 'border-gray-200 bg-white'
+        }`}>
+          <div className="flex-1">
+            <p className={`text-sm font-semibold ${event.locked ? 'text-red-700' : 'text-gray-700'}`}>
+              {event.locked ? '🔒 報名已鎖定（停止異動中）' : '🔓 報名開放中'}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {event.locked
+                ? '前台學員只能查看報名資料，無法新增、修改或取消。如需調整請在此解鎖。'
+                : '按下「停止異動」後，前台將顯示「如需異動請聯絡精舍」，學員無法自行新增或取消報名。'}
+            </p>
+          </div>
+          <button
+            disabled={locking}
+            onClick={async () => {
+              setLocking(true)
+              const newLocked = !event.locked
+              const { success, error: err } = await toggleEventLock(id, newLocked)
+              setLocking(false)
+              if (!success) { setSaveMsg(`❌ 操作失敗：${err}`); return }
+              setEvent(ev => ({ ...ev, locked: newLocked }))
+              setSaveMsg(newLocked ? '🔒 已停止異動' : '🔓 已開放異動')
+              setTimeout(() => setSaveMsg(''), 3000)
+            }}
+            className={`shrink-0 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+              event.locked
+                ? 'bg-white border-2 border-red-400 text-red-700 hover:bg-red-100'
+                : 'bg-red-600 hover:bg-red-700 text-white'
+            }`}
+          >
+            {locking ? '處理中…' : event.locked ? '🔓 解除鎖定' : '🔒 停止異動'}
+          </button>
+        </div>
       )}
 
       {/* ── Tab: 動態欄位 ── */}

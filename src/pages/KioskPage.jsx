@@ -422,52 +422,74 @@ function OverviewScreen({
                 </div>
 
                 <div className="flex-shrink-0">
-                  {!registered && (
-                    <button
-                      onClick={() => onSelectEvent({ event, fields })}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-xl text-kiosk-sm font-bold shadow active:scale-95 transition-transform"
-                    >
-                      立即報名
-                    </button>
-                  )}
-                  {registered && !confirming && (
-                    <button
-                      onClick={() => onSelectEvent({ event, fields })}
-                      className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
-                    >
-                      ✓ 已報名<br/>
-                      <span className="text-xs font-normal">點此修改</span>
-                    </button>
-                  )}
-                  {confirming && (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => onRequestCancel(null)}
-                        className="px-4 py-2 border-2 border-gray-300 text-gray-600 rounded-xl text-kiosk-sm active:scale-95 transition-transform"
-                      >
-                        不了
-                      </button>
-                      <button
-                        onClick={() => onConfirmCancel(event.event_id)}
-                        className="px-4 py-2 bg-red-500 text-white rounded-xl text-kiosk-sm font-bold active:scale-95 transition-transform"
-                      >
-                        確認取消
-                      </button>
-                    </div>
+                  {/* 活動鎖定：只顯示狀態，不提供任何操作 */}
+                  {event.locked ? (
+                    registered ? (
+                      <span className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 inline-block text-center">
+                        ✓ 已報名
+                      </span>
+                    ) : (
+                      <span className="px-4 py-2 border-2 border-gray-200 text-gray-400 rounded-xl text-kiosk-sm inline-block text-center">
+                        未報名
+                      </span>
+                    )
+                  ) : (
+                    <>
+                      {!registered && (
+                        <button
+                          onClick={() => onSelectEvent({ event, fields })}
+                          className="px-4 py-2 bg-blue-600 text-white rounded-xl text-kiosk-sm font-bold shadow active:scale-95 transition-transform"
+                        >
+                          立即報名
+                        </button>
+                      )}
+                      {registered && !confirming && (
+                        <button
+                          onClick={() => onSelectEvent({ event, fields })}
+                          className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
+                        >
+                          ✓ 已報名<br/>
+                          <span className="text-xs font-normal">點此修改</span>
+                        </button>
+                      )}
+                      {confirming && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => onRequestCancel(null)}
+                            className="px-4 py-2 border-2 border-gray-300 text-gray-600 rounded-xl text-kiosk-sm active:scale-95 transition-transform"
+                          >
+                            不了
+                          </button>
+                          <button
+                            onClick={() => onConfirmCancel(event.event_id)}
+                            className="px-4 py-2 bg-red-500 text-white rounded-xl text-kiosk-sm font-bold active:scale-95 transition-transform"
+                          >
+                            確認取消
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
 
-              {/* 下方：取消報名按鈕（已報名且非確認中才顯示） */}
-              {registered && !confirming && (
-                <div className="mt-3 pt-3 border-t border-gray-100 text-right">
-                  <button
-                    onClick={() => onRequestCancel(event.event_id)}
-                    className="text-kiosk-sm text-red-400 border border-red-200 px-4 py-1.5 rounded-xl active:scale-95 transition-transform"
-                  >
-                    取消報名
-                  </button>
+              {/* 鎖定提示（取代取消報名按鈕） */}
+              {event.locked ? (
+                <div className="mt-3 pt-3 border-t border-gray-100 text-center">
+                  <p className="text-kiosk-sm text-gray-400">如需新增或異動報名，請聯絡精舍</p>
                 </div>
+              ) : (
+                /* 下方：取消報名按鈕（已報名且非確認中才顯示） */
+                registered && !confirming && (
+                  <div className="mt-3 pt-3 border-t border-gray-100 text-right">
+                    <button
+                      onClick={() => onRequestCancel(event.event_id)}
+                      className="text-kiosk-sm text-red-400 border border-red-200 px-4 py-1.5 rounded-xl active:scale-95 transition-transform"
+                    >
+                      取消報名
+                    </button>
+                  </div>
+                )
               )}
             </div>
           )

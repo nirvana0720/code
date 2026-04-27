@@ -211,6 +211,19 @@ export async function updateEvent(eventId, payload) {
 }
 
 /**
+ * 切換活動鎖定狀態（停止／開放異動）
+ */
+export async function toggleEventLock(eventId, locked) {
+  const { error } = await supabase
+    .from('events')
+    .update({ locked })
+    .eq('event_id', eventId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
+/**
  * 取得活動的動態欄位
  */
 export async function getEventFields(eventId) {

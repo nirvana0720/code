@@ -1145,9 +1145,9 @@ export default function EventDetailPage() {
           {registrations.length === 0 ? (
             <p className="text-gray-400 text-sm text-center py-12">尚無報名紀錄</p>
           ) : (
-            <div className="w-full bg-white rounded-xl border border-gray-200 overflow-x-auto">
+            <div className="w-full bg-white rounded-xl border border-gray-200 overflow-auto max-h-[calc(100vh-260px)]">
               <table className="w-full min-w-max text-sm">
-                <thead>
+                <thead className="sticky top-0 z-10">
                   <tr className="border-b border-gray-100 bg-gray-50">
                     {/* 訪客 checkbox 欄（有訪客才顯示） */}
                     {hasGuests && (

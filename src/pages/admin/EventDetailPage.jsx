@@ -38,6 +38,14 @@ const DEFAULT_TEMPLATE_FIELDS = [
     required: true,
   },
   {
+    field_key: 'arrive_time',
+    field_label: '預計到達山上時間',
+    field_type: 'datetime',
+    options: [],
+    show_if: { identity: '義工' },
+    required: true,
+  },
+  {
     field_key: 'transport_up',
     field_label: '上山交通方式',
     field_type: 'radio',
@@ -54,6 +62,14 @@ const DEFAULT_TEMPLATE_FIELDS = [
     required: true,
   },
   {
+    field_key: 'leave_time',
+    field_label: '預計離開山上時間',
+    field_type: 'datetime',
+    options: [],
+    show_if: { identity: '義工' },
+    required: true,
+  },
+  {
     field_key: 'transport_down',
     field_label: '下山交通方式',
     field_type: 'radio',
@@ -67,22 +83,6 @@ const DEFAULT_TEMPLATE_FIELDS = [
     field_type: 'plate',
     options: [],
     show_if: { transport_down: '自行開車' },
-    required: true,
-  },
-  {
-    field_key: 'arrive_time',
-    field_label: '預計到達山上時間',
-    field_type: 'datetime',
-    options: [],
-    show_if: { identity: '義工' },
-    required: true,
-  },
-  {
-    field_key: 'leave_time',
-    field_label: '預計離開山上時間',
-    field_type: 'datetime',
-    options: [],
-    show_if: { identity: '義工' },
     required: true,
   },
   {

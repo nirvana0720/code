@@ -12,6 +12,7 @@ import {
   getRegistrationsWithStudents,
   deleteRegistration,
   createGuestRegistration,
+  updateRegistration,
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
@@ -415,6 +416,41 @@ export default function EventDetailPage() {
   const [guestSaving, setGuestSaving] = useState(false)
   const [guestRegId, setGuestRegId] = useState(null)
 
+  // 編輯報名 modal
+  const [editModal, setEditModal] = useState(null) // null | { registration, isGuest }
+  const [editAnswers, setEditAnswers] = useState({})
+  const [editGuestName, setEditGuestName] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+
+  function openEditModal(r) {
+    setEditModal({ registration: r, isGuest: !r.student_id })
+    setEditAnswers(r.answers ? { ...r.answers } : {})
+    setEditGuestName(r.answers?.guest_name ?? '')
+  }
+
+  function closeEditModal() {
+    setEditModal(null)
+    setEditSaving(false)
+  }
+
+  async function handleEditSave() {
+    if (!editModal) return
+    setEditSaving(true)
+    const { registration, isGuest } = editModal
+    const newAnswers = isGuest
+      ? { ...editAnswers, guest_name: editGuestName.trim() }
+      : { ...editAnswers }
+    const { success, error } = await updateRegistration(registration.registration_id, newAnswers)
+    setEditSaving(false)
+    if (!success) { alert(`儲存失敗：${error}`); return }
+    setRegistrations(prev => prev.map(r =>
+      r.registration_id === registration.registration_id
+        ? { ...r, answers: newAnswers }
+        : r
+    ))
+    closeEditModal()
+  }
+
   // 補看 QR code modal（單張）
   const [qrModal, setQrModal] = useState(null) // null | { registrationId, name }
 
@@ -682,6 +718,59 @@ export default function EventDetailPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── 編輯報名 Modal ── */}
+      {editModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">編輯報名內容</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              {editModal.isGuest
+                ? `訪客：${editModal.registration.answers?.guest_name ?? '-'}`
+                : `學員：${editModal.registration.students?.name ?? '-'}（${editModal.registration.student_id}）`}
+            </p>
+
+            {/* 訪客才顯示姓名欄 */}
+            {editModal.isGuest && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-600 mb-1">
+                  姓名 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  required
+                  value={editGuestName}
+                  onChange={e => setEditGuestName(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+            )}
+
+            {fields.length > 0 && (
+              <div className="mb-4">
+                <DynamicForm fields={fields} answers={editAnswers} onChange={setEditAnswers} />
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={closeEditModal}
+                className="flex-1 border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={editSaving || (editModal.isGuest && !editGuestName.trim())}
+                onClick={handleEditSave}
+                className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+              >
+                {editSaving ? '儲存中…' : '儲存'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── 補看 QR code Modal（單張）── */}
@@ -1143,6 +1232,12 @@ export default function EventDetailPage() {
                                 QR code
                               </button>
                             )}
+                            <button
+                              onClick={() => openEditModal(r)}
+                              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-1 rounded transition-colors"
+                            >
+                              ✏️ 編輯
+                            </button>
                             <button
                               onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
                               className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"

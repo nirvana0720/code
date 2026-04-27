@@ -508,7 +508,7 @@ export default function EventDetailPage() {
       {batchPrintOpen && (
         <>
           <style>{`
-            @page { size: A4 portrait; margin: 3mm; }
+            @page { size: A4 portrait; margin: 2mm; }
             @media print {
               body * { visibility: hidden !important; }
               .batch-print-cards, .batch-print-cards * { visibility: visible !important; }
@@ -527,8 +527,8 @@ export default function EventDetailPage() {
               }
               .batch-print-cards {
                 display: grid !important;
-                grid-template-columns: repeat(3, 1fr) !important;
-                gap: 3mm !important;
+                grid-template-columns: repeat(4, 1fr) !important;
+                gap: 2mm !important;
                 max-width: none !important;
                 margin: 0 !important;
                 width: 100% !important;
@@ -544,7 +544,7 @@ export default function EventDetailPage() {
             <div className="batch-print-toolbar bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 shrink-0 shadow-sm">
               <div>
                 <h3 className="text-base font-bold text-gray-800">批次列印訪客通行證</h3>
-                <p className="text-xs text-gray-400">共 {selectedGuestRegs.length} 張・一張 A4 可印 12 張（3 欄 × 4 列）・列印後沿虛線剪開，每人一張</p>
+                <p className="text-xs text-gray-400">共 {selectedGuestRegs.length} 張・一列 4 張・列印後沿虛線剪開，每人一張</p>
               </div>
               <div className="ml-auto flex gap-3">
                 <button
@@ -563,10 +563,10 @@ export default function EventDetailPage() {
             </div>
 
             {/* 卡片預覽區 */}
-            <div className="batch-print-preview flex-1 overflow-auto p-6">
+            <div className="batch-print-preview flex-1 overflow-auto p-3">
               <div
                 className="batch-print-cards"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', maxWidth: '800px', margin: '0 auto' }}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', maxWidth: '880px', margin: '0 auto' }}
               >
                 {selectedGuestRegs.map(r => (
                   <div
@@ -575,18 +575,18 @@ export default function EventDetailPage() {
                     style={{
                       border: '1px dashed #d1d5db',
                       borderRadius: '6px',
-                      padding: '8px 10px',
+                      padding: '8px 8px',
                       textAlign: 'center',
                       background: 'white',
                       breakInside: 'avoid',
                       pageBreakInside: 'avoid',
                     }}
                   >
-                    <p style={{ fontSize: '8px', color: '#9ca3af', letterSpacing: '3px', marginBottom: '5px', fontWeight: '600' }}>
+                    <p style={{ fontSize: '8px', color: '#9ca3af', letterSpacing: '2px', marginBottom: '4px', fontWeight: '600' }}>
                       普宜精舍
                     </p>
                     <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '5px' }}>
-                      <QRCodeSVG value={r.registration_id} size={70} />
+                      <QRCodeSVG value={r.registration_id} size={110} />
                     </div>
                     <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#1f2937', margin: '0 0 2px' }}>
                       {getDisplayName(r)}
@@ -595,7 +595,7 @@ export default function EventDetailPage() {
                     {event.date_start && (
                       <p style={{ fontSize: '9px', color: '#6b7280', margin: 0 }}>{formatEventDate(event)}</p>
                     )}
-                    <p style={{ fontSize: '7px', color: '#d1d5db', marginTop: '5px' }}>
+                    <p style={{ fontSize: '7px', color: '#d1d5db', marginTop: '4px' }}>
                       掃描此 QR code 即可報到
                     </p>
                   </div>

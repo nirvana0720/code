@@ -417,7 +417,7 @@ function OverviewScreen({
                               {idx + 1}
                             </span>
                             <span className="flex-1 min-w-0">
-                              <span className="block text-xs text-gray-400 leading-tight">{item.label}</span>
+                              <span className="block text-kiosk-sm text-blue-600 leading-tight">{item.label}</span>
                               <span className="block text-kiosk-sm text-gray-800 font-medium leading-snug">{item.display}</span>
                             </span>
                           </div>

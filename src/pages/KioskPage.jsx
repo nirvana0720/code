@@ -390,31 +390,41 @@ function OverviewScreen({
                     {event.location ? `　${event.location}` : ''}
                   </p>
                   {/* 已報名則顯示報名資料摘要（依後台欄位順序） */}
-                  {registered && !confirming && reg.answers && (
-                    <div className="mt-2 text-kiosk-sm text-gray-600 space-y-0.5">
-                      {fields.map(f => {
-                        const v = reg.answers[f.field_key]
-                        if (v === undefined || v === null || v === '') return null
-                        let display
-                        if (f.field_type === 'boolean') {
-                          display = v === true ? '是' : v === false ? '否' : ''
-                        } else if (f.field_type === 'datetime' && typeof v === 'string') {
-                          display = v.replace('T', ' ')
-                        } else if (Array.isArray(v)) {
-                          display = v.join('、')
-                        } else {
-                          display = v
-                        }
-                        if (!display && display !== 0) return null
-                        return (
-                          <p key={f.field_key}>
-                            <span className="text-gray-400">{f.field_label}：</span>
-                            {display}
-                          </p>
-                        )
-                      })}
-                    </div>
-                  )}
+                  {registered && !confirming && reg.answers && (() => {
+                    const items = fields.reduce((acc, f) => {
+                      const v = reg.answers[f.field_key]
+                      if (v === undefined || v === null || v === '') return acc
+                      let display
+                      if (f.field_type === 'boolean') {
+                        display = v === true ? '是' : v === false ? '否' : ''
+                      } else if (f.field_type === 'datetime' && typeof v === 'string') {
+                        display = v.replace('T', ' ')
+                      } else if (Array.isArray(v)) {
+                        display = v.join('、')
+                      } else {
+                        display = v
+                      }
+                      if (!display && display !== 0) return acc
+                      acc.push({ key: f.field_key, label: f.field_label, display })
+                      return acc
+                    }, [])
+                    if (items.length === 0) return null
+                    return (
+                      <div className="mt-3 space-y-1.5">
+                        {items.map((item, idx) => (
+                          <div key={item.key} className="flex items-start gap-2 text-kiosk-sm">
+                            <span className="shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center mt-0.5 leading-none">
+                              {idx + 1}
+                            </span>
+                            <span className="flex-1">
+                              <span className="text-gray-400">{item.label}：</span>
+                              <span className="text-gray-800 font-medium">{item.display}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
                   {/* 取消確認提示 */}
                   {confirming && (
                     <p className="mt-2 text-kiosk-sm text-red-600 font-medium">確定要取消此活動的報名嗎？</p>

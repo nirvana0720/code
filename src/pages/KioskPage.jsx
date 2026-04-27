@@ -410,15 +410,15 @@ function OverviewScreen({
                     }, [])
                     if (items.length === 0) return null
                     return (
-                      <div className="mt-3 space-y-1.5">
+                      <div className="mt-3 space-y-2">
                         {items.map((item, idx) => (
-                          <div key={item.key} className="flex items-start gap-2 text-kiosk-sm">
+                          <div key={item.key} className="flex items-start gap-2">
                             <span className="shrink-0 w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center mt-0.5 leading-none">
                               {idx + 1}
                             </span>
-                            <span className="flex-1">
-                              <span className="text-gray-400">{item.label}：</span>
-                              <span className="text-gray-800 font-medium">{item.display}</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-xs text-gray-400 leading-tight">{item.label}</span>
+                              <span className="block text-kiosk-sm text-gray-800 font-medium leading-snug">{item.display}</span>
                             </span>
                           </div>
                         ))}

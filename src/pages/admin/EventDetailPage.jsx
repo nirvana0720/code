@@ -508,7 +508,7 @@ export default function EventDetailPage() {
       {batchPrintOpen && (
         <>
           <style>{`
-            @page { size: A4 portrait; margin: 6mm; }
+            @page { size: A4 portrait; margin: 3mm; }
             @media print {
               body * { visibility: hidden !important; }
               .batch-print-cards, .batch-print-cards * { visibility: visible !important; }
@@ -527,8 +527,8 @@ export default function EventDetailPage() {
               }
               .batch-print-cards {
                 display: grid !important;
-                grid-template-columns: repeat(2, 1fr) !important;
-                gap: 4mm !important;
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 3mm !important;
                 max-width: none !important;
                 margin: 0 !important;
                 width: 100% !important;
@@ -544,7 +544,7 @@ export default function EventDetailPage() {
             <div className="batch-print-toolbar bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-4 shrink-0 shadow-sm">
               <div>
                 <h3 className="text-base font-bold text-gray-800">批次列印訪客通行證</h3>
-                <p className="text-xs text-gray-400">共 {selectedGuestRegs.length} 張・一張 A4 可印 8 張・列印後沿虛線剪開，每人一張</p>
+                <p className="text-xs text-gray-400">共 {selectedGuestRegs.length} 張・一張 A4 可印 12 張（3 欄 × 4 列）・列印後沿虛線剪開，每人一張</p>
               </div>
               <div className="ml-auto flex gap-3">
                 <button
@@ -566,36 +566,36 @@ export default function EventDetailPage() {
             <div className="batch-print-preview flex-1 overflow-auto p-6">
               <div
                 className="batch-print-cards"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px', maxWidth: '600px', margin: '0 auto' }}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', maxWidth: '800px', margin: '0 auto' }}
               >
                 {selectedGuestRegs.map(r => (
                   <div
                     key={r.registration_id}
                     className="batch-print-card"
                     style={{
-                      border: '1.5px dashed #d1d5db',
-                      borderRadius: '8px',
-                      padding: '10px 12px',
+                      border: '1px dashed #d1d5db',
+                      borderRadius: '6px',
+                      padding: '8px 10px',
                       textAlign: 'center',
                       background: 'white',
                       breakInside: 'avoid',
                       pageBreakInside: 'avoid',
                     }}
                   >
-                    <p style={{ fontSize: '9px', color: '#9ca3af', letterSpacing: '3px', marginBottom: '6px', fontWeight: '600' }}>
+                    <p style={{ fontSize: '8px', color: '#9ca3af', letterSpacing: '3px', marginBottom: '5px', fontWeight: '600' }}>
                       普宜精舍
                     </p>
-                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '6px' }}>
-                      <QRCodeSVG value={r.registration_id} size={80} />
+                    <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '5px' }}>
+                      <QRCodeSVG value={r.registration_id} size={70} />
                     </div>
-                    <p style={{ fontSize: '15px', fontWeight: 'bold', color: '#1f2937', margin: '0 0 3px' }}>
+                    <p style={{ fontSize: '13px', fontWeight: 'bold', color: '#1f2937', margin: '0 0 2px' }}>
                       {getDisplayName(r)}
                     </p>
-                    <p style={{ fontSize: '11px', color: '#4b5563', margin: '0 0 2px' }}>{event.name}</p>
+                    <p style={{ fontSize: '10px', color: '#4b5563', margin: '0 0 1px' }}>{event.name}</p>
                     {event.date_start && (
-                      <p style={{ fontSize: '10px', color: '#6b7280', margin: 0 }}>{formatEventDate(event)}</p>
+                      <p style={{ fontSize: '9px', color: '#6b7280', margin: 0 }}>{formatEventDate(event)}</p>
                     )}
-                    <p style={{ fontSize: '8px', color: '#d1d5db', marginTop: '6px' }}>
+                    <p style={{ fontSize: '7px', color: '#d1d5db', marginTop: '5px' }}>
                       掃描此 QR code 即可報到
                     </p>
                   </div>
@@ -657,7 +657,7 @@ export default function EventDetailPage() {
       {/* ── 訪客報名 Modal ── */}
       {guestModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6">
             {guestRegId ? (
               <>
                 <style>{`
@@ -938,8 +938,8 @@ export default function EventDetailPage() {
           {registrations.length === 0 ? (
             <p className="text-gray-400 text-sm text-center py-12">尚無報名紀錄</p>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="w-full bg-white rounded-xl border border-gray-200 overflow-x-auto">
+              <table className="w-full min-w-max text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50">
                     {/* 訪客 checkbox 欄（有訪客才顯示） */}

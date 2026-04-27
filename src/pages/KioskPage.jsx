@@ -476,7 +476,7 @@ function OverviewScreen({
               {/* 鎖定提示（取代取消報名按鈕） */}
               {event.locked ? (
                 <div className="mt-3 pt-3 border-t border-gray-100 text-center">
-                  <p className="text-kiosk-sm text-gray-400">如需新增或異動報名，請聯絡精舍</p>
+                  <p className="text-kiosk-base font-semibold text-amber-700">如需新增或異動報名，請聯絡精舍</p>
                 </div>
               ) : (
                 /* 下方：取消報名按鈕（已報名且非確認中才顯示） */

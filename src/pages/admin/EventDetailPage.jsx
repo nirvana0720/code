@@ -50,7 +50,7 @@ const DEFAULT_TEMPLATE_FIELDS = [
     field_label: '上山交通方式',
     field_type: 'radio',
     options: ['精舍共乘', '自行開車', '其他'],
-    show_if: { identity: '義工' },
+    show_if: null,
     required: true,
   },
   {
@@ -74,7 +74,7 @@ const DEFAULT_TEMPLATE_FIELDS = [
     field_label: '下山交通方式',
     field_type: 'radio',
     options: ['精舍共乘', '自行開車', '其他'],
-    show_if: { identity: '義工' },
+    show_if: null,
     required: true,
   },
   {

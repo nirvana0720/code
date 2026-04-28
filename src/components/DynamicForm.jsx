@@ -49,9 +49,12 @@ export default function DynamicForm({ fields, answers, onChange }) {
 
   return (
     <div className="space-y-6">
-      {visibleFields.map(field => (
+      {visibleFields.map((field, index) => (
         <div key={field.field_id}>
-          <p className="text-kiosk-base font-semibold text-gray-800 mb-3">
+          <p className="text-kiosk-base font-semibold text-blue-700 mb-3 flex items-center gap-2">
+            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white text-sm font-bold shrink-0">
+              {index + 1}
+            </span>
             {field.field_label}
             {field.required && <span className="text-red-500 ml-1">*</span>}
           </p>
@@ -144,7 +147,7 @@ export default function DynamicForm({ fields, answers, onChange }) {
               value={answers[field.field_key] || ''}
               onChange={e => handleChange(field.field_key, e.target.value)}
               className="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-kiosk-base focus:outline-none focus:border-blue-500"
-              placeholder={`請輸入${field.field_label}`}
+              placeholder={field.placeholder || `請輸入${field.field_label}`}
             />
           )}
 

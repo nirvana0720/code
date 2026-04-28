@@ -117,6 +117,7 @@ const DEFAULT_TEMPLATE_FIELDS = [
     options: [],
     show_if: null,
     required: false,
+    placeholder: '欲同車者或其他需求',
   },
 ]
 

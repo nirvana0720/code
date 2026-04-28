@@ -110,6 +110,14 @@ const DEFAULT_TEMPLATE_FIELDS = [
     show_if: { identity: '義工' },
     required: true,
   },
+  {
+    field_key: 'note_to_temple',
+    field_label: '給精舍的留言',
+    field_type: 'text',
+    options: [],
+    show_if: null,
+    required: false,
+  },
 ]
 
 // ── 動態欄位編輯列 ─────────────────────────────────────────
@@ -353,7 +361,7 @@ function SortTh({ label, colKey, current, dir, onSort, className = '' }) {
 }
 
 // ── CSV 匯出 ───────────────────────────────────────────────
-function exportCSV(registrations, fields) {
+function exportCSV(registrations, fields, event) {
   const answerHeaders = fields.map(f => f.field_label)
   const header = ['學員編號', '姓名', '報名時間', '報到時間', ...answerHeaders]
 
@@ -373,12 +381,19 @@ function exportCSV(registrations, fields) {
     .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
     .join('\n')
 
+  // 組合檔名：民國年 + 活動名稱（去掉開頭西元年）+ 學員報名資料 + MMDD
+  const eventName = (event?.name ?? '活動').replace(/^\d{4}\s*/, '')
+  const dateBase = event?.date_start ?? new Date().toISOString().slice(0, 10)
+  const rocYear = parseInt(dateBase.slice(0, 4)) - 1911
+  const mmdd = dateBase.replace(/-/g, '').slice(4) // "20260428" → "0428"
+  const filename = `${rocYear}年${eventName}學員報名資料${mmdd}.csv`
+
   const bom = '\uFEFF'
   const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `報名紀錄_${new Date().toISOString().slice(0, 10)}.csv`
+  a.download = filename
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -1173,7 +1188,7 @@ export default function EventDetailPage() {
               </button>
               {registrations.length > 0 && (
                 <button
-                  onClick={() => exportCSV(registrations, fields)}
+                  onClick={() => exportCSV(registrations, fields, event)}
                   className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >
                   ⬇️ 匯出 CSV
@@ -1250,7 +1265,15 @@ export default function EventDetailPage() {
                           </td>
                         )}
                         <td className="px-3 py-1.5 font-mono text-xs text-gray-500">
-                          {r.student_id ?? <span className="text-amber-600 font-sans">訪客</span>}
+                          {r.student_id ?? (
+                            <button
+                              onClick={() => setQrModal({ registrationId: r.registration_id, name: getDisplayName(r) })}
+                              className="text-amber-600 font-sans hover:text-amber-800 hover:underline"
+                              title="點擊查看 QR code"
+                            >
+                              訪客 🔍
+                            </button>
+                          )}
                         </td>
                         <td className={`px-3 py-1.5 font-medium sticky left-0 z-[1] shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                           {getDisplayName(r)}
@@ -1277,14 +1300,6 @@ export default function EventDetailPage() {
                         )}
                         <td className={`px-3 py-1.5 text-right sticky right-0 z-[1] shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                           <div className="flex gap-2 justify-end">
-                            {isGuest && (
-                              <button
-                                onClick={() => setQrModal({ registrationId: r.registration_id, name: getDisplayName(r) })}
-                                className="text-xs text-amber-600 hover:text-amber-800 border border-amber-200 hover:border-amber-400 px-2 py-1 rounded transition-colors"
-                              >
-                                QR code
-                              </button>
-                            )}
                             <button
                               onClick={() => openEditModal(r)}
                               className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-1 rounded transition-colors"

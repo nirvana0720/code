@@ -422,6 +422,25 @@ export default function EventDetailPage() {
   // 欄位顯隱切換
   const [showCheckin, setShowCheckin] = useState(false)
   const [showRegTime, setShowRegTime] = useState(false)
+  const [hiddenFieldKeys, setHiddenFieldKeys] = useState(new Set())
+
+  // 交通相關欄位群組
+  const FIELD_GROUPS = [
+    { key: 'time',   label: '時間',    keys: ['arrive_time', 'leave_time'] },
+    { key: 'up',     label: '上山交通', keys: ['transport_up', 'carpool_up', 'plate_up'] },
+    { key: 'down',   label: '下山交通', keys: ['transport_down', 'carpool_down', 'plate_down'] },
+  ]
+
+  function toggleFieldGroup(keys) {
+    setHiddenFieldKeys(prev => {
+      const next = new Set(prev)
+      // 若群組內任一欄位已顯示 → 全部隱藏；若全部已隱藏 → 全部顯示
+      const allHidden = keys.every(k => next.has(k))
+      if (allHidden) { keys.forEach(k => next.delete(k)) }
+      else           { keys.forEach(k => next.add(k)) }
+      return next
+    })
+  }
 
   function handleSort(key) {
     if (sortKey === key) {
@@ -1163,7 +1182,7 @@ export default function EventDetailPage() {
                 </span>
               )}
               {/* 欄位顯隱切換 */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs text-gray-400">顯示欄位：</span>
                 {[
                   { key: 'checkin', label: '報到', val: showCheckin, set: setShowCheckin },
@@ -1181,6 +1200,25 @@ export default function EventDetailPage() {
                     {col.val ? '✓ ' : ''}{col.label}
                   </button>
                 ))}
+                {/* 交通欄位群組切換（有對應欄位才顯示） */}
+                {FIELD_GROUPS.map(group => {
+                  const exists = group.keys.some(k => fields.find(f => f.field_key === k))
+                  if (!exists) return null
+                  const allHidden = group.keys.every(k => hiddenFieldKeys.has(k))
+                  return (
+                    <button
+                      key={group.key}
+                      onClick={() => toggleFieldGroup(group.keys)}
+                      className={`text-xs px-2 py-0.5 rounded border transition-colors ${
+                        !allHidden
+                          ? 'bg-amber-100 text-amber-800 border-amber-300'
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {!allHidden ? '✓ ' : ''}{group.label}
+                    </button>
+                  )
+                })}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1238,7 +1276,7 @@ export default function EventDetailPage() {
                       onSort={handleSort}
                       className="sticky left-0 z-20 bg-gray-50 shadow-[2px_0_4px_-1px_rgba(0,0,0,0.08)]"
                     />
-                    {fields.map(f => (
+                    {fields.filter(f => !hiddenFieldKeys.has(f.field_key)).map(f => (
                       <SortTh
                         key={f.field_id ?? f.field_key}
                         label={f.field_label}
@@ -1291,7 +1329,7 @@ export default function EventDetailPage() {
                         <td className={`px-3 py-1.5 font-medium sticky left-0 z-[1] shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                           {getDisplayName(r)}
                         </td>
-                        {fields.map(f => (
+                        {fields.filter(f => !hiddenFieldKeys.has(f.field_key)).map(f => (
                           <td key={f.field_id} className="px-3 py-1.5 text-gray-700">
                             {formatFieldValue(f, r.answers?.[f.field_key])}
                           </td>

@@ -13,6 +13,7 @@ import {
   deleteRegistration,
   createGuestRegistration,
   updateRegistration,
+  uncheckIn,
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
@@ -619,6 +620,17 @@ export default function EventDetailPage() {
     if (error) { alert(`新增失敗：${error}`); return }
     setGuestRegId(registrationId)
     await load()
+  }
+
+  async function handleUncheckIn(registrationId, studentName) {
+    if (!window.confirm(`確定要取消「${studentName}」的報到嗎？`)) return
+    const { success, error } = await uncheckIn(registrationId)
+    if (!success) { alert(`取消報到失敗：${error}`); return }
+    setRegistrations(prev => prev.map(r =>
+      r.registration_id === registrationId
+        ? { ...r, checked_in_at: null }
+        : r
+    ))
   }
 
   async function handleDeleteRegistration(registrationId, studentName) {
@@ -1301,6 +1313,14 @@ export default function EventDetailPage() {
                         )}
                         <td className={`px-3 py-1.5 text-right sticky right-0 z-[1] shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                           <div className="flex gap-2 justify-end">
+                            {r.checked_in_at && (
+                              <button
+                                onClick={() => handleUncheckIn(r.registration_id, getDisplayName(r))}
+                                className="text-xs text-orange-500 hover:text-orange-700 border border-orange-200 hover:border-orange-400 px-2 py-1 rounded transition-colors"
+                              >
+                                取消報到
+                              </button>
+                            )}
                             <button
                               onClick={() => openEditModal(r)}
                               className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-1 rounded transition-colors"

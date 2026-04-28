@@ -259,6 +259,7 @@ export async function saveEventFields(eventId, fields) {
     show_if: f.show_if || null,
     sort_order: i + 1,
     required: f.required ?? true,
+    placeholder: f.placeholder || null,
   }))
 
   const { error: insertErr } = await supabase

@@ -112,7 +112,7 @@ const DEFAULT_TEMPLATE_FIELDS = [
   },
   {
     field_key: 'note_to_temple',
-    field_label: '給精舍的留言',
+    field_label: '備註',
     field_type: 'text',
     options: [],
     show_if: null,

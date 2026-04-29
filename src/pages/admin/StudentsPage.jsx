@@ -3,6 +3,20 @@ import * as XLSX from 'xlsx'
 import AdminLayout from '../../components/AdminLayout'
 import { getAllStudents, importStudents } from '../../lib/supabase'
 
+// ── 下載模板 ─────────────────────────────────────────────────
+function downloadTemplate() {
+  const ws = XLSX.utils.aoa_to_sheet([
+    ['學員編號', '姓名', '班級', '組別'],
+    ['115005662', '王大明', '初級日間班', '1 組'],
+    ['115005663', '李小華', '中級夜間班', ''],
+  ])
+  // 設定欄寬
+  ws['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 10 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '學員名單')
+  XLSX.writeFile(wb, '學員匯入模板.xlsx')
+}
+
 // ── 欄位映射：支援多種中文表頭名稱 ────────────────────────────
 const COL_ALIASES = {
   student_id: ['學員編號', '編號', 'student_id', 'StudentID'],
@@ -22,6 +36,8 @@ function mapRow(rawRow) {
 }
 
 // ── 主頁面 ──────────────────────────────────────────────────
+const EMPTY_FORM = { student_id: '', name: '', class_name: '', group_name: '' }
+
 export default function StudentsPage() {
   const [students, setStudents] = useState([])
   const [search, setSearch] = useState('')
@@ -34,6 +50,13 @@ export default function StudentsPage() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const fileInputRef = useRef(null)
+
+  // 單筆新增狀態
+  const [addModal, setAddModal] = useState(false)
+  const [addForm, setAddForm] = useState(EMPTY_FORM)
+  const [addError, setAddError] = useState('')
+  const [addSaving, setAddSaving] = useState(false)
+  const [addSuccess, setAddSuccess] = useState(false)
 
   const load = useCallback(async (q = '') => {
     setLoading(true)
@@ -107,10 +130,151 @@ export default function StudentsPage() {
     setImportResult(null)
   }
 
+  // ── 單筆新增 ──────────────────────────────────────────────
+  function openAddModal() {
+    setAddForm(EMPTY_FORM)
+    setAddError('')
+    setAddSuccess(false)
+    setAddModal(true)
+  }
+
+  function closeAddModal() {
+    setAddModal(false)
+  }
+
+  async function handleAddStudent(e) {
+    e.preventDefault()
+    const { student_id, name, class_name, group_name } = addForm
+    if (!student_id.trim()) return setAddError('學員編號為必填')
+    if (!name.trim()) return setAddError('姓名為必填')
+
+    setAddError('')
+    setAddSaving(true)
+    const { success, error } = await importStudents([{
+      student_id: student_id.trim(),
+      name: name.trim(),
+      class_name: class_name.trim(),
+      group_name: group_name.trim(),
+    }])
+    setAddSaving(false)
+
+    if (!success) return setAddError(`儲存失敗：${error}`)
+    setAddSuccess(true)
+    await load()
+  }
+
   const uniqueStudentCount = new Set(importRows.map(r => r.student_id)).size
 
   return (
     <AdminLayout>
+      {/* ── 單筆新增 Modal ── */}
+      {addModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            {addSuccess ? (
+              <div className="text-center py-8">
+                <div className="text-5xl mb-4">✅</div>
+                <p className="text-xl font-bold text-gray-800 mb-2">新增完成</p>
+                <p className="text-gray-500 mb-6">
+                  學員「<span className="font-medium text-amber-700">{addForm.name}</span>」已儲存
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setAddSuccess(false); setAddForm(EMPTY_FORM) }}
+                    className="flex-1 border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors"
+                  >
+                    繼續新增
+                  </button>
+                  <button
+                    onClick={closeAddModal}
+                    className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors"
+                  >
+                    關閉
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold text-gray-800 mb-5">新增學員</h3>
+                <form onSubmit={handleAddStudent} className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      學員編號 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.student_id}
+                      onChange={e => setAddForm(f => ({ ...f, student_id: e.target.value }))}
+                      placeholder="例：115005662"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      姓名 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.name}
+                      onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
+                      placeholder="例：王大明"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">班級</label>
+                    <input
+                      type="text"
+                      value={addForm.class_name}
+                      onChange={e => setAddForm(f => ({ ...f, class_name: e.target.value }))}
+                      placeholder="例：初級日間班（可留空）"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">組別</label>
+                    <input
+                      type="text"
+                      value={addForm.group_name}
+                      onChange={e => setAddForm(f => ({ ...f, group_name: e.target.value }))}
+                      placeholder="例：1 組（可留空）"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+
+                  {addError && (
+                    <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      {addError}
+                    </p>
+                  )}
+
+                  <p className="text-xs text-gray-400">
+                    若學員編號已存在，資料將被更新（覆蓋）
+                  </p>
+
+                  <div className="flex gap-3 mt-1">
+                    <button
+                      type="button"
+                      onClick={closeAddModal}
+                      className="flex-1 border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={addSaving}
+                      className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {addSaving ? '儲存中…' : '儲存'}
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── 匯入 Modal ── */}
       {importModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -212,10 +376,22 @@ export default function StudentsPage() {
             onChange={handleFileChange}
           />
           <button
+            onClick={downloadTemplate}
+            className="border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            📋 下載模板
+          </button>
+          <button
             onClick={() => fileInputRef.current?.click()}
-            className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="border border-amber-700 text-amber-700 hover:bg-amber-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             📥 匯入學員
+          </button>
+          <button
+            onClick={openAddModal}
+            className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            ＋ 新增學員
           </button>
         </div>
       </div>

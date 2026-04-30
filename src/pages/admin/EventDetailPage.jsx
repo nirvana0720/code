@@ -746,12 +746,15 @@ export default function EventDetailPage() {
       )
     : new Set()
 
-  // 上次匯出後被取消的報名
-  const cancelledChanges = lastExported
-    ? changes.filter(c => c.change_type === 'cancelled' && new Date(c.changed_at) > lastExported)
+  // 所有取消紀錄（不受匯出基準限制，永遠顯示）
+  const cancelledChanges = changes.filter(c => c.change_type === 'cancelled')
+
+  // 上次匯出後被取消的（用於橫幅計數）
+  const cancelledChangesSince = lastExported
+    ? cancelledChanges.filter(c => new Date(c.changed_at) > lastExported)
     : []
 
-  const totalChangeSince = newRegIds.size + modifiedRegIds.size + cancelledChanges.length
+  const totalChangeSince = newRegIds.size + modifiedRegIds.size + cancelledChangesSince.length
 
   if (loading) {
     return (
@@ -1260,7 +1263,7 @@ export default function EventDetailPage() {
                 </span>
                 {newRegIds.size > 0 && <span className="ml-1 text-green-700 font-medium">新增 {newRegIds.size} 筆</span>}
                 {modifiedRegIds.size > 0 && <span className="ml-1 text-amber-700 font-medium">修改 {modifiedRegIds.size} 筆</span>}
-                {cancelledChanges.length > 0 && <span className="ml-1 text-red-600 font-medium">取消 {cancelledChanges.length} 筆</span>}
+                {cancelledChangesSince.length > 0 && <span className="ml-1 text-red-600 font-medium">取消 {cancelledChangesSince.length} 筆</span>}
               </div>
             </div>
           )}
@@ -1487,15 +1490,15 @@ export default function EventDetailPage() {
             </div>
           )}
 
-          {/* 已取消區塊 */}
-          {lastExported && cancelledChanges.length > 0 && (
+          {/* 已取消區塊（永遠顯示，不受匯出基準限制） */}
+          {cancelledChanges.length > 0 && (
             <div className="mt-4">
               <button
                 onClick={() => setShowCancelled(v => !v)}
                 className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
               >
                 <span>{showCancelled ? '▼' : '▶'}</span>
-                <span>已取消（上次匯出後 {cancelledChanges.length} 筆）</span>
+                <span>已取消（共 {cancelledChanges.length} 筆）</span>
               </button>
               {showCancelled && (
                 <div className="mt-2 bg-gray-50 rounded-xl border border-gray-200 overflow-auto">

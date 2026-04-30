@@ -456,6 +456,55 @@ export async function importStudents(rows) {
   return { success: true, imported: studentRows.length, error: null }
 }
 
+// ─── 異動追蹤 ───────────────────────────────────────────────
+
+/**
+ * 記錄報名異動（不阻斷主流程，失敗只 console.warn）
+ */
+export async function logRegistrationChange({
+  registrationId, eventId, eventName, studentName,
+  changeType, oldAnswers, newAnswers,
+}) {
+  const { error } = await supabase
+    .from('registration_changes')
+    .insert({
+      registration_id: registrationId ?? null,
+      event_id: eventId,
+      event_name: eventName ?? '',
+      student_name: studentName ?? '',
+      change_type: changeType,
+      old_answers: oldAnswers ?? null,
+      new_answers: newAnswers ?? null,
+    })
+  if (error) console.warn('[logRegistrationChange]', error.message)
+}
+
+/**
+ * 取得活動的所有異動紀錄（後台用）
+ */
+export async function getEventChanges(eventId) {
+  const { data, error } = await supabase
+    .from('registration_changes')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('changed_at', { ascending: false })
+  if (error) return { changes: [], error: error.message }
+  return { changes: data || [], error: null }
+}
+
+/**
+ * 記錄匯出時間點
+ */
+export async function recordExportTime(eventId) {
+  const { error } = await supabase
+    .from('events')
+    .update({ last_exported_at: new Date().toISOString() })
+    .eq('event_id', eventId)
+  if (error) console.warn('[recordExportTime]', error.message)
+}
+
+// ─── 學員管理（後台）────────────────────────────────────────
+
 export async function getAllStudents(search = '') {
   let query = supabase
     .from('students')

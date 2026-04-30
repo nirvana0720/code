@@ -6,6 +6,7 @@ import {
   submitRegistration,
   updateRegistration,
   deleteRegistration,
+  logRegistrationChange,
 } from '../lib/supabase'
 import DynamicForm from '../components/DynamicForm'
 import CameraScanner from '../components/CameraScanner'
@@ -125,6 +126,17 @@ export default function KioskPage() {
   async function handleCancelRegistration(eventId) {
     const reg = statuses[eventId]
     if (!reg) return
+    const eventItem = eventItems.find(i => i.event.event_id === eventId)
+    // 記錄取消（刪除前先備份）
+    await logRegistrationChange({
+      registrationId: reg.registration_id,
+      eventId,
+      eventName: eventItem?.event.name ?? '',
+      studentName: student?.name ?? '',
+      changeType: 'cancelled',
+      oldAnswers: reg.answers ?? null,
+      newAnswers: null,
+    })
     const { success } = await deleteRegistration(reg.registration_id)
     if (!success) return
     setStatuses(prev => ({ ...prev, [eventId]: null }))
@@ -155,9 +167,32 @@ export default function KioskPage() {
 
     let success, error
     if (isUpdate && currentReg) {
+      const oldAnswers = { ...currentReg.answers }
       ;({ success, error } = await updateRegistration(currentReg.registration_id, answers))
+      if (success) {
+        await logRegistrationChange({
+          registrationId: currentReg.registration_id,
+          eventId: event.event_id,
+          eventName: event.name,
+          studentName: student.name,
+          changeType: 'modified',
+          oldAnswers,
+          newAnswers: answers,
+        })
+      }
     } else {
       ;({ success, error } = await submitRegistration(event.event_id, student.student_id, answers))
+      if (success) {
+        await logRegistrationChange({
+          registrationId: null,
+          eventId: event.event_id,
+          eventName: event.name,
+          studentName: student.name,
+          changeType: 'created',
+          oldAnswers: null,
+          newAnswers: answers,
+        })
+      }
     }
 
     if (!success) { setPhase('form'); setErrorMsg(error); startFormTimer(); return }

@@ -14,6 +14,9 @@ import {
   createGuestRegistration,
   updateRegistration,
   uncheckIn,
+  logRegistrationChange,
+  getEventChanges,
+  recordExportTime,
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
@@ -415,6 +418,10 @@ export default function EventDetailPage() {
   const [form, setForm] = useState({})
   const [locking, setLocking] = useState(false)
 
+  // 異動追蹤
+  const [changes, setChanges] = useState([])
+  const [showCancelled, setShowCancelled] = useState(false)
+
   // 報名名單排序
   const [sortKey, setSortKey] = useState('registered_at')
   const [sortDir, setSortDir] = useState('desc')
@@ -493,9 +500,22 @@ export default function EventDetailPage() {
     if (!editModal) return
     setEditSaving(true)
     const { registration, isGuest } = editModal
+    const oldAnswers = { ...registration.answers }
     const newAnswers = isGuest
       ? { ...editAnswers, guest_name: editGuestName.trim() }
       : { ...editAnswers }
+
+    // 記錄異動（不阻斷主流程）
+    await logRegistrationChange({
+      registrationId: registration.registration_id,
+      eventId: id,
+      eventName: event.name,
+      studentName: getDisplayName(registration),
+      changeType: 'modified',
+      oldAnswers,
+      newAnswers,
+    })
+
     const { success, error } = await updateRegistration(registration.registration_id, newAnswers)
     setEditSaving(false)
     if (!success) { alert(`儲存失敗：${error}`); return }
@@ -504,6 +524,9 @@ export default function EventDetailPage() {
         ? { ...r, answers: newAnswers }
         : r
     ))
+    // 重新載入異動紀錄，更新視覺標示
+    const { changes: newChanges } = await getEventChanges(id)
+    setChanges(newChanges)
     closeEditModal()
   }
 
@@ -516,10 +539,11 @@ export default function EventDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ events }, { fields: f }, { registrations: r }] = await Promise.all([
+    const [{ events }, { fields: f }, { registrations: r }, { changes: c }] = await Promise.all([
       getAllEvents(),
       getEventFields(id),
       getRegistrationsWithStudents(id),
+      getEventChanges(id),
     ])
     const ev = events.find(e => e.event_id === id)
     if (!ev) { navigate('/admin/events'); return }
@@ -533,6 +557,7 @@ export default function EventDetailPage() {
     })
     setFields(f)
     setRegistrations(r)
+    setChanges(c)
     setSelectedGuestIds(new Set()) // 重新載入後清除選取
     setLoading(false)
   }, [id, navigate])
@@ -638,6 +663,18 @@ export default function EventDetailPage() {
     setGuestSaving(false)
     if (error) { alert(`新增失敗：${error}`); return }
     setGuestRegId(registrationId)
+
+    // 記錄訪客新增
+    await logRegistrationChange({
+      registrationId,
+      eventId: id,
+      eventName: event.name,
+      studentName: guestName.trim(),
+      changeType: 'created',
+      oldAnswers: null,
+      newAnswers: { guest_name: guestName.trim(), ...guestAnswers },
+    })
+
     await load()
   }
 
@@ -654,6 +691,19 @@ export default function EventDetailPage() {
 
   async function handleDeleteRegistration(registrationId, studentName) {
     if (!window.confirm(`確定要取消「${studentName}」的報名嗎？此動作無法復原。`)) return
+    const reg = registrations.find(r => r.registration_id === registrationId)
+
+    // 記錄取消（刪除前先備份）
+    await logRegistrationChange({
+      registrationId,
+      eventId: id,
+      eventName: event.name,
+      studentName,
+      changeType: 'cancelled',
+      oldAnswers: reg?.answers ?? null,
+      newAnswers: null,
+    })
+
     const { success, error } = await deleteRegistration(registrationId)
     if (!success) { alert(`取消失敗：${error}`); return }
     setRegistrations(prev => prev.filter(r => r.registration_id !== registrationId))
@@ -662,6 +712,9 @@ export default function EventDetailPage() {
       next.delete(registrationId)
       return next
     })
+    // 重新載入異動紀錄
+    const { changes: newChanges } = await getEventChanges(id)
+    setChanges(newChanges)
   }
 
   function addField() {
@@ -674,6 +727,31 @@ export default function EventDetailPage() {
       required: true,
     }])
   }
+
+  // ── 異動追蹤計算值 ──────────────────────────────────────────
+  const lastExported = event?.last_exported_at ? new Date(event.last_exported_at) : null
+
+  // 上次匯出後新增的報名
+  const newRegIds = lastExported
+    ? new Set(registrations.filter(r => new Date(r.registered_at) > lastExported).map(r => r.registration_id))
+    : new Set()
+
+  // 上次匯出後被修改的報名
+  const modifiedRegIds = lastExported
+    ? new Set(
+        changes
+          .filter(c => c.change_type === 'modified' && new Date(c.changed_at) > lastExported)
+          .map(c => c.registration_id)
+          .filter(Boolean)
+      )
+    : new Set()
+
+  // 上次匯出後被取消的報名
+  const cancelledChanges = lastExported
+    ? changes.filter(c => c.change_type === 'cancelled' && new Date(c.changed_at) > lastExported)
+    : []
+
+  const totalChangeSince = newRegIds.size + modifiedRegIds.size + cancelledChanges.length
 
   if (loading) {
     return (
@@ -1172,6 +1250,21 @@ export default function EventDetailPage() {
       {/* ── Tab: 報名名單 ── */}
       {tab === 'registrations' && (
         <div>
+          {/* 異動橫幅 */}
+          {lastExported && totalChangeSince > 0 && (
+            <div className="mb-4 px-4 py-3 bg-orange-50 border border-orange-300 rounded-xl flex items-center gap-2">
+              <span className="text-lg">🔔</span>
+              <div className="text-sm text-orange-700">
+                <span className="font-semibold">
+                  上次匯出（{new Date(event.last_exported_at).toLocaleString('zh-TW', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}）後有 {totalChangeSince} 筆異動：
+                </span>
+                {newRegIds.size > 0 && <span className="ml-1 text-green-700 font-medium">新增 {newRegIds.size} 筆</span>}
+                {modifiedRegIds.size > 0 && <span className="ml-1 text-amber-700 font-medium">修改 {modifiedRegIds.size} 筆</span>}
+                {cancelledChanges.length > 0 && <span className="ml-1 text-red-600 font-medium">取消 {cancelledChanges.length} 筆</span>}
+              </div>
+            </div>
+          )}
+
           {/* 工具列 */}
           <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
             <div className="flex items-center gap-3 flex-wrap">
@@ -1239,7 +1332,12 @@ export default function EventDetailPage() {
               </button>
               {registrations.length > 0 && (
                 <button
-                  onClick={() => exportCSV(registrations, fields, event)}
+                  onClick={async () => {
+                    exportCSV(registrations, fields, event)
+                    await recordExportTime(id)
+                    const now = new Date().toISOString()
+                    setEvent(ev => ({ ...ev, last_exported_at: now }))
+                  }}
                   className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >
                   ⬇️ 匯出 CSV
@@ -1251,7 +1349,7 @@ export default function EventDetailPage() {
           {registrations.length === 0 ? (
             <p className="text-gray-400 text-sm text-center py-12">尚無報名紀錄</p>
           ) : (
-            <div className="w-full bg-white rounded-xl border border-gray-200 overflow-auto max-h-[calc(100vh-260px)]">
+            <div className="w-full bg-white rounded-xl border border-gray-200 overflow-auto max-h-[calc(100vh-300px)]">
               <table className="w-full min-w-max text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-gray-100 bg-gray-50">
@@ -1327,7 +1425,15 @@ export default function EventDetailPage() {
                           )}
                         </td>
                         <td className={`px-3 py-1.5 font-medium sticky left-0 z-[1] shadow-[2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
-                          {getDisplayName(r)}
+                          <span className="flex items-center gap-1.5 flex-wrap">
+                            {getDisplayName(r)}
+                            {newRegIds.has(r.registration_id) && (
+                              <span className="text-xs bg-green-100 text-green-700 border border-green-300 px-1.5 py-0.5 rounded-full font-normal leading-none">新</span>
+                            )}
+                            {modifiedRegIds.has(r.registration_id) && (
+                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-300 px-1.5 py-0.5 rounded-full font-normal leading-none">改</span>
+                            )}
+                          </span>
                         </td>
                         {fields.filter(f => !hiddenFieldKeys.has(f.field_key)).map(f => (
                           <td key={f.field_id} className="px-3 py-1.5 text-gray-700">
@@ -1378,6 +1484,51 @@ export default function EventDetailPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* 已取消區塊 */}
+          {lastExported && cancelledChanges.length > 0 && (
+            <div className="mt-4">
+              <button
+                onClick={() => setShowCancelled(v => !v)}
+                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                <span>{showCancelled ? '▼' : '▶'}</span>
+                <span>已取消（上次匯出後 {cancelledChanges.length} 筆）</span>
+              </button>
+              {showCancelled && (
+                <div className="mt-2 bg-gray-50 rounded-xl border border-gray-200 overflow-auto">
+                  <table className="w-full min-w-max text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 bg-gray-100">
+                        <th className="px-3 py-2 text-left text-gray-500 font-medium whitespace-nowrap">姓名</th>
+                        <th className="px-3 py-2 text-left text-gray-500 font-medium whitespace-nowrap">取消時間</th>
+                        {fields.map(f => (
+                          <th key={f.field_id ?? f.field_key} className="px-3 py-2 text-left text-gray-500 font-medium whitespace-nowrap">
+                            {f.field_label}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cancelledChanges.map(c => (
+                        <tr key={c.id} className="border-b border-gray-100 text-gray-400">
+                          <td className="px-3 py-1.5 line-through whitespace-nowrap">{c.student_name}</td>
+                          <td className="px-3 py-1.5 text-xs whitespace-nowrap">
+                            {new Date(c.changed_at).toLocaleString('zh-TW', { hour12: false })}
+                          </td>
+                          {fields.map(f => (
+                            <td key={f.field_id ?? f.field_key} className="px-3 py-1.5">
+                              {formatFieldValue(f, c.old_answers?.[f.field_key])}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

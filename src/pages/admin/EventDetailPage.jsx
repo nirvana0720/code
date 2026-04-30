@@ -8,6 +8,7 @@ import {
   getAllEvents,
   updateEvent,
   toggleEventLock,
+  deleteEvent,
   getEventFields,
   saveEventFields,
   getRegistrationsWithStudents,
@@ -419,6 +420,7 @@ export default function EventDetailPage() {
   const [saveMsg, setSaveMsg] = useState('')
   const [form, setForm] = useState({})
   const [locking, setLocking] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // 異動追蹤
   const [changes, setChanges] = useState([])
@@ -532,6 +534,9 @@ export default function EventDetailPage() {
     closeEditModal()
   }
 
+  // 異動明細 modal
+  const [diffModal, setDiffModal] = useState(null) // null | registration_changes row
+
   // 補看 QR code modal（單張）
   const [qrModal, setQrModal] = useState(null) // null | { registrationId, name }
 
@@ -643,6 +648,29 @@ export default function EventDetailPage() {
     const msg = success ? '✅ 欄位已儲存' : `❌ 儲存失敗：${error}`
     setSaveMsg(msg)
     if (success) setTimeout(() => setSaveMsg(''), 3000)
+  }
+
+  async function handleDeleteEvent() {
+    const regCount = registrations.length
+    const msg = regCount > 0
+      ? `確定要刪除「${event.name}」嗎？\n\n此活動目前有 ${regCount} 筆報名紀錄，刪除後所有資料將無法復原。\n\n請輸入活動名稱確認刪除：`
+      : `確定要刪除「${event.name}」嗎？此動作無法復原。`
+
+    if (regCount > 0) {
+      const input = window.prompt(msg)
+      if (input !== event.name) {
+        if (input !== null) alert('活動名稱不符，已取消刪除。')
+        return
+      }
+    } else {
+      if (!window.confirm(msg)) return
+    }
+
+    setDeleting(true)
+    const { success, error: err } = await deleteEvent(id)
+    setDeleting(false)
+    if (!success) { alert(`刪除失敗：${err}`); return }
+    navigate('/admin/events')
   }
 
   function openGuestModal() {
@@ -869,6 +897,99 @@ export default function EventDetailPage() {
           </div>
         </>
       )}
+
+      {/* ── 異動明細 Modal ── */}
+      {diffModal && (() => {
+        const old = diffModal.old_answers ?? {}
+        const next = diffModal.new_answers ?? {}
+        // 取所有出現過的 key（union）
+        const allKeys = Array.from(new Set([...Object.keys(old), ...Object.keys(next)]))
+        // 依欄位定義順序排序（沒有定義的放最後）
+        const sortedKeys = [
+          ...fields.map(f => f.field_key).filter(k => allKeys.includes(k)),
+          ...allKeys.filter(k => !fields.find(f => f.field_key === k)),
+        ]
+        const changedKeys = sortedKeys.filter(k => {
+          const ov = old[k]; const nv = next[k]
+          return JSON.stringify(ov) !== JSON.stringify(nv)
+        })
+        const unchangedKeys = sortedKeys.filter(k => !changedKeys.includes(k))
+
+        function fmtVal(key, val) {
+          if (val === undefined || val === null || val === '') return <span className="text-gray-300 italic">（空）</span>
+          const fieldDef = fields.find(f => f.field_key === key)
+          if (!fieldDef) return String(val)
+          return formatFieldValue(fieldDef, val)
+        }
+
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b border-gray-100 px-6 pt-5 pb-4 rounded-t-2xl">
+                <h3 className="text-lg font-bold text-gray-800">異動明細</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  <span className="font-medium">{diffModal.student_name}</span>
+                  　{new Date(diffModal.changed_at).toLocaleString('zh-TW', { hour12: false })}
+                </p>
+              </div>
+              <div className="px-6 py-4 space-y-4">
+                {changedKeys.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">找不到差異資料</p>
+                ) : (
+                  <>
+                    <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">已修改的欄位（{changedKeys.length} 項）</p>
+                    {changedKeys.map(key => {
+                      const fieldDef = fields.find(f => f.field_key === key)
+                      const label = fieldDef?.field_label ?? key
+                      return (
+                        <div key={key} className="rounded-xl border-2 border-amber-200 bg-amber-50 p-3">
+                          <p className="text-xs font-semibold text-amber-800 mb-2">{label}</p>
+                          <div className="flex items-start gap-2 text-sm">
+                            <div className="flex-1 bg-red-50 border border-red-200 rounded-lg px-3 py-2 line-through text-red-700">
+                              {fmtVal(key, old[key])}
+                            </div>
+                            <span className="text-gray-400 mt-2">→</span>
+                            <div className="flex-1 bg-green-50 border border-green-300 rounded-lg px-3 py-2 font-medium text-green-800">
+                              {fmtVal(key, next[key])}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </>
+                )}
+                {unchangedKeys.filter(k => k !== 'guest_name').length > 0 && (
+                  <details className="mt-2">
+                    <summary className="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-600">
+                      未修改的欄位（{unchangedKeys.filter(k => k !== 'guest_name').length} 項）
+                    </summary>
+                    <div className="mt-2 space-y-1">
+                      {unchangedKeys.filter(k => k !== 'guest_name').map(key => {
+                        const fieldDef = fields.find(f => f.field_key === key)
+                        const label = fieldDef?.field_label ?? key
+                        return (
+                          <div key={key} className="flex items-center gap-2 text-xs text-gray-400 px-1">
+                            <span className="w-28 shrink-0">{label}</span>
+                            <span>{fmtVal(key, next[key])}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </details>
+                )}
+              </div>
+              <div className="px-6 pb-5">
+                <button
+                  onClick={() => setDiffModal(null)}
+                  className="w-full border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors"
+                >
+                  關閉
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── 編輯報名 Modal ── */}
       {editModal && (
@@ -1161,6 +1282,26 @@ export default function EventDetailPage() {
           </div>
         </form>
 
+        {/* 刪除活動區塊 */}
+        <div className="mt-4 rounded-xl border-2 border-red-200 bg-red-50 p-5 flex items-start gap-4">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-red-700">🗑️ 刪除此活動</p>
+            <p className="text-xs text-gray-500 mt-1">
+              刪除後，活動設定、動態欄位與所有報名紀錄將永久移除，無法復原。
+              {registrations.length > 0 && (
+                <span className="text-red-600 font-medium"> 目前有 {registrations.length} 筆報名紀錄。</span>
+              )}
+            </p>
+          </div>
+          <button
+            disabled={deleting}
+            onClick={handleDeleteEvent}
+            className="shrink-0 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50 bg-white border-2 border-red-400 text-red-700 hover:bg-red-100"
+          >
+            {deleting ? '刪除中…' : '刪除活動'}
+          </button>
+        </div>
+
         {/* 停止異動區塊 */}
         <div className={`mt-4 rounded-xl border-2 p-5 flex items-start gap-4 ${
           event.locked
@@ -1438,7 +1579,18 @@ export default function EventDetailPage() {
                               <span className="text-xs bg-green-100 text-green-700 border border-green-300 px-1.5 py-0.5 rounded-full font-normal leading-none">新</span>
                             )}
                             {modifiedRegIds.has(r.registration_id) && (
-                              <span className="text-xs bg-amber-100 text-amber-700 border border-amber-300 px-1.5 py-0.5 rounded-full font-normal leading-none">改</span>
+                              <button
+                                onClick={() => {
+                                  const latest = changes.find(c =>
+                                    c.registration_id === r.registration_id && c.change_type === 'modified'
+                                  )
+                                  if (latest) setDiffModal(latest)
+                                }}
+                                className="text-xs bg-amber-100 text-amber-700 border border-amber-300 px-1.5 py-0.5 rounded-full font-normal leading-none hover:bg-amber-200 cursor-pointer"
+                                title="點擊查看修改明細"
+                              >
+                                改 🔍
+                              </button>
                             )}
                           </span>
                         </td>

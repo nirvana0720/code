@@ -22,10 +22,11 @@ Set-Location $PSScriptRoot
 & $gitExe add src/pages/admin/EventsPage.jsx
 & $gitExe add src/pages/admin/EventDetailPage.jsx
 & $gitExe add src/pages/admin/CheckinPage.jsx
+& $gitExe add src/pages/admin/LoginPage.jsx
 & $gitExe add src/App.jsx
 & $gitExe add role_setup.sql
 
-& $gitExe commit -m "feat: 後台角色權限（師父/義工）"
+& $gitExe commit -m "feat: 後台角色權限（師父/義工）＋義工密碼登入"
 & $gitExe push
 
 Write-Host ""

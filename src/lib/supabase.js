@@ -211,6 +211,25 @@ export async function updateEvent(eventId, payload) {
 }
 
 /**
+ * 刪除活動（含所有報名紀錄、欄位設定、異動紀錄）
+ * 警告：此動作不可復原
+ */
+export async function deleteEvent(eventId) {
+  // 依序刪除關聯資料，避免 FK 約束
+  const steps = [
+    { table: 'registration_changes', col: 'event_id' },
+    { table: 'registrations',        col: 'event_id' },
+    { table: 'event_fields',         col: 'event_id' },
+    { table: 'events',               col: 'event_id' },
+  ]
+  for (const { table, col } of steps) {
+    const { error } = await supabase.from(table).delete().eq(col, eventId)
+    if (error) return { success: false, error: `刪除 ${table} 失敗：${error.message}` }
+  }
+  return { success: true, error: null }
+}
+
+/**
  * 切換活動鎖定狀態（停止／開放異動）
  */
 export async function toggleEventLock(eventId, locked) {

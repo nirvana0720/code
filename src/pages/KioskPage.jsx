@@ -407,9 +407,15 @@ function OverviewScreen({
         </div>
       )}
 
-      {/* 活動列表 */}
+      {/* 活動列表：未報名排前，已報名排後 */}
       <div className="space-y-3 mb-5">
-        {eventItems.map(({ event, fields }) => {
+        {[...eventItems]
+          .sort((a, b) => {
+            const aReg = statuses[a.event.event_id] ? 1 : 0
+            const bReg = statuses[b.event.event_id] ? 1 : 0
+            return aReg - bReg
+          })
+          .map(({ event, fields }) => {
           const reg = statuses[event.event_id]
           const registered = !!reg
           const confirming = cancellingEventId === event.event_id

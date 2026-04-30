@@ -358,6 +358,21 @@ export async function uncheckIn(registrationId) {
   return { success: true, error: null }
 }
 
+/**
+ * 取得活動的報到統計（已報到人數 / 總報名人數）
+ */
+export async function getCheckinStats(eventId) {
+  const { data, error } = await supabase
+    .from('registrations')
+    .select('registration_id, checked_in_at')
+    .eq('event_id', eventId)
+
+  if (error) return { total: 0, checkedIn: 0, error: error.message }
+  const total = data?.length ?? 0
+  const checkedIn = data?.filter(r => r.checked_in_at).length ?? 0
+  return { total, checkedIn, error: null }
+}
+
 // ─── 訪客報名（後台）────────────────────────────────────────
 
 /**

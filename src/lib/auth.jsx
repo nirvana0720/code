@@ -20,8 +20,12 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  const user = session?.user ?? null
+  const role = user?.user_metadata?.role ?? 'volunteer'
+  const isAdmin = role === 'admin'
+
   return (
-    <AuthContext.Provider value={{ session }}>
+    <AuthContext.Provider value={{ session, user, role, isAdmin }}>
       {children}
     </AuthContext.Provider>
   )

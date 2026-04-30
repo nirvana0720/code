@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import { getAllEvents, createEvent } from '../../lib/supabase'
+import { useAuth } from '../../lib/auth'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
 const STATUS_COLOR = {
@@ -12,6 +13,7 @@ const STATUS_COLOR = {
 
 export default function EventsPage() {
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -57,12 +59,14 @@ export default function EventsPage() {
     <AdminLayout>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-gray-800">活動管理</h2>
-        <button
-          onClick={() => setShowForm(v => !v)}
-          className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
-          ＋ 新增活動
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setShowForm(v => !v)}
+            className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            ＋ 新增活動
+          </button>
+        )}
       </div>
 
       {/* 新增活動表單 */}

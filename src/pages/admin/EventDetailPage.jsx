@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 import AdminLayout from '../../components/AdminLayout'
 import DynamicForm from '../../components/DynamicForm'
+import { useAuth } from '../../lib/auth'
 import {
   getAllEvents,
   updateEvent,
@@ -407,12 +408,13 @@ function exportCSV(registrations, fields, event) {
 export default function EventDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { isAdmin } = useAuth()
 
   const [event, setEvent] = useState(null)
   const [fields, setFields] = useState([])
   const [registrations, setRegistrations] = useState([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('info')
+  const [tab, setTab] = useState(() => isAdmin ? 'info' : 'registrations')
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [form, setForm] = useState({})
@@ -1080,10 +1082,10 @@ export default function EventDetailPage() {
       {/* Tab 切換 */}
       <div className="flex gap-1 border-b border-gray-200 mb-6">
         {[
-          { key: 'info', label: '活動設定' },
-          { key: 'fields', label: `動態欄位（${fields.length}）` },
-          { key: 'registrations', label: `報名名單（${registrations.length}）` },
-        ].map(t => (
+          { key: 'info',          label: '活動設定',                   adminOnly: true  },
+          { key: 'fields',        label: `動態欄位（${fields.length}）`, adminOnly: true  },
+          { key: 'registrations', label: `報名名單（${registrations.length}）`, adminOnly: false },
+        ].filter(t => !t.adminOnly || isAdmin).map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
@@ -1317,36 +1319,38 @@ export default function EventDetailPage() {
                 })}
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {/* 批次列印按鈕（有選取時才顯示）*/}
-              {selectedGuestIds.size > 0 && (
+            {isAdmin && (
+              <div className="flex flex-wrap gap-2">
+                {/* 批次列印按鈕（有選取時才顯示）*/}
+                {selectedGuestIds.size > 0 && (
+                  <button
+                    onClick={() => setBatchPrintOpen(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    🖨️ 批次列印（{selectedGuestIds.size}）
+                  </button>
+                )}
                 <button
-                  onClick={() => setBatchPrintOpen(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  onClick={openGuestModal}
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >
-                  🖨️ 批次列印（{selectedGuestIds.size}）
+                  ＋ 新增訪客
                 </button>
-              )}
-              <button
-                onClick={openGuestModal}
-                className="bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                ＋ 新增訪客
-              </button>
-              {registrations.length > 0 && (
-                <button
-                  onClick={async () => {
-                    exportCSV(registrations, fields, event)
-                    await recordExportTime(id)
-                    const now = new Date().toISOString()
-                    setEvent(ev => ({ ...ev, last_exported_at: now }))
-                  }}
-                  className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                >
-                  ⬇️ 匯出 CSV
-                </button>
-              )}
-            </div>
+                {registrations.length > 0 && (
+                  <button
+                    onClick={async () => {
+                      exportCSV(registrations, fields, event)
+                      await recordExportTime(id)
+                      const now = new Date().toISOString()
+                      setEvent(ev => ({ ...ev, last_exported_at: now }))
+                    }}
+                    className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    ⬇️ 匯出 CSV
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {registrations.length === 0 ? (
@@ -1356,8 +1360,8 @@ export default function EventDetailPage() {
               <table className="w-full min-w-max text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b border-gray-100 bg-gray-50">
-                    {/* 訪客 checkbox 欄（有訪客才顯示） */}
-                    {hasGuests && (
+                    {/* 訪客 checkbox 欄（有訪客且是管理員才顯示） */}
+                    {isAdmin && hasGuests && (
                       <th className="px-3 py-2 text-center">
                         <input
                           type="checkbox"
@@ -1403,8 +1407,8 @@ export default function EventDetailPage() {
                           isSelected ? 'bg-blue-50' : 'hover:bg-amber-50/30'
                         }`}
                       >
-                        {/* Checkbox（有訪客才顯示此欄） */}
-                        {hasGuests && (
+                        {/* Checkbox（有訪客且是管理員才顯示此欄） */}
+                        {isAdmin && hasGuests && (
                           <td className="px-3 py-1.5 text-center">
                             {isGuest && (
                               <input
@@ -1459,28 +1463,30 @@ export default function EventDetailPage() {
                           </td>
                         )}
                         <td className={`px-3 py-1.5 text-right sticky right-0 z-[1] shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
-                          <div className="flex gap-2 justify-end">
-                            {r.checked_in_at && (
+                          {isAdmin && (
+                            <div className="flex gap-2 justify-end">
+                              {r.checked_in_at && (
+                                <button
+                                  onClick={() => handleUncheckIn(r.registration_id, getDisplayName(r))}
+                                  className="text-xs text-orange-500 hover:text-orange-700 border border-orange-200 hover:border-orange-400 px-2 py-1 rounded transition-colors"
+                                >
+                                  取消報到
+                                </button>
+                              )}
                               <button
-                                onClick={() => handleUncheckIn(r.registration_id, getDisplayName(r))}
-                                className="text-xs text-orange-500 hover:text-orange-700 border border-orange-200 hover:border-orange-400 px-2 py-1 rounded transition-colors"
+                                onClick={() => openEditModal(r)}
+                                className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-1 rounded transition-colors"
                               >
-                                取消報到
+                                ✏️ 編輯
                               </button>
-                            )}
-                            <button
-                              onClick={() => openEditModal(r)}
-                              className="text-xs text-blue-600 hover:text-blue-800 border border-blue-200 hover:border-blue-400 px-2 py-1 rounded transition-colors"
-                            >
-                              ✏️ 編輯
-                            </button>
-                            <button
-                              onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
-                              className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
-                            >
-                              取消報名
-                            </button>
-                          </div>
+                              <button
+                                onClick={() => handleDeleteRegistration(r.registration_id, getDisplayName(r))}
+                                className="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 px-2 py-1 rounded transition-colors"
+                              >
+                                取消報名
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )

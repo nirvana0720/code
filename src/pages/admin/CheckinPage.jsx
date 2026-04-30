@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
-import { getAllEvents, getRegistrationForCheckin, getGuestRegistrationForCheckin, checkIn, uncheckIn } from '../../lib/supabase'
+import { getAllEvents, getRegistrationForCheckin, getGuestRegistrationForCheckin, checkIn, uncheckIn, getCheckinStats } from '../../lib/supabase'
 import CameraScanner from '../../components/CameraScanner'
 
 const IDLE_SECONDS = 5 // 成功/失敗畫面停留秒數
@@ -15,6 +15,7 @@ export default function CheckinPage() {
   const [todayCount, setTodayCount] = useState(0)
 
   const [cameraOpen, setCameraOpen] = useState(false)
+  const [stats, setStats] = useState({ total: 0, checkedIn: 0 })
 
   const inputRef = useRef('')
   const countdownRef = useRef(null)
@@ -26,6 +27,14 @@ export default function CheckinPage() {
       if (ev) setEventName(ev.name)
     })
   }, [id])
+
+  // 取得報到統計（並在 id 改變時重新取）
+  async function refreshStats() {
+    const s = await getCheckinStats(id)
+    setStats({ total: s.total, checkedIn: s.checkedIn })
+  }
+
+  useEffect(() => { refreshStats() }, [id]) // eslint-disable-line
 
   // 監聽鍵盤輸入（掃描機模擬鍵盤）
   useEffect(() => {
@@ -108,6 +117,7 @@ export default function CheckinPage() {
     const { success } = await checkIn(registration.registration_id)
     if (success) {
       setTodayCount(c => c + 1)
+      refreshStats()
       setStatus('success')
       setResult({ name, registrationId: registration.registration_id })
       startCountdown()
@@ -121,6 +131,7 @@ export default function CheckinPage() {
   async function handleUncheck() {
     if (!result?.registrationId) return
     await uncheckIn(result.registrationId)
+    refreshStats()
     resetToIdle()
   }
 
@@ -149,8 +160,12 @@ export default function CheckinPage() {
         </Link>
         <span className="text-gray-300">|</span>
         <h2 className="text-lg font-bold text-gray-800">{eventName || '現場報到'}</h2>
-        <span className="ml-auto text-sm text-gray-500">
-          今日已報到：<strong className="text-amber-700">{todayCount}</strong> 人
+        <span className="ml-auto text-sm text-gray-500 flex items-center gap-1">
+          已報到
+          <strong className="text-amber-700 text-base">{stats.checkedIn}</strong>
+          <span className="text-gray-400">/</span>
+          <strong className="text-gray-700 text-base">{stats.total}</strong>
+          人
         </span>
       </div>
 

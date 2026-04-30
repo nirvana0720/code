@@ -32,7 +32,7 @@ export default function App() {
             <ProtectedRoute><CheckinPage /></ProtectedRoute>
           } />
           <Route path="/admin/students" element={
-            <ProtectedRoute><StudentsPage /></ProtectedRoute>
+            <ProtectedRoute adminOnly><StudentsPage /></ProtectedRoute>
           } />
         </Routes>
       </BrowserRouter>

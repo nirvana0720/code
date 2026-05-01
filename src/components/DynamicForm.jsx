@@ -42,6 +42,28 @@ export default function DynamicForm({ fields, answers, onChange }) {
       }
     })
 
+    // 共乘者自動帶入：當一個 text 欄位剛因本次選擇而出現（show_if 觸發）且目前無值，
+    // 若有另一個 text 欄位的 show_if 值相同（例如同樣是「搭學員的車」）且已填寫，
+    // 自動帶入作為預設值（學員可自行修改）
+    fields.forEach(f => {
+      if (
+        f.field_type === 'text' &&
+        f.show_if && f.show_if[fieldKey] === value &&
+        !next[f.field_key]
+      ) {
+        const myShowIfVal = Object.values(f.show_if)[0]
+        const donor = fields.find(
+          pf =>
+            pf.field_type === 'text' &&
+            pf.field_key !== f.field_key &&
+            pf.show_if &&
+            Object.values(pf.show_if)[0] === myShowIfVal &&
+            next[pf.field_key]
+        )
+        if (donor) next[f.field_key] = next[donor.field_key]
+      }
+    })
+
     onChange(next)
   }
 

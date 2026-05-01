@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
-import { getAllEvents, createEvent } from '../../lib/supabase'
+import { getAllEvents, createEvent, getMyEvents } from '../../lib/supabase'
 import { useAuth } from '../../lib/auth'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
@@ -13,7 +13,7 @@ const STATUS_COLOR = {
 
 export default function EventsPage() {
   const navigate = useNavigate()
-  const { isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -25,8 +25,14 @@ export default function EventsPage() {
 
   async function load() {
     setLoading(true)
-    const { events } = await getAllEvents()
-    setEvents(events)
+    if (isAdmin) {
+      const { events } = await getAllEvents()
+      setEvents(events)
+    } else {
+      // 義工只能看到師父指定的活動
+      const { events } = await getMyEvents(user?.id)
+      setEvents(events)
+    }
     setLoading(false)
   }
 
@@ -156,7 +162,10 @@ export default function EventsPage() {
       ) : events.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <p className="text-4xl mb-3">📋</p>
-          <p className="text-sm">尚無活動，點上方按鈕新增第一場</p>
+          {isAdmin
+            ? <p className="text-sm">尚無活動，點上方按鈕新增第一場</p>
+            : <p className="text-sm">尚未被指定任何活動，請聯絡師父設定</p>
+          }
         </div>
       ) : (
         <div className="space-y-3">

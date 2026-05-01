@@ -539,6 +539,86 @@ export async function recordExportTime(eventId) {
 
 // ─── 學員管理（後台）────────────────────────────────────────
 
+// ─── 義工存取管理（後台）─────────────────────────────────────
+
+/**
+ * 同步義工 profile（義工登入時自動呼叫）
+ */
+export async function upsertVolunteerProfile(userId, email, displayName) {
+  await supabase
+    .from('volunteer_profiles')
+    .upsert({
+      id: userId,
+      email: email || '',
+      display_name: displayName || email || '',
+      updated_at: new Date().toISOString(),
+    })
+}
+
+/**
+ * 取得所有義工帳號清單（後台用）
+ */
+export async function getVolunteers() {
+  const { data, error } = await supabase
+    .from('volunteer_profiles')
+    .select('id, email, display_name')
+    .order('display_name', { ascending: true })
+  if (error) return { volunteers: [], error: error.message }
+  return { volunteers: data || [], error: null }
+}
+
+/**
+ * 取得活動已授權的義工 id 清單
+ */
+export async function getEventVolunteers(eventId) {
+  const { data, error } = await supabase
+    .from('volunteer_event_access')
+    .select('volunteer_id')
+    .eq('event_id', eventId)
+  if (error) return { volunteerIds: [], error: error.message }
+  return { volunteerIds: (data || []).map(r => r.volunteer_id), error: null }
+}
+
+/**
+ * 設定活動的義工存取清單（全覆蓋）
+ */
+export async function setEventVolunteers(eventId, volunteerIds) {
+  const { error: delErr } = await supabase
+    .from('volunteer_event_access')
+    .delete()
+    .eq('event_id', eventId)
+  if (delErr) return { success: false, error: delErr.message }
+  if (volunteerIds.length === 0) return { success: true, error: null }
+  const rows = volunteerIds.map(vid => ({ volunteer_id: vid, event_id: eventId }))
+  const { error: insErr } = await supabase
+    .from('volunteer_event_access')
+    .insert(rows)
+  if (insErr) return { success: false, error: insErr.message }
+  return { success: true, error: null }
+}
+
+/**
+ * 取得義工可見的活動列表（義工後台用）
+ */
+export async function getMyEvents(userId) {
+  const { data: access, error: accessErr } = await supabase
+    .from('volunteer_event_access')
+    .select('event_id')
+    .eq('volunteer_id', userId)
+  if (accessErr) return { events: [], error: accessErr.message }
+  if (!access || access.length === 0) return { events: [], error: null }
+  const eventIds = access.map(r => r.event_id)
+  const { data, error } = await supabase
+    .from('events')
+    .select('*')
+    .in('event_id', eventIds)
+    .order('date_start', { ascending: false })
+  if (error) return { events: [], error: error.message }
+  return { events: data || [], error: null }
+}
+
+// ─── 學員管理（後台）────────────────────────────────────────
+
 export async function getAllStudents(search = '') {
   let query = supabase
     .from('students')

@@ -19,6 +19,9 @@ import {
   logRegistrationChange,
   getEventChanges,
   recordExportTime,
+  getVolunteers,
+  getEventVolunteers,
+  setEventVolunteers,
 } from '../../lib/supabase'
 
 const STATUS_LABEL = { draft: '草稿', active: '進行中', closed: '已關閉' }
@@ -422,6 +425,12 @@ export default function EventDetailPage() {
   const [locking, setLocking] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // 義工存取設定
+  const [volunteers, setVolunteers] = useState([])
+  const [eventVolunteerIds, setEventVolunteerIds] = useState(new Set())
+  const [volunteerSaving, setVolunteerSaving] = useState(false)
+  const [volunteerMsg, setVolunteerMsg] = useState('')
+
   // 異動追蹤
   const [changes, setChanges] = useState([])
   const [showCancelled, setShowCancelled] = useState(false)
@@ -546,15 +555,19 @@ export default function EventDetailPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [{ events }, { fields: f }, { registrations: r }, { changes: c }] = await Promise.all([
+    const [{ events }, { fields: f }, { registrations: r }, { changes: c }, { volunteers: v }, { volunteerIds: va }] = await Promise.all([
       getAllEvents(),
       getEventFields(id),
       getRegistrationsWithStudents(id),
       getEventChanges(id),
+      getVolunteers(),
+      getEventVolunteers(id),
     ])
     const ev = events.find(e => e.event_id === id)
     if (!ev) { navigate('/admin/events'); return }
     setEvent(ev)
+    setVolunteers(v || [])
+    setEventVolunteerIds(new Set(va || []))
     setForm({
       name: ev.name,
       date_start: ev.date_start ?? '',
@@ -648,6 +661,14 @@ export default function EventDetailPage() {
     const msg = success ? '✅ 欄位已儲存' : `❌ 儲存失敗：${error}`
     setSaveMsg(msg)
     if (success) setTimeout(() => setSaveMsg(''), 3000)
+  }
+
+  async function handleSaveVolunteers() {
+    setVolunteerSaving(true)
+    const { success, error } = await setEventVolunteers(id, [...eventVolunteerIds])
+    setVolunteerSaving(false)
+    setVolunteerMsg(success ? '✅ 已儲存' : `❌ ${error}`)
+    setTimeout(() => setVolunteerMsg(''), 3000)
   }
 
   async function handleDeleteEvent() {
@@ -1338,6 +1359,55 @@ export default function EventDetailPage() {
           >
             {locking ? '處理中…' : event.locked ? '🔓 解除鎖定' : '🔒 停止異動'}
           </button>
+        </div>
+
+        {/* 義工存取設定 */}
+        <div className="mt-4 bg-white rounded-xl border border-gray-200 p-5">
+          <p className="text-sm font-semibold text-gray-700 mb-1">👤 義工存取設定</p>
+          <p className="text-xs text-gray-500 mb-3">勾選的義工帳號登入後台後，即可看到此活動的報名名單。</p>
+          {volunteers.length === 0 ? (
+            <p className="text-sm text-gray-400 py-2">
+              尚無義工帳號紀錄。義工以義工帳號登入後台一次後，即會自動出現在此。
+            </p>
+          ) : (
+            <>
+              <div className="space-y-1 mb-4">
+                {volunteers.map(v => (
+                  <label key={v.id} className="flex items-center gap-3 cursor-pointer select-none px-2 py-2 rounded-lg hover:bg-gray-50">
+                    <input
+                      type="checkbox"
+                      checked={eventVolunteerIds.has(v.id)}
+                      onChange={e => {
+                        setEventVolunteerIds(prev => {
+                          const next = new Set(prev)
+                          if (e.target.checked) next.add(v.id)
+                          else next.delete(v.id)
+                          return next
+                        })
+                      }}
+                      className="w-4 h-4 accent-amber-600 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium text-gray-700">
+                        {v.display_name && v.display_name !== v.email ? v.display_name : ''}
+                      </span>
+                      <span className="text-xs text-gray-500 ml-1">{v.email}</span>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSaveVolunteers}
+                  disabled={volunteerSaving}
+                  className="text-sm font-medium px-4 py-2 rounded-lg bg-amber-700 hover:bg-amber-800 text-white transition-colors disabled:opacity-50"
+                >
+                  {volunteerSaving ? '儲存中…' : '儲存義工設定'}
+                </button>
+                {volunteerMsg && <span className="text-sm text-gray-600">{volunteerMsg}</span>}
+              </div>
+            </>
+          )}
         </div>
         </>
       )}

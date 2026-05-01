@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from './supabase'
+import { supabase, upsertVolunteerProfile } from './supabase'
 
 const AuthContext = createContext(null)
 
@@ -15,6 +15,15 @@ export function AuthProvider({ children }) {
     // 監聽登入/登出事件
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession)
+      // 義工登入時自動同步 profile（讓師父在後台看到義工清單）
+      if (newSession?.user) {
+        const u = newSession.user
+        const r = u.user_metadata?.role ?? 'volunteer'
+        if (r === 'volunteer') {
+          const displayName = u.user_metadata?.display_name || u.email || ''
+          upsertVolunteerProfile(u.id, u.email || '', displayName)
+        }
+      }
     })
 
     return () => subscription.unsubscribe()

@@ -93,12 +93,19 @@ export default function KioskPage() {
   // ── 刷卡後查詢 ────────────────────────────────────────────
   async function handleScan(code) {
     setPhase('loading')
-    const { student, classes, error } = await getStudentById(code)
+    const eventIds = eventItems.map(i => i.event.event_id)
+
+    // 學員資料與報名狀態並行查詢（code === student_id），減少等待時間
+    const [studentResult, statusResult] = await Promise.all([
+      getStudentById(code),
+      getStudentEventStatuses(code, eventIds),
+    ])
+
+    const { student, classes, error } = studentResult
     if (error === 'NOT_FOUND') { setPhase('not_found'); scheduleAutoReset(4); return }
     if (error) { setPhase('error'); setErrorMsg(error); scheduleAutoReset(5); return }
 
-    const eventIds = eventItems.map(i => i.event.event_id)
-    const { map: statusMap, error: statusErr } = await getStudentEventStatuses(student.student_id, eventIds)
+    const { map: statusMap, error: statusErr } = statusResult
 
     setStudent(student)
     setClasses(classes)

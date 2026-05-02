@@ -94,30 +94,27 @@ export async function getStudentEventStatuses(studentId, eventIds) {
 
 /**
  * 用學員編號查詢學員資料（含班別）
+ * 合併為單一查詢（原本兩次串行 → 一次搞定），減少往返延遲
  */
 export async function getStudentById(studentId) {
-  const { data: student, error: studentErr } = await supabase
+  const { data, error } = await supabase
     .from('students')
-    .select('*')
+    .select('*, student_classes(class_name, group_name)')
     .eq('student_id', studentId)
     .eq('active', true)
     .single()
 
-  if (studentErr) {
-    if (studentErr.code === 'PGRST116') {
+  if (error) {
+    if (error.code === 'PGRST116') {
       return { student: null, classes: [], error: 'NOT_FOUND' }
     }
-    return { student: null, classes: [], error: studentErr.message }
+    return { student: null, classes: [], error: error.message }
   }
 
-  const { data: classes, error: classErr } = await supabase
-    .from('student_classes')
-    .select('class_name, group_name')
-    .eq('student_id', studentId)
+  const classes = data.student_classes || []
+  const { student_classes: _, ...student } = data
 
-  if (classErr) return { student, classes: [], error: classErr.message }
-
-  return { student, classes: classes || [], error: null }
+  return { student, classes, error: null }
 }
 
 // ─── 報名（前台）──────────────────────────────────────────

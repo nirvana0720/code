@@ -14,6 +14,27 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 })
 
+// ─── Pagination / batch helpers ───────────────────────────
+
+async function fetchAllRows(makeQuery, pageSize = 1000) {
+  let from = 0
+  const all = []
+  for (;;) {
+    const { data, error } = await makeQuery(from, from + pageSize - 1)
+    if (error) return { data: null, error }
+    all.push(...(data || []))
+    if (!data || data.length < pageSize) break
+    from += pageSize
+  }
+  return { data: all, error: null }
+}
+
+const chunk = (arr, n) => {
+  const out = []
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
+  return out
+}
+
 // ─── Auth ─────────────────────────────────────────────────
 
 export async function signIn(email, password) {
@@ -1014,33 +1035,30 @@ export async function importStudents(rows, opts = {}) {
     return { success: false, imported: 0, error: '沒有有效的學員資料' }
   }
 
-  // 1. Upsert students（衝突時更新 name、qr_code，active 恢復 true）
-  const { error: studentErr } = await supabase
-    .from('students')
-    .upsert(studentRows, { onConflict: 'student_id' })
-
-  if (studentErr) return { success: false, imported: 0, error: studentErr.message }
+  // 1. Upsert students 分批（每批 500）
+  for (const batch of chunk(studentRows, 500)) {
+    const { error: studentErr } = await supabase
+      .from('students')
+      .upsert(batch, { onConflict: 'student_id' })
+    if (studentErr) return { success: false, imported: 0, error: studentErr.message }
+  }
 
   // 2. 若啟用「完整名單退場」，把不在本次名單的舊生標記為未在籍
   if (deactivateMissing) {
-    const { data: allStudents, error: allErr } = await supabase
-      .from('students')
-      .select('student_id')
+    const { data: allStudents, error: allErr } = await fetchAllRows((from, to) =>
+      supabase.from('students').select('student_id').range(from, to)
+    )
     if (allErr) return { success: false, imported: 0, error: allErr.message }
 
     const importedSet = new Set(importedIds)
     const missingIds = allStudents.map(s => s.student_id).filter(id => !importedSet.has(id))
 
-    if (missingIds.length > 0) {
-      // 分批處理，每批 200 筆
-      for (let i = 0; i < missingIds.length; i += 200) {
-        const batch = missingIds.slice(i, i + 200)
-        const { error: deactErr } = await supabase
-          .from('students')
-          .update({ active: false })
-          .in('student_id', batch)
-        if (deactErr) return { success: false, imported: 0, error: deactErr.message }
-      }
+    for (const batch of chunk(missingIds, 200)) {
+      const { error: deactErr } = await supabase
+        .from('students')
+        .update({ active: false })
+        .in('student_id', batch)
+      if (deactErr) return { success: false, imported: 0, error: deactErr.message }
     }
   }
 
@@ -1062,42 +1080,43 @@ export async function importStudents(rows, opts = {}) {
     })
 
   if (classMode === 'replace') {
-    // 刪光這些學員的舊班別再重新 insert
-    const { error: delErr } = await supabase
-      .from('student_classes')
-      .delete()
-      .in('student_id', importedIds)
-    if (delErr) return { success: false, imported: 0, error: delErr.message }
-
-    if (newClassRows.length > 0) {
+    // 分批刪光這些學員的舊班別（每批 200）
+    for (const batch of chunk(importedIds, 200)) {
+      const { error: delErr } = await supabase
+        .from('student_classes')
+        .delete()
+        .in('student_id', batch)
+      if (delErr) return { success: false, imported: 0, error: delErr.message }
+    }
+    // 分批 insert 新班別（每批 500）
+    for (const batch of chunk(newClassRows, 500)) {
       const { error: classErr } = await supabase
         .from('student_classes')
-        .insert(newClassRows)
+        .insert(batch)
       if (classErr) return { success: false, imported: 0, error: classErr.message }
     }
   } else {
-    // merge：只 insert 還沒有的班別（依 student_id + class_name + group_name 去重）
-    if (newClassRows.length > 0) {
-      const { data: existing, error: fetchErr } = await supabase
-        .from('student_classes')
-        .select('student_id, class_name, group_name')
-        .in('student_id', importedIds)
-      if (fetchErr) return { success: false, imported: 0, error: fetchErr.message }
-
-      const existingSet = new Set(
-        (existing || []).map(r => `${r.student_id}|${r.class_name}|${(r.group_name ?? '').trim()}`)
-      )
-      const toInsert = newClassRows.filter(r => {
-        const key = `${r.student_id}|${r.class_name}|${(r.group_name ?? '').trim()}`
-        return !existingSet.has(key)
-      })
-
-      if (toInsert.length > 0) {
-        const { error: classErr } = await supabase
+    // merge：分批讀既有班級（每批 200 id）+ 分頁讀取，累積 existingSet
+    const existingSet = new Set()
+    for (const idBatch of chunk(importedIds, 200)) {
+      const { data: existing, error: fetchErr } = await fetchAllRows((from, to) =>
+        supabase
           .from('student_classes')
-          .insert(toInsert)
-        if (classErr) return { success: false, imported: 0, error: classErr.message }
+          .select('student_id, class_name, group_name')
+          .in('student_id', idBatch)
+          .range(from, to)
+      )
+      if (fetchErr) return { success: false, imported: 0, error: fetchErr.message }
+      for (const r of existing) {
+        existingSet.add(`${r.student_id}|${r.class_name}|${(r.group_name ?? '').trim()}`)
       }
+    }
+    const toInsert = newClassRows.filter(r => !existingSet.has(classKey(r)))
+    for (const batch of chunk(toInsert, 500)) {
+      const { error: classErr } = await supabase
+        .from('student_classes')
+        .insert(batch)
+      if (classErr) return { success: false, imported: 0, error: classErr.message }
     }
   }
 
@@ -1919,25 +1938,17 @@ export async function uncheckInMonk(token, carMonkId) {
 // ─── 學員管理（後台）────────────────────────────────────────
 
 export async function getAllStudents(search = '') {
-  let query = supabase
-    .from('students')
-    .select(`
-      student_id,
-      name,
-      active,
-      created_at,
-      student_classes ( class_name, group_name )
-    `)
-    .order('student_id', { ascending: true })
-
-  if (search.trim()) {
-    query = query.ilike('name', `%${search.trim()}%`)
-  }
-
-  const { data, error } = await query
-
+  const { data, error } = await fetchAllRows((from, to) => {
+    let q = supabase
+      .from('students')
+      .select('student_id, name, active, created_at, student_classes ( class_name, group_name )')
+      .order('student_id', { ascending: true })
+      .range(from, to)
+    if (search.trim()) q = q.ilike('name', `%${search.trim()}%`)
+    return q
+  })
   if (error) return { students: [], error: error.message }
-  return { students: data || [], error: null }
+  return { students: data, error: null }
 }
 
 

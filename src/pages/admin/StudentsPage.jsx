@@ -34,6 +34,32 @@ function mapRow(rawRow) {
   return row
 }
 
+// ── 匯出名單 ─────────────────────────────────────────────────
+async function exportStudents() {
+  const { students: all } = await getAllStudents('')
+  const active = all.filter(s => s.active !== false)
+  active.sort((a, b) => String(a.student_id).localeCompare(String(b.student_id)))
+
+  const rows = [['學員編號', '姓名', '班級', '組別']]
+  for (const s of active) {
+    if (s.student_classes && s.student_classes.length > 0) {
+      for (const c of s.student_classes) {
+        rows.push([s.student_id, s.name, c.class_name || '', c.group_name || ''])
+      }
+    } else {
+      rows.push([s.student_id, s.name, '', ''])
+    }
+  }
+
+  const today = new Date()
+  const ymd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  ws['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 10 }]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '學員主檔')
+  XLSX.writeFile(wb, `學員主檔_匯出_${ymd}.xlsx`)
+}
+
 // ── 主頁面 ──────────────────────────────────────────────────
 const EMPTY_FORM = { student_id: '', name: '', class_name: '', group_name: '' }
 
@@ -520,6 +546,12 @@ export default function StudentsPage() {
             className="border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             📋 下載模板
+          </button>
+          <button
+            onClick={exportStudents}
+            className="border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            📤 匯出名單
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}

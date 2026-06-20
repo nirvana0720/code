@@ -973,13 +973,27 @@ export async function deleteRegistration(registrationId) {
   return { success: true, error: null }
 }
 
+// ─── 學員管理（軟刪除）──────────────────────────────────────
+
+export async function setStudentActive(studentId, active) {
+  const { error } = await supabase
+    .from('students')
+    .update({ active })
+    .eq('student_id', studentId)
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
 // ─── 學員匯入（後台）────────────────────────────────────────
 
 /**
  * 批次匯入學員資料
  * @param {Array<{student_id, name, class_name, group_name}>} rows
+ * @param {{ classMode?: 'replace'|'merge', deactivateMissing?: boolean }} opts
  */
-export async function importStudents(rows) {
+export async function importStudents(rows, opts = {}) {
+  const { classMode = 'replace', deactivateMissing = false } = opts
+
   // 依 student_id 去重，建立唯一學員清單
   const studentMap = new Map()
   for (const row of rows) {
@@ -994,29 +1008,44 @@ export async function importStudents(rows) {
   }
 
   const studentRows = [...studentMap.values()]
-  const studentIds = studentRows.map(s => s.student_id)
+  const importedIds = studentRows.map(s => s.student_id)
 
   if (studentRows.length === 0) {
     return { success: false, imported: 0, error: '沒有有效的學員資料' }
   }
 
-  // 1. Upsert students（衝突時更新 name、qr_code，不動 created_at）
+  // 1. Upsert students（衝突時更新 name、qr_code，active 恢復 true）
   const { error: studentErr } = await supabase
     .from('students')
     .upsert(studentRows, { onConflict: 'student_id' })
 
   if (studentErr) return { success: false, imported: 0, error: studentErr.message }
 
-  // 2. 刪除這些學員的舊班別紀錄
-  const { error: delErr } = await supabase
-    .from('student_classes')
-    .delete()
-    .in('student_id', studentIds)
+  // 2. 若啟用「完整名單退場」，把不在本次名單的舊生標記為未在籍
+  if (deactivateMissing) {
+    const { data: allStudents, error: allErr } = await supabase
+      .from('students')
+      .select('student_id')
+    if (allErr) return { success: false, imported: 0, error: allErr.message }
 
-  if (delErr) return { success: false, imported: 0, error: delErr.message }
+    const importedSet = new Set(importedIds)
+    const missingIds = allStudents.map(s => s.student_id).filter(id => !importedSet.has(id))
 
-  // 3. 插入新班別紀錄（跳過沒有班級的列）
-  const classRows = rows
+    if (missingIds.length > 0) {
+      // 分批處理，每批 200 筆
+      for (let i = 0; i < missingIds.length; i += 200) {
+        const batch = missingIds.slice(i, i + 200)
+        const { error: deactErr } = await supabase
+          .from('students')
+          .update({ active: false })
+          .in('student_id', batch)
+        if (deactErr) return { success: false, imported: 0, error: deactErr.message }
+      }
+    }
+  }
+
+  // 3. 處理班別
+  const newClassRows = rows
     .filter(r => r.student_id && r.class_name?.trim())
     .map(r => ({
       student_id: r.student_id,
@@ -1024,12 +1053,44 @@ export async function importStudents(rows) {
       group_name: r.group_name?.trim() || null,
     }))
 
-  if (classRows.length > 0) {
-    const { error: classErr } = await supabase
+  if (classMode === 'replace') {
+    // 刪光這些學員的舊班別再重新 insert
+    const { error: delErr } = await supabase
       .from('student_classes')
-      .insert(classRows)
+      .delete()
+      .in('student_id', importedIds)
+    if (delErr) return { success: false, imported: 0, error: delErr.message }
 
-    if (classErr) return { success: false, imported: 0, error: classErr.message }
+    if (newClassRows.length > 0) {
+      const { error: classErr } = await supabase
+        .from('student_classes')
+        .insert(newClassRows)
+      if (classErr) return { success: false, imported: 0, error: classErr.message }
+    }
+  } else {
+    // merge：只 insert 還沒有的班別（依 student_id + class_name + group_name 去重）
+    if (newClassRows.length > 0) {
+      const { data: existing, error: fetchErr } = await supabase
+        .from('student_classes')
+        .select('student_id, class_name, group_name')
+        .in('student_id', importedIds)
+      if (fetchErr) return { success: false, imported: 0, error: fetchErr.message }
+
+      const existingSet = new Set(
+        (existing || []).map(r => `${r.student_id}|${r.class_name}|${(r.group_name ?? '').trim()}`)
+      )
+      const toInsert = newClassRows.filter(r => {
+        const key = `${r.student_id}|${r.class_name}|${(r.group_name ?? '').trim()}`
+        return !existingSet.has(key)
+      })
+
+      if (toInsert.length > 0) {
+        const { error: classErr } = await supabase
+          .from('student_classes')
+          .insert(toInsert)
+        if (classErr) return { success: false, imported: 0, error: classErr.message }
+      }
+    }
   }
 
   return { success: true, imported: studentRows.length, error: null }

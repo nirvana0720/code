@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import * as XLSX from '@e965/xlsx'
 import AdminLayout from '../../components/AdminLayout'
-import { getAllStudents, importStudents } from '../../lib/supabase'
+import { getAllStudents, importStudents, setStudentActive } from '../../lib/supabase'
 
 // ── 下載模板 ─────────────────────────────────────────────────
 function downloadTemplate() {
@@ -10,7 +10,6 @@ function downloadTemplate() {
     ['115005662', '王大明', '初級日間班', '1 組'],
     ['115005663', '李小華', '中級夜間班', ''],
   ])
-  // 設定欄寬
   ws['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 10 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '學員名單')
@@ -42,6 +41,7 @@ export default function StudentsPage() {
   const [students, setStudents] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
 
   // 匯入狀態
   const [importModal, setImportModal] = useState(false)
@@ -49,6 +49,8 @@ export default function StudentsPage() {
   const [parseError, setParseError] = useState('')
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState(null)
+  const [classMode, setClassMode] = useState('replace')
+  const [deactivateMissing, setDeactivateMissing] = useState(false)
   const fileInputRef = useRef(null)
 
   // 單筆新增狀態
@@ -57,6 +59,10 @@ export default function StudentsPage() {
   const [addError, setAddError] = useState('')
   const [addSaving, setAddSaving] = useState(false)
   const [addSuccess, setAddSuccess] = useState(false)
+
+  // 單筆衝突詢問 modal
+  const [conflictModal, setConflictModal] = useState(false)
+  const [pendingAddRow, setPendingAddRow] = useState(null)
 
   const load = useCallback(async (q = '') => {
     setLoading(true)
@@ -72,12 +78,26 @@ export default function StudentsPage() {
     return () => clearTimeout(t)
   }, [search, load])
 
-  // 選檔後解析
+  // ── 軟刪除操作 ──────────────────────────────────────────
+  async function handleSetActive(student, active) {
+    if (!active) {
+      const ok = window.confirm(
+        `確定將「${student.name}」標記為未在籍？\n資料會保留，QR 仍可查，只是不再列為在籍學員。`
+      )
+      if (!ok) return
+    }
+    await setStudentActive(student.student_id, active)
+    await load(search)
+  }
+
+  // ── 選檔後解析 ──────────────────────────────────────────
   function handleFileChange(e) {
     const file = e.target.files?.[0]
     if (!file) return
     setParseError('')
     setImportResult(null)
+    setClassMode('replace')
+    setDeactivateMissing(false)
 
     const reader = new FileReader()
     reader.onload = (ev) => {
@@ -105,13 +125,13 @@ export default function StudentsPage() {
       }
     }
     reader.readAsArrayBuffer(file)
-    e.target.value = '' // 清空，下次可再選同一檔
+    e.target.value = ''
   }
 
-  // 確認匯入
+  // ── 確認匯入 ────────────────────────────────────────────
   async function handleImport() {
     setImporting(true)
-    const { success, imported, error } = await importStudents(importRows)
+    const { success, imported, error } = await importStudents(importRows, { classMode, deactivateMissing })
     setImporting(false)
 
     if (!success) {
@@ -128,6 +148,8 @@ export default function StudentsPage() {
     setImportRows([])
     setParseError('')
     setImportResult(null)
+    setClassMode('replace')
+    setDeactivateMissing(false)
   }
 
   // ── 單筆新增 ──────────────────────────────────────────────
@@ -140,6 +162,17 @@ export default function StudentsPage() {
 
   function closeAddModal() {
     setAddModal(false)
+    setConflictModal(false)
+    setPendingAddRow(null)
+  }
+
+  async function doAddStudent(row, mode) {
+    setAddSaving(true)
+    const { success, error } = await importStudents([row], { classMode: mode })
+    setAddSaving(false)
+    if (!success) return setAddError(`儲存失敗：${error}`)
+    setAddSuccess(true)
+    await load()
   }
 
   async function handleAddStudent(e) {
@@ -149,21 +182,34 @@ export default function StudentsPage() {
     if (!name.trim()) return setAddError('姓名為必填')
 
     setAddError('')
-    setAddSaving(true)
-    const { success, error } = await importStudents([{
+
+    const row = {
       student_id: student_id.trim(),
       name: name.trim(),
       class_name: class_name.trim(),
       group_name: group_name.trim(),
-    }])
-    setAddSaving(false)
+    }
 
-    if (!success) return setAddError(`儲存失敗：${error}`)
-    setAddSuccess(true)
-    await load()
+    // 判斷是否已有班級 → 詢問合併或覆蓋
+    const existing = students.find(s => s.student_id === row.student_id)
+    if (existing && existing.student_classes && existing.student_classes.length > 0) {
+      setPendingAddRow(row)
+      setConflictModal(true)
+      return
+    }
+
+    await doAddStudent(row, 'replace')
   }
 
-  const uniqueStudentCount = new Set(importRows.map(r => r.student_id)).size
+  // 計算匯入預覽中有幾位學員原本已有班級
+  const importedIds = new Set(importRows.map(r => r.student_id))
+  const conflictCount = students.filter(
+    s => importedIds.has(s.student_id) && s.student_classes && s.student_classes.length > 0
+  ).length
+  const uniqueStudentCount = importedIds.size
+
+  // 依 showInactive 過濾列表
+  const visibleStudents = showInactive ? students : students.filter(s => s.active !== false)
 
   return (
     <AdminLayout>
@@ -171,7 +217,51 @@ export default function StudentsPage() {
       {addModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            {addSuccess ? (
+
+            {/* 班級衝突詢問 */}
+            {conflictModal ? (
+              <div>
+                <h3 className="text-lg font-bold text-gray-800 mb-2">學員已有班級紀錄</h3>
+                <p className="text-sm text-gray-600 mb-5">
+                  「{pendingAddRow?.name}」目前已有班級。請選擇處理方式：
+                </p>
+                <div className="flex flex-col gap-3">
+                  <button
+                    disabled={addSaving}
+                    onClick={async () => {
+                      setConflictModal(false)
+                      await doAddStudent(pendingAddRow, 'merge')
+                      setPendingAddRow(null)
+                    }}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    合併（保留原班級，加上這個新班級）
+                  </button>
+                  <button
+                    disabled={addSaving}
+                    onClick={async () => {
+                      setConflictModal(false)
+                      await doAddStudent(pendingAddRow, 'replace')
+                      setPendingAddRow(null)
+                    }}
+                    className="w-full bg-red-500 hover:bg-red-600 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    覆蓋（清掉原班級，只留這次填的）
+                  </button>
+                  <button
+                    onClick={() => { setConflictModal(false); setPendingAddRow(null) }}
+                    className="w-full border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors"
+                  >
+                    取消
+                  </button>
+                </div>
+                {addError && (
+                  <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
+                    {addError}
+                  </p>
+                )}
+              </div>
+            ) : addSuccess ? (
               <div className="text-center py-8">
                 <div className="text-5xl mb-4">✅</div>
                 <p className="text-xl font-bold text-gray-800 mb-2">新增完成</p>
@@ -249,7 +339,7 @@ export default function StudentsPage() {
                   )}
 
                   <p className="text-xs text-gray-400">
-                    若學員編號已存在，資料將被更新（覆蓋）
+                    若學員編號已存在且已有班級，會詢問要合併或覆蓋
                   </p>
 
                   <div className="flex gap-3 mt-1">
@@ -303,6 +393,11 @@ export default function StudentsPage() {
                   解析到 <span className="font-bold text-amber-700">{uniqueStudentCount}</span> 位學員、
                   <span className="font-bold text-amber-700">{importRows.length}</span> 筆班別紀錄
                   <span className="text-gray-400">（同一學員多個班別算多筆）</span>
+                  {conflictCount > 0 && (
+                    <span className="ml-2 text-orange-600 font-medium">
+                      ・其中 {conflictCount} 位學員原本已有班級紀錄
+                    </span>
+                  )}
                 </p>
 
                 {parseError && (
@@ -338,9 +433,54 @@ export default function StudentsPage() {
                   )}
                 </div>
 
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
-                  ⚠️ 匯入後，相同學員編號的姓名與班別資料將被覆蓋更新。請確認資料無誤再繼續。
-                </p>
+                {/* C：班級處理方式 */}
+                <div className="border border-gray-200 rounded-xl px-4 py-3 mb-3">
+                  <p className="text-sm font-medium text-gray-700 mb-2">班級處理方式</p>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="classMode"
+                        value="replace"
+                        checked={classMode === 'replace'}
+                        onChange={() => setClassMode('replace')}
+                        className="accent-amber-700"
+                      />
+                      <span className="text-sm text-gray-700">覆蓋（檔案為準，整個換掉）</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="classMode"
+                        value="merge"
+                        checked={classMode === 'merge'}
+                        onChange={() => setClassMode('merge')}
+                        className="accent-amber-700"
+                      />
+                      <span className="text-sm text-gray-700">合併（保留原班級，新增去重）</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* B：完整名單退場 */}
+                <div className="border border-orange-200 bg-orange-50 rounded-xl px-4 py-3 mb-4">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={deactivateMissing}
+                      onChange={e => setDeactivateMissing(e.target.checked)}
+                      className="mt-0.5 accent-orange-600"
+                    />
+                    <div>
+                      <span className="text-sm font-medium text-orange-800">
+                        這是完整在籍名單 — 名單中未出現的學員自動標記為未在籍
+                      </span>
+                      <p className="text-xs text-orange-600 mt-0.5">
+                        只有當這份檔案包含本學期所有在籍學員時才勾選。
+                      </p>
+                    </div>
+                  </label>
+                </div>
 
                 <div className="flex gap-3">
                   <button
@@ -367,7 +507,7 @@ export default function StudentsPage() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-gray-800">學員管理</h2>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-400">{students.length} 位</span>
+          <span className="text-sm text-gray-400">{visibleStudents.length} 位</span>
           <input
             ref={fileInputRef}
             type="file"
@@ -408,8 +548,8 @@ export default function StudentsPage() {
         支援 Excel（.xlsx / .xls）及 CSV。需包含欄位：<span className="font-medium text-gray-500">學員編號、姓名、班級、組別</span>。同學員多個班別請用多列。
       </p>
 
-      {/* 搜尋框 */}
-      <div className="mb-4">
+      {/* 搜尋 + 顯示未在籍開關 */}
+      <div className="flex items-center gap-4 mb-4">
         <input
           type="text"
           value={search}
@@ -417,12 +557,21 @@ export default function StudentsPage() {
           placeholder="搜尋姓名…"
           className="w-full sm:w-72 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
         />
+        <label className="flex items-center gap-2 cursor-pointer select-none whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={e => setShowInactive(e.target.checked)}
+            className="accent-amber-700"
+          />
+          <span className="text-sm text-gray-500">顯示未在籍</span>
+        </label>
       </div>
 
       {/* 學員列表 */}
       {loading ? (
         <p className="text-gray-400 text-sm text-center py-12">載入中…</p>
-      ) : students.length === 0 ? (
+      ) : visibleStudents.length === 0 ? (
         <p className="text-gray-400 text-sm text-center py-12">找不到學員</p>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
@@ -436,28 +585,64 @@ export default function StudentsPage() {
               </tr>
             </thead>
             <tbody>
-              {students.map(s => (
-                <tr key={s.student_id} className="border-b border-gray-50 hover:bg-amber-50/30">
-                  <td className="px-4 py-3 font-mono text-xs text-gray-500">{s.student_id}</td>
-                  <td className="px-4 py-3 font-medium text-gray-800">{s.name}</td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {s.student_classes && s.student_classes.length > 0
-                      ? s.student_classes.map((c, i) => (
-                          <span key={i} className="inline-block bg-amber-50 text-amber-700 text-xs px-2 py-0.5 rounded mr-1 mb-0.5">
-                            {c.class_name}{c.group_name ? `・${c.group_name}` : ''}
-                          </span>
-                        ))
-                      : <span className="text-gray-300">—</span>
-                    }
-                  </td>
-                  <td className="px-4 py-3">
-                    {s.active
-                      ? <span className="text-green-600 text-xs font-medium">在籍</span>
-                      : <span className="text-gray-400 text-xs">停止</span>
-                    }
-                  </td>
-                </tr>
-              ))}
+              {visibleStudents.map(s => {
+                const inactive = s.active === false
+                return (
+                  <tr
+                    key={s.student_id}
+                    className={`border-b border-gray-50 ${inactive ? 'bg-gray-50' : 'hover:bg-amber-50/30'}`}
+                  >
+                    <td className={`px-4 py-3 font-mono text-xs ${inactive ? 'text-gray-300' : 'text-gray-500'}`}>
+                      {s.student_id}
+                    </td>
+                    <td className={`px-4 py-3 font-medium ${inactive ? 'text-gray-400' : 'text-gray-800'}`}>
+                      {s.name}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {s.student_classes && s.student_classes.length > 0
+                        ? s.student_classes.map((c, i) => (
+                            <span
+                              key={i}
+                              className={`inline-block text-xs px-2 py-0.5 rounded mr-1 mb-0.5 ${
+                                inactive
+                                  ? 'bg-gray-100 text-gray-400'
+                                  : 'bg-amber-50 text-amber-700'
+                              }`}
+                            >
+                              {c.class_name}{c.group_name ? `・${c.group_name}` : ''}
+                            </span>
+                          ))
+                        : <span className="text-gray-300">—</span>
+                      }
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {inactive ? (
+                          <>
+                            <span className="text-gray-400 text-xs">未在籍</span>
+                            <button
+                              onClick={() => handleSetActive(s, true)}
+                              className="text-xs text-green-600 border border-green-300 hover:bg-green-50 px-2 py-0.5 rounded transition-colors"
+                            >
+                              恢復在籍
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-green-600 text-xs font-medium">在籍</span>
+                            <button
+                              onClick={() => handleSetActive(s, false)}
+                              className="text-xs text-gray-400 border border-gray-300 hover:bg-red-50 hover:text-red-500 hover:border-red-300 px-2 py-0.5 rounded transition-colors"
+                            >
+                              標記未在籍
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

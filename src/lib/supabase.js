@@ -1045,6 +1045,8 @@ export async function importStudents(rows, opts = {}) {
   }
 
   // 3. 處理班別
+  const classKey = r => `${r.student_id}|${r.class_name}|${(r.group_name ?? '').trim()}`
+  const seenKeys = new Set()
   const newClassRows = rows
     .filter(r => r.student_id && r.class_name?.trim())
     .map(r => ({
@@ -1052,6 +1054,12 @@ export async function importStudents(rows, opts = {}) {
       class_name: r.class_name.trim(),
       group_name: r.group_name?.trim() || null,
     }))
+    .filter(r => {
+      const k = classKey(r)
+      if (seenKeys.has(k)) return false
+      seenKeys.add(k)
+      return true
+    })
 
   if (classMode === 'replace') {
     // 刪光這些學員的舊班別再重新 insert

@@ -472,7 +472,7 @@ export default function StudentsPage() {
                         onChange={() => setClassMode('replace')}
                         className="accent-amber-700"
                       />
-                      <span className="text-sm text-gray-700">覆蓋（檔案為準，整個換掉）</span>
+                      <span className="text-sm text-gray-700">覆蓋（以新檔案為準，替換舊資料）</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -483,7 +483,7 @@ export default function StudentsPage() {
                         onChange={() => setClassMode('merge')}
                         className="accent-amber-700"
                       />
-                      <span className="text-sm text-gray-700">合併（保留原班級，新增去重）</span>
+                      <span className="text-sm text-gray-700">合併（保留原本資料，並新增匯入的資料）</span>
                     </label>
                   </div>
                 </div>

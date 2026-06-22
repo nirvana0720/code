@@ -1123,6 +1123,54 @@ export async function importStudents(rows, opts = {}) {
   return { success: true, imported: studentRows.length, error: null }
 }
 
+/**
+ * 班級覆蓋匯入：以本檔學員清單完整取代指定班級的成員
+ * @param {string} className
+ * @param {Array<{student_id, name, group_name}>} students
+ * @returns {{ success: boolean, imported: number, error: string|null }}
+ */
+export async function refreshClassRoster(className, students) {
+  if (!className || !students || students.length === 0) {
+    return { success: false, imported: 0, error: '班級名稱或學員清單不可為空' }
+  }
+
+  // 1. Upsert students（建新生、更新姓名、確保 active=true）
+  const studentRows = students.map(s => ({
+    student_id: s.student_id,
+    name: s.name,
+    qr_code: s.student_id,
+    active: true,
+  }))
+  for (const batch of chunk(studentRows, 500)) {
+    const { error } = await supabase
+      .from('students')
+      .upsert(batch, { onConflict: 'student_id' })
+    if (error) return { success: false, imported: 0, error: error.message }
+  }
+
+  // 2. 刪除此班所有既有成員（只動這個班，不影響其他班）
+  const { error: delErr } = await supabase
+    .from('student_classes')
+    .delete()
+    .eq('class_name', className)
+  if (delErr) return { success: false, imported: 0, error: delErr.message }
+
+  // 3. 插入本檔所有學員的班別（group_name 可為 null）
+  const classRows = students.map(s => ({
+    student_id: s.student_id,
+    class_name: className,
+    group_name: s.group_name || null,
+  }))
+  for (const batch of chunk(classRows, 500)) {
+    const { error } = await supabase
+      .from('student_classes')
+      .insert(batch)
+    if (error) return { success: false, imported: 0, error: error.message }
+  }
+
+  return { success: true, imported: students.length, error: null }
+}
+
 // ─── 異動追蹤 ───────────────────────────────────────────────
 
 /**

@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import * as XLSX from '@e965/xlsx'
 import AdminLayout from '../../components/AdminLayout'
-import { getAllStudents, importStudents, setStudentActive } from '../../lib/supabase'
+import { getAllStudents, importStudents, setStudentActive, refreshClassRoster } from '../../lib/supabase'
 
 // ── 下載模板 ─────────────────────────────────────────────────
 function downloadTemplate() {
@@ -32,6 +32,68 @@ function mapRow(rawRow) {
     row[field] = key ? String(rawRow[key] ?? '').trim() : ''
   }
   return row
+}
+
+// ── 中台格式解析 helpers ──────────────────────────────────────
+
+function deriveClassName(fileName) {
+  const base = fileName.replace(/\.[^.]+$/, '')
+  const parts = base.split('_')
+  if (parts.length < 2) return ''
+  const seg = parts[1]
+  if (seg.length < 2) return seg
+  const timeChar = seg[1]
+  const expanded = timeChar === '日' ? '日間' : timeChar === '夜' ? '夜間' : timeChar
+  return expanded + seg.slice(2)
+}
+
+function parseZhongtaiSheet(workbook, fileName) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+
+  // Find header row: first row that contains "學員編號"
+  let headerIdx = -1
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const row = rows[i]
+    if (row.some(cell => String(cell).replace(/\s|\n/g, '').includes('學員編號'))) {
+      headerIdx = i
+      break
+    }
+  }
+  if (headerIdx === -1) return { students: [], error: '找不到表頭列（含「學員編號」）' }
+
+  const headers = rows[headerIdx].map(c => String(c).replace(/\s|\n/g, ''))
+
+  const colIdx = {
+    student_id: headers.findIndex(h => h.includes('學員編號')),
+    name:       headers.findIndex(h => h.includes('姓名')),
+    gender:     headers.findIndex(h => h.includes('性別')),
+    group:      headers.findIndex(h => h.includes('組別') && !h.includes('組號')),
+  }
+
+  if (colIdx.student_id === -1 || colIdx.name === -1) {
+    return { students: [], error: '表頭缺少必要欄位（學員編號/姓名）' }
+  }
+
+  const students = []
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i]
+    const id   = String(row[colIdx.student_id] ?? '').trim()
+    const name = String(row[colIdx.name] ?? '').trim()
+    if (!id || !name) continue
+    if (name.includes('範例') || name.includes('上傳前請刪除')) continue
+
+    const gender  = colIdx.gender !== -1 ? String(row[colIdx.gender] ?? '').trim() : ''
+    const groupRaw = colIdx.group !== -1  ? String(row[colIdx.group] ?? '').trim()  : ''
+    let group_name = null
+    if (groupRaw && groupRaw !== '0' && gender) {
+      group_name = `${gender}${groupRaw}組`
+    }
+
+    students.push({ student_id: id, name, group_name })
+  }
+
+  return { students, error: null }
 }
 
 // ── 匯出名單 ─────────────────────────────────────────────────
@@ -79,6 +141,14 @@ export default function StudentsPage() {
   const [deactivateMissing, setDeactivateMissing] = useState(false)
   const fileInputRef = useRef(null)
 
+  // 中台上課紀錄匯入狀態
+  const [rosterModal, setRosterModal] = useState(false)
+  const [rosterItems, setRosterItems] = useState([])
+  const [rosterImporting, setRosterImporting] = useState(false)
+  const [rosterResult, setRosterResult] = useState(null)
+  const [rosterError, setRosterError] = useState('')
+  const rosterFileInputRef = useRef(null)
+
   // 單筆新增狀態
   const [addModal, setAddModal] = useState(false)
   const [addForm, setAddForm] = useState(EMPTY_FORM)
@@ -114,6 +184,103 @@ export default function StudentsPage() {
     }
     await setStudentActive(student.student_id, active)
     await load(search)
+  }
+
+  // 從已載入學員整理現有班級清單
+  const existingClasses = useMemo(() => {
+    const set = new Set()
+    for (const s of students) {
+      for (const c of s.student_classes || []) {
+        if (c.class_name) set.add(c.class_name)
+      }
+    }
+    return [...set].sort()
+  }, [students])
+
+  // ── 中台上課紀錄多檔匯入 ──────────────────────────────────
+  function handleRosterFileChange(e) {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    setRosterError('')
+    setRosterResult(null)
+
+    const items = []
+    let pending = files.length
+    files.forEach((file, idx) => {
+      const reader = new FileReader()
+      reader.onload = (ev) => {
+        let item
+        try {
+          const wb = XLSX.read(ev.target.result, { type: 'array' })
+          const { students: parsed, error } = parseZhongtaiSheet(wb, file.name)
+          const derived = deriveClassName(file.name)
+          item = {
+            id: idx,
+            fileName: file.name,
+            derived,
+            className: derived,
+            useCustom: false,
+            customClass: '',
+            students: parsed,
+            parseError: error,
+            expanded: false,
+            removed: false,
+          }
+        } catch (err) {
+          item = {
+            id: idx,
+            fileName: file.name,
+            derived: '',
+            className: '',
+            useCustom: false,
+            customClass: '',
+            students: [],
+            parseError: err.message,
+            expanded: false,
+            removed: false,
+          }
+        }
+        items[idx] = item
+        pending--
+        if (pending === 0) {
+          setRosterItems(items)
+          setRosterModal(true)
+        }
+      }
+      reader.readAsArrayBuffer(file)
+    })
+    e.target.value = ''
+  }
+
+  function updateRosterItem(id, patch) {
+    setRosterItems(prev => prev.map(it => it.id === id ? { ...it, ...patch } : it))
+  }
+
+  async function handleRosterImport() {
+    setRosterImporting(true)
+    setRosterError('')
+    const active = rosterItems.filter(it => !it.removed && !it.parseError)
+    const results = []
+    for (const item of active) {
+      const cn = item.useCustom ? item.customClass.trim() : item.className.trim()
+      if (!cn) {
+        setRosterError(`「${item.fileName}」的班級名稱不可為空`)
+        setRosterImporting(false)
+        return
+      }
+      const { success, imported, error } = await refreshClassRoster(cn, item.students)
+      results.push({ fileName: item.fileName, className: cn, success, imported, error })
+    }
+    setRosterImporting(false)
+    setRosterResult(results)
+    await load()
+  }
+
+  function closeRosterModal() {
+    setRosterModal(false)
+    setRosterItems([])
+    setRosterResult(null)
+    setRosterError('')
   }
 
   // ── 選檔後解析 ──────────────────────────────────────────
@@ -391,6 +558,168 @@ export default function StudentsPage() {
         </div>
       )}
 
+      {/* ── 中台上課紀錄匯入 Modal ── */}
+      {rosterModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] flex flex-col">
+            {rosterResult ? (
+              <div className="text-center py-8">
+                <div className="text-5xl mb-4">✅</div>
+                <p className="text-xl font-bold text-gray-800 mb-4">匯入完成</p>
+                <div className="text-left space-y-2 mb-6">
+                  {rosterResult.map((r, i) => (
+                    <div key={i} className={`text-sm px-3 py-2 rounded-lg ${r.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-700'}`}>
+                      {r.success
+                        ? `✓ ${r.className}：匯入 ${r.imported} 位學員`
+                        : `✗ ${r.className}（${r.fileName}）：${r.error}`}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={closeRosterModal} className="bg-amber-700 hover:bg-amber-800 text-white font-medium px-10 py-2.5 rounded-xl transition-colors">
+                  關閉
+                </button>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold text-gray-800 mb-1">確認匯入（上課紀錄格式）</h3>
+                <p className="text-xs text-gray-400 mb-3">每班只覆蓋自己的成員，其他班不受影響。請確認班級名稱正確。</p>
+
+                {rosterError && (
+                  <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{rosterError}</p>
+                )}
+
+                <div className="flex-1 overflow-auto space-y-3 mb-4 min-h-0">
+                  {rosterItems.map(item => (
+                    <div key={item.id} className={`border rounded-xl px-4 py-3 ${item.removed ? 'opacity-40' : 'border-gray-200'}`}>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-gray-400 truncate">{item.fileName}</p>
+                          {item.parseError ? (
+                            <p className="text-xs text-red-500 mt-1">⚠ {item.parseError}</p>
+                          ) : (
+                            <p className="text-xs text-gray-500 mt-0.5">{item.students.length} 位學員</p>
+                          )}
+                        </div>
+                        {!item.removed && (
+                          <button
+                            onClick={() => updateRosterItem(item.id, { removed: true })}
+                            className="text-xs text-red-400 hover:text-red-600 whitespace-nowrap mt-0.5"
+                          >
+                            移除此檔
+                          </button>
+                        )}
+                        {item.removed && (
+                          <button
+                            onClick={() => updateRosterItem(item.id, { removed: false })}
+                            className="text-xs text-gray-400 hover:text-gray-600 whitespace-nowrap mt-0.5"
+                          >
+                            還原
+                          </button>
+                        )}
+                      </div>
+
+                      {!item.removed && !item.parseError && (
+                        <>
+                          <div className="flex items-center gap-2 mb-2">
+                            <label className="text-xs font-medium text-gray-600 whitespace-nowrap">班級：</label>
+                            {item.useCustom ? (
+                              <input
+                                type="text"
+                                value={item.customClass}
+                                onChange={e => updateRosterItem(item.id, { customClass: e.target.value })}
+                                placeholder="輸入新班級名稱"
+                                className="flex-1 border border-amber-400 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                              />
+                            ) : (
+                              <select
+                                value={item.className}
+                                onChange={e => {
+                                  if (e.target.value === '__custom__') {
+                                    updateRosterItem(item.id, { useCustom: true, customClass: item.derived })
+                                  } else {
+                                    updateRosterItem(item.id, { className: e.target.value })
+                                  }
+                                }}
+                                className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-400"
+                              >
+                                {existingClasses.map(cn => (
+                                  <option key={cn} value={cn}>{cn}</option>
+                                ))}
+                                {!existingClasses.includes(item.className) && item.className && (
+                                  <option value={item.className}>{item.className}（自動換算，未找到對應）</option>
+                                )}
+                                <option value="__custom__">＋ 自訂新班級…</option>
+                              </select>
+                            )}
+                            {item.useCustom && (
+                              <button
+                                onClick={() => updateRosterItem(item.id, { useCustom: false, className: item.derived })}
+                                className="text-xs text-gray-400 hover:text-gray-600"
+                              >
+                                取消
+                              </button>
+                            )}
+                          </div>
+
+                          {item.students.length > 0 && (
+                            <div>
+                              <button
+                                onClick={() => updateRosterItem(item.id, { expanded: !item.expanded })}
+                                className="text-xs text-amber-700 hover:underline"
+                              >
+                                {item.expanded ? '收起預覽' : `展開預覽前 5 筆`}
+                              </button>
+                              {item.expanded && (
+                                <div className="mt-1 border border-gray-100 rounded-lg overflow-hidden">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="bg-gray-50">
+                                        <th className="text-left px-2 py-1 text-gray-500 font-medium">學員編號</th>
+                                        <th className="text-left px-2 py-1 text-gray-500 font-medium">姓名</th>
+                                        <th className="text-left px-2 py-1 text-gray-500 font-medium">組別</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {item.students.slice(0, 5).map((s, i) => (
+                                        <tr key={i} className="border-t border-gray-50">
+                                          <td className="px-2 py-1 font-mono text-gray-400">{s.student_id}</td>
+                                          <td className="px-2 py-1 text-gray-700">{s.name}</td>
+                                          <td className="px-2 py-1 text-gray-500">{s.group_name || <span className="text-gray-300">—</span>}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                  {item.students.length > 5 && (
+                                    <p className="text-center text-gray-400 py-1">…共 {item.students.length} 筆</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={closeRosterModal} className="flex-1 border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors">
+                    取消
+                  </button>
+                  <button
+                    onClick={handleRosterImport}
+                    disabled={rosterImporting || rosterItems.every(it => it.removed || it.parseError)}
+                    className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {rosterImporting ? '匯入中…' : '確認匯入'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── 匯入 Modal ── */}
       {importModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -541,6 +870,14 @@ export default function StudentsPage() {
             className="hidden"
             onChange={handleFileChange}
           />
+          <input
+            ref={rosterFileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            multiple
+            className="hidden"
+            onChange={handleRosterFileChange}
+          />
           <button
             onClick={downloadTemplate}
             className="border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -554,10 +891,16 @@ export default function StudentsPage() {
             📤 匯出名單
           </button>
           <button
+            onClick={() => rosterFileInputRef.current?.click()}
+            className="border border-blue-600 text-blue-600 hover:bg-blue-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            📋 以上課紀錄匯入學員資料
+          </button>
+          <button
             onClick={() => fileInputRef.current?.click()}
             className="border border-amber-700 text-amber-700 hover:bg-amber-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
-            📥 匯入學員
+            📥 匯入學員主檔
           </button>
           <button
             onClick={openAddModal}

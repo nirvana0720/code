@@ -1134,8 +1134,13 @@ export async function refreshClassRoster(className, students) {
     return { success: false, imported: 0, error: '班級名稱或學員清單不可為空' }
   }
 
+  // Deduplicate by student_id (keep last occurrence)
+  const dedupMap = new Map()
+  for (const s of students) dedupMap.set(s.student_id, s)
+  const unique = [...dedupMap.values()]
+
   // 1. Upsert students（建新生、更新姓名、確保 active=true）
-  const studentRows = students.map(s => ({
+  const studentRows = unique.map(s => ({
     student_id: s.student_id,
     name: s.name,
     qr_code: s.student_id,
@@ -1156,7 +1161,7 @@ export async function refreshClassRoster(className, students) {
   if (delErr) return { success: false, imported: 0, error: delErr.message }
 
   // 3. 插入本檔所有學員的班別（group_name 可為 null）
-  const classRows = students.map(s => ({
+  const classRows = unique.map(s => ({
     student_id: s.student_id,
     class_name: className,
     group_name: s.group_name || null,
@@ -1168,7 +1173,7 @@ export async function refreshClassRoster(className, students) {
     if (error) return { success: false, imported: 0, error: error.message }
   }
 
-  return { success: true, imported: students.length, error: null }
+  return { success: true, imported: unique.length, error: null }
 }
 
 // ─── 異動追蹤 ───────────────────────────────────────────────

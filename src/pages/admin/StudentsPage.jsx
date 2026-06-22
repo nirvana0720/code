@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import * as XLSX from '@e965/xlsx'
 import AdminLayout from '../../components/AdminLayout'
-import { getAllStudents, importStudents, setStudentActive, refreshClassRoster } from '../../lib/supabase'
+import { getAllStudents, importStudents, setStudentActive, refreshClassRoster, deactivateStudentsByIds } from '../../lib/supabase'
 
 // ── 下載模板 ─────────────────────────────────────────────────
 function downloadTemplate() {
@@ -141,6 +141,13 @@ export default function StudentsPage() {
   const [deactivateMissing, setDeactivateMissing] = useState(false)
   const fileInputRef = useRef(null)
 
+  // 無班級標未在籍狀態
+  const [noClassModal, setNoClassModal] = useState(false)
+  const [noClassList, setNoClassList] = useState([])
+  const [noClassLoading, setNoClassLoading] = useState(false)
+  const [noClassWorking, setNoClassWorking] = useState(false)
+  const [noClassResult, setNoClassResult] = useState(null)
+
   // 中台上課紀錄匯入狀態
   const [rosterModal, setRosterModal] = useState(false)
   const [rosterItems, setRosterItems] = useState([])
@@ -184,6 +191,38 @@ export default function StudentsPage() {
     }
     await setStudentActive(student.student_id, active)
     await load(search)
+  }
+
+  // ── 無班級標未在籍 ─────────────────────────────────────────
+  async function openNoClassModal() {
+    setNoClassLoading(true)
+    setNoClassResult(null)
+    const { students: all } = await getAllStudents('')
+    const noClass = all.filter(
+      s => s.active !== false && (!s.student_classes || s.student_classes.length === 0)
+    )
+    setNoClassList(noClass)
+    setNoClassLoading(false)
+    setNoClassModal(true)
+  }
+
+  async function handleDeactivateNoClass() {
+    setNoClassWorking(true)
+    const ids = noClassList.map(s => s.student_id)
+    const { success, count, error } = await deactivateStudentsByIds(ids)
+    setNoClassWorking(false)
+    if (!success) {
+      alert(`標記失敗：${error}`)
+      return
+    }
+    setNoClassResult(count)
+    await load()
+  }
+
+  function closeNoClassModal() {
+    setNoClassModal(false)
+    setNoClassList([])
+    setNoClassResult(null)
   }
 
   // 從已載入學員整理現有班級清單
@@ -558,6 +597,74 @@ export default function StudentsPage() {
         </div>
       )}
 
+      {/* ── 無班級標未在籍 Modal ── */}
+      {noClassModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[80vh] flex flex-col">
+            {noClassResult !== null ? (
+              <div className="text-center py-8">
+                <div className="text-5xl mb-4">✅</div>
+                <p className="text-xl font-bold text-gray-800 mb-2">完成</p>
+                <p className="text-gray-500">
+                  已將 <span className="font-bold text-red-600">{noClassResult}</span> 位學員標記為未在籍
+                </p>
+                <button onClick={closeNoClassModal} className="mt-8 bg-amber-700 hover:bg-amber-800 text-white font-medium px-10 py-2.5 rounded-xl transition-colors">
+                  關閉
+                </button>
+              </div>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold text-gray-800 mb-1">以下在籍學員目前沒有任何班級</h3>
+                {noClassList.length === 0 ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-10 text-gray-400">
+                    <div className="text-4xl mb-3">🎉</div>
+                    <p className="text-sm">沒有無班級的在籍學員</p>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-500 mb-3">
+                      共 <span className="font-bold text-red-600">{noClassList.length}</span> 位，確認後將標記為未在籍（可用「恢復在籍」還原）
+                    </p>
+                    <div className="flex-1 overflow-auto border border-gray-200 rounded-xl mb-4 min-h-0">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-gray-50">
+                          <tr className="border-b border-gray-100">
+                            <th className="text-left px-3 py-2 font-medium text-gray-600">學員編號</th>
+                            <th className="text-left px-3 py-2 font-medium text-gray-600">姓名</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {noClassList.map(s => (
+                            <tr key={s.student_id} className="border-b border-gray-50 hover:bg-red-50/30">
+                              <td className="px-3 py-2 font-mono text-gray-400">{s.student_id}</td>
+                              <td className="px-3 py-2 font-medium text-gray-700">{s.name}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+                <div className="flex gap-3">
+                  <button onClick={closeNoClassModal} className="flex-1 border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors">
+                    {noClassList.length === 0 ? '關閉' : '取消'}
+                  </button>
+                  {noClassList.length > 0 && (
+                    <button
+                      onClick={handleDeactivateNoClass}
+                      disabled={noClassWorking}
+                      className="flex-1 bg-red-500 hover:bg-red-600 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {noClassWorking ? '處理中…' : '確認標記未在籍'}
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── 中台上課紀錄匯入 Modal ── */}
       {rosterModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
@@ -901,6 +1008,13 @@ export default function StudentsPage() {
             className="border border-amber-700 text-amber-700 hover:bg-amber-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             📥 匯入學員主檔
+          </button>
+          <button
+            onClick={openNoClassModal}
+            disabled={noClassLoading}
+            className="border border-red-400 text-red-500 hover:bg-red-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {noClassLoading ? '讀取中…' : '🚫 標記無班級為未在籍'}
           </button>
           <button
             onClick={openAddModal}

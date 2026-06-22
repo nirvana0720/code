@@ -1176,6 +1176,22 @@ export async function refreshClassRoster(className, students) {
   return { success: true, imported: unique.length, error: null }
 }
 
+/**
+ * 批次將指定學員標記為未在籍（active=false）
+ * @param {string[]} ids  student_id 陣列
+ */
+export async function deactivateStudentsByIds(ids) {
+  if (!ids || ids.length === 0) return { success: true, count: 0, error: null }
+  for (const batch of chunk(ids, 200)) {
+    const { error } = await supabase
+      .from('students')
+      .update({ active: false })
+      .in('student_id', batch)
+    if (error) return { success: false, count: 0, error: error.message }
+  }
+  return { success: true, count: ids.length, error: null }
+}
+
 // ─── 異動追蹤 ───────────────────────────────────────────────
 
 /**

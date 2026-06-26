@@ -963,21 +963,16 @@ export async function submitFriendRegistration(
     ...(guestPhone ? { guest_phone: guestPhone } : {}),
     ...answers,
   }
-  const { data, error } = await supabase
-    .from('registrations')
-    .insert({
-      event_id: eventId,
-      student_id: null,
-      host_student_id: hostStudentId,
-      answers: allAnswers,
-      terminal,
-      is_driver: !!isDriver,
-    })
-    .select('registration_id')
-    .single()
-
+  const { data, error } = await supabase.rpc('kiosk_submit_friend_registration', {
+    p_event_id: eventId,
+    p_host_student_id: hostStudentId,
+    p_answers: allAnswers,
+    p_terminal: terminal,
+    p_is_driver: !!isDriver,
+  })
   if (error) return { registrationId: null, error: error.message }
-  return { registrationId: data.registration_id, error: null }
+  if (data?.success === false) return { registrationId: null, error: data.error }
+  return { registrationId: data?.registration_id ?? null, error: null }
 }
 
 // ─── 學員管理（後台）────────────────────────────────────────

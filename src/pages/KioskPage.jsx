@@ -1531,6 +1531,11 @@ function OverviewScreen({
               {c.class_name}{c.group_name ? `・${c.group_name}` : ''}
             </span>
           ))}
+          {student?.active === false && (
+            <span className="bg-gray-100 text-gray-500 px-3 py-1 rounded-full text-kiosk-sm border border-gray-300">
+              目前非在籍
+            </span>
+          )}
         </div>
 
         {/* 個人 QR Code 下載 Accordion */}

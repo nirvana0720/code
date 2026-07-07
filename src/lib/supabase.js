@@ -989,6 +989,19 @@ export async function deleteRegistration(registrationId) {
   return { success: true, error: null }
 }
 
+/**
+ * 前台取消報名（anon 用）
+ * 走 SECURITY DEFINER RPC 繞過 RLS（anon 已無直接 DELETE 權限）
+ */
+export async function kioskCancelRegistration(registrationId) {
+  const { data, error } = await supabase.rpc('kiosk_cancel_registration', {
+    p_registration_id: registrationId,
+  })
+  if (error) return { success: false, error: error.message }
+  if (data?.success === false) return { success: false, error: data.error }
+  return { success: true, error: null }
+}
+
 // ─── 學員管理（軟刪除）──────────────────────────────────────
 
 export async function setStudentActive(studentId, active) {

@@ -10,6 +10,7 @@ import {
   submitRegistration,
   updateRegistration,
   deleteRegistration,
+  kioskCancelRegistration,
   logRegistrationChange,
   submitFriendRegistration,
 } from '../lib/supabase'
@@ -654,8 +655,8 @@ export default function KioskPage() {
       oldAnswers: fr.answers ?? null,
       newAnswers: null,
     })
-    const { success } = await deleteRegistration(fr.registration_id)
-    if (!success) return
+    const { success, error: cancelErr } = await kioskCancelRegistration(fr.registration_id)
+    if (!success) { setErrorMsg(cancelErr || '取消失敗，請稍後再試'); return }
     setFriendRegistrations(prev => prev.filter(r => r.registration_id !== fr.registration_id))
     setCancellingFriendRegId(null)
     startIdleTimer()
@@ -969,8 +970,8 @@ export default function KioskPage() {
       oldAnswers: reg.answers ?? null,
       newAnswers: null,
     })
-    const { success } = await deleteRegistration(reg.registration_id)
-    if (!success) return
+    const { success, error: cancelErr } = await kioskCancelRegistration(reg.registration_id)
+    if (!success) { setErrorMsg(cancelErr || '取消失敗，請稍後再試'); setCancellingEventId(null); return }
     setStatuses(prev => ({ ...prev, [eventId]: null }))
     setCancellingEventId(null)
     startIdleTimer()

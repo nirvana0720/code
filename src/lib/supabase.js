@@ -317,6 +317,36 @@ export async function updateRegistration(registrationId, answers, isDriver = und
 }
 
 /**
+ * 前台修改報名答案（anon 用）
+ * 走 SECURITY DEFINER RPC 繞過 RLS（anon 已無直接 UPDATE 權限）
+ */
+export async function kioskUpdateRegistration(registrationId, answers, isDriver = undefined) {
+  const { data, error } = await supabase.rpc('kiosk_update_registration', {
+    p_registration_id: registrationId,
+    p_answers: answers,
+    p_is_driver: typeof isDriver === 'boolean' ? isDriver : null,
+  })
+  if (error) return { success: false, error: error.message }
+  if (data?.success === false) return { success: false, error: data.error }
+  return { success: true, error: null }
+}
+
+/**
+ * 其他交通報到 / 取消報到（anon 用，CarCheckinPage token 頁）
+ * 走 SECURITY DEFINER RPC 繞過 RLS（anon 已無直接 UPDATE 權限）
+ */
+export async function kioskCheckinOtherTransport(registrationId, direction, checkIn) {
+  const { data, error } = await supabase.rpc('kiosk_checkin_other_transport', {
+    p_registration_id: registrationId,
+    p_direction: direction,
+    p_check_in: checkIn,
+  })
+  if (error) return { success: false, error: error.message }
+  if (data?.success === false) return { success: false, error: data.error }
+  return { success: true, error: null }
+}
+
+/**
  * 只更新 is_driver 欄位（不動 answers）
  * 用途：小車配對時，師父手動指定同車號群組裡誰是主司機
  */

@@ -9,6 +9,7 @@ import {
   getFriendRegistrationsByHost,
   submitRegistration,
   updateRegistration,
+  kioskUpdateRegistration,
   deleteRegistration,
   kioskCancelRegistration,
   logRegistrationChange,
@@ -593,7 +594,7 @@ export default function KioskPage() {
     let success, error, newRegId
     if (isUpdate && currentReg) {
       const oldAnswers = { ...currentReg.answers }
-      ;({ success, error } = await updateRegistration(currentReg.registration_id, sessionsAnswer, false))
+      ;({ success, error } = await kioskUpdateRegistration(currentReg.registration_id, sessionsAnswer, false))
       if (success) {
         logRegistrationChange({
           registrationId: currentReg.registration_id,
@@ -869,7 +870,7 @@ export default function KioskPage() {
         ...(phone ? { guest_phone: phone } : {}),
         ...friendAnswers,
       }
-      const { success, error } = await updateRegistration(editingFriendRegId, newAnswers, friendIsDriver)
+      const { success, error } = await kioskUpdateRegistration(editingFriendRegId, newAnswers, friendIsDriver)
       if (!success) {
         setPhase('friend_form'); setErrorMsg(error || '送出失敗'); startFormTimer(); return
       }
@@ -1002,7 +1003,7 @@ export default function KioskPage() {
     const isDriver = isDriverFromAnswers({ answers }, fields)
     if (isUpdate && currentReg) {
       const oldAnswers = { ...currentReg.answers }
-      ;({ success, error } = await updateRegistration(currentReg.registration_id, answers, isDriver))
+      ;({ success, error } = await kioskUpdateRegistration(currentReg.registration_id, answers, isDriver))
       if (success) {
         logRegistrationChange({
           registrationId: currentReg.registration_id,

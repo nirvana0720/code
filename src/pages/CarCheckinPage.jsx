@@ -13,8 +13,7 @@ import {
   uncheckIn,
   checkInCarMember,
   uncheckInCarMember,
-  checkInOtherTransport,
-  uncheckInOtherTransport,
+  kioskCheckinOtherTransport,
   checkInMonk,
   uncheckInMonk,
 } from '../lib/supabase'
@@ -273,10 +272,10 @@ export default function CarCheckinPage() {
     } else {
       // 其他交通：方向分離（headDirection closure）
       if (checkedAt) {
-        await uncheckInOtherTransport(registrationId, headDirection)
+        await kioskCheckinOtherTransport(registrationId, headDirection, false)
         markAutoChecked(token, [registrationId])
       } else {
-        await checkInOtherTransport(registrationId, headDirection)
+        await kioskCheckinOtherTransport(registrationId, headDirection, true)
       }
     }
     await refresh()

@@ -23,7 +23,7 @@ export default function AdminLayout({ children }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div className="admin-layout min-h-screen bg-gray-50 flex flex-col">
       {/* 頂部導覽列 */}
       <header className="bg-amber-700 text-white shadow-md">
         <div className="max-w-6xl mx-auto px-3 py-2">
@@ -78,6 +78,4 @@ export default function AdminLayout({ children }) {
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 py-6">
         {children}
       </main>
-    </div>
-  )
-}
+    

@@ -12,3 +12,8 @@ body {
   font-family: 'PingFang TC', 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
   overscroll-behavior: none;
 }
+
+/* 後台整體放大：xs→base(16px), sm→lg(18px), base→xl(20px) */
+.admin-layout .text-xs   { font-size: 1rem;     line-height: 1.5rem;  }
+.admin-layout .text-sm   { font-size: 1.125rem; line-height: 1.75rem; }
+.admin-layout .text-base { font-size: 1.25rem;  line-height: 1.75rem; }

@@ -1055,6 +1055,7 @@ export async function importStudents(rows, opts = {}) {
 
   // 依 student_id 去重，建立唯一學員清單
   const studentMap = new Map()
+  const phoneMap = new Map()
   for (const row of rows) {
     if (row.student_id && row.name && !studentMap.has(row.student_id)) {
       studentMap.set(row.student_id, {
@@ -1063,6 +1064,7 @@ export async function importStudents(rows, opts = {}) {
         qr_code: row.student_id,
         active: true,
       })
+      if (row.phone) phoneMap.set(row.student_id, row.phone)
     }
   }
 
@@ -1079,6 +1081,17 @@ export async function importStudents(rows, opts = {}) {
       .from('students')
       .upsert(batch, { onConflict: 'student_id' })
     if (studentErr) return { success: false, imported: 0, error: studentErr.message }
+  }
+
+  // 1b. 電話：只更新檔案中有填電話的學員，避免把既有電話覆蓋成空白（分批 upsert）
+  if (phoneMap.size > 0) {
+    const phoneRows = [...phoneMap.entries()].map(([student_id, phone]) => ({ student_id, phone }))
+    for (const batch of chunk(phoneRows, 500)) {
+      const { error: phoneErr } = await supabase
+        .from('students')
+        .upsert(batch, { onConflict: 'student_id' })
+      if (phoneErr) return { success: false, imported: 0, error: phoneErr.message }
+    }
   }
 
   // 2. 若啟用「完整名單退場」，把不在本次名單的舊生標記為未在籍

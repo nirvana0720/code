@@ -6,11 +6,11 @@ import { getAllStudents, importStudents, setStudentActive, refreshClassRoster, d
 // ── 下載模板 ─────────────────────────────────────────────────
 function downloadTemplate() {
   const ws = XLSX.utils.aoa_to_sheet([
-    ['學員編號', '姓名', '班級', '組別'],
-    ['115005662', '王大明', '初級日間班', '1 組'],
-    ['115005663', '李小華', '中級夜間班', ''],
+    ['學員編號', '姓名', '班級', '組別', '電話'],
+    ['115005662', '王大明', '初級日間班', '1 組', '0912345678'],
+    ['115005663', '李小華', '中級夜間班', '', ''],
   ])
-  ws['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 10 }]
+  ws['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 14 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '學員名單')
   XLSX.writeFile(wb, '學員匯入模板.xlsx')
@@ -22,6 +22,7 @@ const COL_ALIASES = {
   name: ['姓名', 'name', 'Name'],
   class_name: ['班級', '班別', 'class_name', 'ClassName'],
   group_name: ['組別', 'group_name', 'GroupName'],
+  phone: ['電話', 'phone', '行動電話', '手機', 'Phone'],
 }
 
 function mapRow(rawRow) {
@@ -850,7 +851,16 @@ export default function StudentsPage() {
             ) : (
               /* ── 預覽畫面 ── */
               <>
-                <h3 className="text-lg font-bold text-gray-800 mb-1">確認匯入學員資料</h3>
+                <div className="flex items-center justify-between mb-1">
+                  <h3 className="text-lg font-bold text-gray-800">確認匯入學員資料</h3>
+                  <button
+                    type="button"
+                    onClick={downloadTemplate}
+                    className="text-xs text-amber-700 hover:underline"
+                  >
+                    📋 還沒有範本？先下載空白 Excel
+                  </button>
+                </div>
                 <p className="text-sm text-gray-500 mb-3">
                   解析到 <span className="font-bold text-amber-700">{uniqueStudentCount}</span> 位學員、
                   <span className="font-bold text-amber-700">{importRows.length}</span> 筆班別紀錄
@@ -877,6 +887,7 @@ export default function StudentsPage() {
                         <th className="text-left px-3 py-2 font-medium text-gray-600">姓名</th>
                         <th className="text-left px-3 py-2 font-medium text-gray-600">班級</th>
                         <th className="text-left px-3 py-2 font-medium text-gray-600">組別</th>
+                        <th className="text-left px-3 py-2 font-medium text-gray-600">電話</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -886,6 +897,7 @@ export default function StudentsPage() {
                           <td className="px-3 py-2 font-medium text-gray-800">{r.name}</td>
                           <td className="px-3 py-2 text-gray-600">{r.class_name || <span className="text-gray-300">—</span>}</td>
                           <td className="px-3 py-2 text-gray-500">{r.group_name || <span className="text-gray-300">—</span>}</td>
+                          <td className="px-3 py-2 text-gray-500">{r.phone || <span className="text-gray-300">—</span>}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -966,49 +978,54 @@ export default function StudentsPage() {
       )}
 
       {/* ── 頁首 ── */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-3">
         <h2 className="text-xl font-bold text-gray-800">學員管理</h2>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-400">{visibleStudents.length} 位</span>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,.csv"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={rosterFileInputRef}
-            type="file"
-            accept=".xlsx,.xls"
-            multiple
-            className="hidden"
-            onChange={handleRosterFileChange}
-          />
-          <button
-            onClick={downloadTemplate}
-            className="border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            📋 下載模板
-          </button>
+        <span className="text-sm text-gray-400">{visibleStudents.length} 位</span>
+      </div>
+      <div className="flex flex-wrap items-start gap-3 mb-6">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <input
+          ref={rosterFileInputRef}
+          type="file"
+          accept=".xlsx,.xls"
+          multiple
+          className="hidden"
+          onChange={handleRosterFileChange}
+        />
+        <div className="flex flex-col items-center gap-1">
           <button
             onClick={exportStudents}
             className="border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             📤 匯出名單
           </button>
-          <button
-            onClick={() => rosterFileInputRef.current?.click()}
-            className="border border-blue-600 text-blue-600 hover:bg-blue-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            📋 以上課紀錄匯入學員資料
-          </button>
+          <span className="text-[11px] text-gray-400">偶爾備份</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
           <button
             onClick={() => fileInputRef.current?.click()}
             className="border border-amber-700 text-amber-700 hover:bg-amber-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             📥 匯入學員主檔
           </button>
+          <span className="text-[11px] text-gray-400 text-center">自行填寫 Excel 更新學員（含班級、電話）</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <button
+            onClick={() => rosterFileInputRef.current?.click()}
+            className="border border-blue-600 text-blue-600 hover:bg-blue-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            📋 以上課紀錄匯入學員資料
+          </button>
+          <span className="text-[11px] text-gray-400 text-center">學期前匯入新班資料（可一次上傳多班）</span>
+        </div>
+        <div className="flex flex-col items-center gap-1">
           <button
             onClick={openNoClassModal}
             disabled={noClassLoading}
@@ -1016,6 +1033,8 @@ export default function StudentsPage() {
           >
             {noClassLoading ? '讀取中…' : '🚫 標記無班級為未在籍'}
           </button>
+        </div>
+        <div className="flex flex-col items-center gap-1">
           <button
             onClick={openAddModal}
             className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"

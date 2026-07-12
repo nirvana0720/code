@@ -1084,8 +1084,14 @@ export async function importStudents(rows, opts = {}) {
   }
 
   // 1b. 電話：只更新檔案中有填電話的學員，避免把既有電話覆蓋成空白（分批 upsert）
+  // 註：qr_code/name 也要一併帶入（值與 step 1 相同，不會變動實際內容）——
+  // 否則 Postgres 在準備候選插入列時，即使最後會走 ON CONFLICT DO UPDATE，
+  // 仍會先檢查 NOT NULL 限制，缺少 qr_code 會直接報錯（已於測試中發現此問題）
   if (phoneMap.size > 0) {
-    const phoneRows = [...phoneMap.entries()].map(([student_id, phone]) => ({ student_id, phone }))
+    const phoneRows = [...phoneMap.entries()].map(([student_id, phone]) => {
+      const s = studentMap.get(student_id)
+      return { student_id, phone, qr_code: s.qr_code, name: s.name }
+    })
     for (const batch of chunk(phoneRows, 500)) {
       const { error: phoneErr } = await supabase
         .from('students')

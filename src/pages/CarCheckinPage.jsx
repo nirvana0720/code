@@ -371,7 +371,7 @@ export default function CarCheckinPage() {
     const sorted = sortCheckinMembers(members, leaderRegIds)
 
     return (
-      <div className="min-h-screen bg-amber-50 pb-24">
+      <div className="min-h-screen bg-amber-50 pb-24 car-checkin-page">
         <ScanToast msg={scanMsg} />
 
         {/* Header */}
@@ -619,7 +619,7 @@ export default function CarCheckinPage() {
     }
 
     return (
-      <div className="min-h-screen bg-green-50 pb-24">
+      <div className="min-h-screen bg-green-50 pb-24 car-checkin-page">
         <ScanToast msg={scanMsg} />
 
         {/* Header */}
@@ -948,7 +948,7 @@ export default function CarCheckinPage() {
     const carCountDown = allCars.filter(c => (c.direction ?? 'down') === 'down').length
 
     return (
-      <div className="min-h-screen bg-amber-50 pb-24">
+      <div className="min-h-screen bg-amber-50 pb-24 car-checkin-page">
         <ScanToast msg={scanMsg} />
 
         {/* Header */}

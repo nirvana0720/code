@@ -17,3 +17,8 @@ body {
 .admin-layout .text-xs   { font-size: 1rem;     line-height: 1.5rem;  }
 .admin-layout .text-sm   { font-size: 1.125rem; line-height: 1.75rem; }
 .admin-layout .text-base { font-size: 1.25rem;  line-height: 1.75rem; }
+
+/* 車輛領隊報到頁放大（同樣給年長義工/領隊使用，字級比照後台放大原則） */
+.car-checkin-page .text-xs   { font-size: 1rem;     line-height: 1.5rem;  }
+.car-checkin-page .text-sm   { font-size: 1.125rem; line-height: 1.75rem; }
+.car-checkin-page .text-base { font-size: 1.25rem;  line-height: 1.75rem; }

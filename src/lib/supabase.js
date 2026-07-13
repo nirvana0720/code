@@ -1807,7 +1807,7 @@ export async function getHeadLeaderByToken(token) {
     .from('head_leader')
     .select(`
       id, registration_id, event_id, type,
-      events ( event_id, name, date_start, date_end ),
+      events ( event_id, name, date_start, date_end, show_dormitory_to_public ),
       registrations ( answers, student_id, students!student_id ( name ) )
     `)
     .eq('access_token', token)
@@ -1833,7 +1833,7 @@ export async function getAllCarsProgress(eventId) {
         registration_id,
         checked_in_at,
         registrations (
-          registration_id, answers, checked_in_at, student_id, pre_depart_override, late_return_override,
+          registration_id, answers, checked_in_at, student_id, pre_depart_override, late_return_override, dormitory_room,
           students!student_id ( name, student_classes ( class_name, group_name ) )
         )
       ),
@@ -1895,7 +1895,7 @@ export async function getAllSmallCarsProgress(eventId) {
         registration_id,
         checked_in_at,
         registrations (
-          registration_id, answers, checked_in_at, student_id, pre_depart_override, late_return_override,
+          registration_id, answers, checked_in_at, student_id, pre_depart_override, late_return_override, dormitory_room,
           students!student_id ( name, student_classes ( class_name, group_name ) )
         )
       ),

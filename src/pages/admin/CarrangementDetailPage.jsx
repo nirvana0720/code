@@ -761,6 +761,7 @@ export default function CarrangementDetailPage() {
         const parts = []
         if (pTxt) parts.push(pTxt)
         if (isLeader) parts.push('領隊')
+        if (idOf(r) === '義工' && r.answers?.volunteer_group) parts.push(r.answers.volunteer_group)
         if (origNote) parts.push(origNote)
         // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
@@ -834,6 +835,7 @@ export default function CarrangementDetailPage() {
           const parts = []
           if (pTxt) parts.push(pTxt)
           if (isDriver) parts.push('司機')
+          if (idOf(r) === '義工' && r.answers?.volunteer_group) parts.push(r.answers.volunteer_group)
           if (origNote) parts.push(origNote)
           // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
           const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
@@ -861,6 +863,7 @@ export default function CarrangementDetailPage() {
         const parts = []
         if (pTxt) parts.push(pTxt)
         if (carpool) parts.push(`→ ${carpool}`)
+        if (idOf(r) === '義工' && r.answers?.volunteer_group) parts.push(r.answers.volunteer_group)
         if (origNote) parts.push(origNote)
         // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
@@ -892,6 +895,7 @@ export default function CarrangementDetailPage() {
         const pTxt = preceptText(r)
         const parts = []
         if (pTxt) parts.push(pTxt)
+        if (idOf(r) === '義工' && r.answers?.volunteer_group) parts.push(r.answers.volunteer_group)
         if (origNote) parts.push(origNote)
         // 訪客電話：guest_phone（活動結束 7 天後 cron 自動清除）
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')

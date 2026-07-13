@@ -318,6 +318,7 @@ export default function CarCheckinPage() {
     const monks         = car.car_monks ?? []
     const dateStart     = car.events?.date_start
     const dateEnd       = car.events?.date_end
+    const showDormitory = !!car.events?.show_dormitory_to_public
     const memberCheckedIn = members.filter(isCheckedIn).length
     const monkCheckedIn   = monks.filter(m => !!m.checked_in_at).length
     const checkedIn     = memberCheckedIn + monkCheckedIn
@@ -476,6 +477,11 @@ export default function CarCheckinPage() {
                         訪客
                       </span>
                     )}
+                    {showDormitory && member.registrations?.dormitory_room && (
+                      <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
+                        🛏 {member.registrations.dormitory_room}
+                      </span>
+                    )}
                     {ex && <span className={`text-xs ${exCls} border rounded-full px-1.5 shrink-0`}>{ex}</span>}
                   </div>
                   {formatMemberClasses(member) && (
@@ -536,6 +542,7 @@ export default function CarCheckinPage() {
     const eventName  = headLeader?.events?.name ?? ''
     const dateStart  = headLeader?.events?.date_start
     const dateEnd    = headLeader?.events?.date_end
+    const showDormitory = !!headLeader?.events?.show_dormitory_to_public
     const eventDate  = formatDate(dateStart)
     // 排除延後/提前者（與大車模式 isExcludedFromExpected 邏輯一致）
     const isExcludedHere = (m, c) => isMemberExcludedFromExpected(m, c, dateStart, dateEnd)
@@ -720,6 +727,11 @@ export default function CarCheckinPage() {
                             <span className={`text-sm ${chk ? 'line-through text-gray-400' : 'text-gray-700 font-medium'}`}>{name}</span>
                             {isLeader && <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 shrink-0">領隊</span>}
                             {guest  && <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-1.5 shrink-0">訪客</span>}
+                            {showDormitory && member.registrations?.dormitory_room && (
+                              <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
+                                🛏 {member.registrations.dormitory_room}
+                              </span>
+                            )}
                             {preArr && <span className={`text-xs ${preArrCls} border rounded-full px-1.5 shrink-0`}>{preArr}</span>}
                           </div>
                           {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}
@@ -778,6 +790,7 @@ export default function CarCheckinPage() {
     const eventName  = headLeader?.events?.name ?? ''
     const dateStart  = headLeader?.events?.date_start
     const dateEnd    = headLeader?.events?.date_end
+    const showDormitory = !!headLeader?.events?.show_dormitory_to_public
     const eventDate  = formatDate(dateStart)
 
     // 依方向過濾（總領隊看板分上下山 Tab，上下山資訊不再混在一起）
@@ -1030,6 +1043,11 @@ export default function CarCheckinPage() {
                               <span className={`text-sm truncate ${chk ? 'line-through text-gray-400' : 'text-gray-700 font-medium'}`}>{name}</span>
                               {isLeader && <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 shrink-0">領隊</span>}
                               {guest    && <span className="text-xs bg-blue-100  text-blue-600  rounded-full px-1.5 shrink-0">訪客</span>}
+                              {showDormitory && member.registrations?.dormitory_room && (
+                                <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
+                                  🛏 {member.registrations.dormitory_room}
+                                </span>
+                              )}
                               {ex && <span className={`text-xs ${exCls} border rounded-full px-1.5 shrink-0`}>{ex}</span>}
                             </div>
                             {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}
@@ -1190,6 +1208,11 @@ export default function CarCheckinPage() {
                                       <span className={`text-sm truncate ${chk ? 'line-through text-gray-400' : 'text-gray-700 font-medium'}`}>{name}</span>
                                       {isLeader && <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 shrink-0">領隊</span>}
                                       {guest  && <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-1.5 shrink-0">訪客</span>}
+                                      {showDormitory && member.registrations?.dormitory_room && (
+                                        <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
+                                          🛏 {member.registrations.dormitory_room}
+                                        </span>
+                                      )}
                                       {preArr && <span className={`text-xs ${preArrCls} border rounded-full px-1.5 shrink-0`}>{preArr}</span>}
                                     </div>
                                     {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}

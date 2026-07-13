@@ -1784,6 +1784,13 @@ function OverviewScreen({
                 )
               })()}
 
+              {/* 寮號資訊（活動勾選「對外公開寮號資訊」且該筆報名有寮號時才顯示） */}
+              {event.show_dormitory_to_public && registered && reg?.dormitory_room && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-kiosk-sm text-gray-700">🛏 寮號：{reg.dormitory_room}</p>
+                </div>
+              )}
+
               {/* 鎖定提示（取代取消報名按鈕，義工開放模式除外） */}
               {event.locked && !isVolunteerOnly ? (
                 <div className="mt-3 pt-3 border-t border-gray-100 text-center">

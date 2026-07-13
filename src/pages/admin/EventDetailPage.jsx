@@ -54,6 +54,7 @@ import {
 import ImagePositionEditor from '../../components/ImagePositionEditor'
 import EventInfoTab from '../../components/EventInfoTab'
 import EventRegistrationsTab from '../../components/EventRegistrationsTab'
+import MountainDataTab from '../../components/MountainDataTab'
 
 // ── 主頁面 ─────────────────────────────────────────────────
 export default function EventDetailPage() {
@@ -227,6 +228,7 @@ export default function EventDetailPage() {
       is_dharma: !!ev.is_dharma,
       multi_session: !!ev.multi_session,
       show_transport_to_public: !!ev.show_transport_to_public,
+      show_dormitory_to_public: !!ev.show_dormitory_to_public,
       // 活動介紹頁
       show_on_activities: !!ev.show_on_activities,
       kiosk_open: ev.kiosk_open !== false,  // 預設 true；僅明確設為 false 才關閉刷卡報名
@@ -365,6 +367,7 @@ export default function EventDetailPage() {
         is_dharma: form.is_dharma,
         multi_session: form.multi_session,
         show_transport_to_public: form.show_transport_to_public,
+        show_dormitory_to_public: form.show_dormitory_to_public,
         // 活動介紹頁
         show_on_activities: form.show_on_activities,
         kiosk_open: form.kiosk_open,
@@ -623,6 +626,7 @@ export default function EventDetailPage() {
           { key: 'info',          label: '活動設定',                   adminOnly: true  },
           { key: 'fields',        label: `動態欄位（${fields.length}）`, adminOnly: true  },
           { key: 'registrations', label: `報名名單（${registrations.length}）`, adminOnly: false },
+          { key: 'mountain',      label: '🏯 山上資料匯入',                   adminOnly: true  },
         ].filter(t => !t.adminOnly || isAdmin).map(t => (
           <button
             key={t.key}
@@ -788,6 +792,11 @@ export default function EventDetailPage() {
           cancelledChanges={cancelledChanges}
           setQrModal={setQrModal}
         />
+      )}
+
+      {/* ── Tab: 山上資料匯入 ── */}
+      {tab === 'mountain' && (
+        <MountainDataTab eventId={id} registrations={registrations} onImported={load} />
       )}
     </AdminLayout>
   )

@@ -118,6 +118,24 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
           </label>
         </div>
 
+        {/* 對外公開寮號資訊 — 回山法會安單掛單才有的資料，獨立於排車開關 */}
+        <div className="sm:col-span-2">
+          <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!form.show_dormitory_to_public}
+              onChange={e => setForm(f => ({ ...f, show_dormitory_to_public: e.target.checked }))}
+              className="w-4 h-4 accent-blue-600 mt-0.5"
+            />
+            <span>
+              對外公開寮號資訊（勾選後，領隊報到頁與學員前台可看到寮號）
+              <span className="block text-xs text-gray-500 mt-0.5">
+                安單資料匯入未定案前請保持關閉
+              </span>
+            </span>
+          </label>
+        </div>
+
         {/* ── 報名方式 ─────────────────────────────────────── */}
         <div className="sm:col-span-2">
           {(() => {

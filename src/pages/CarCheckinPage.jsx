@@ -32,6 +32,20 @@ function formatChoreLabel(locMap, registrationId) {
   return parts.length > 0 ? parts.join(' / ') : null
 }
 
+// 電話徽章：方便車輛領隊找人，沒有電話就不顯示
+const telHref = phone => `tel:${String(phone).replace(/[\s-]/g, '')}`
+function PhoneBadge({ phone }) {
+  if (!phone) return null
+  return (
+    <a
+      href={telHref(phone)}
+      className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5 shrink-0"
+    >
+      📞 {phone}
+    </a>
+  )
+}
+
 // ─── 主頁面 ───────────────────────────────────────────────
 
 export default function CarCheckinPage() {
@@ -507,6 +521,7 @@ export default function CarCheckinPage() {
                         🛏 {member.registrations.dormitory_room}
                       </span>
                     )}
+                    <PhoneBadge phone={member.registrations?.students?.phone} />
                     {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
                       <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
                         🧹 {formatChoreLabel(choreLocations, member.registration_id)}
@@ -763,6 +778,7 @@ export default function CarCheckinPage() {
                                 🛏 {member.registrations.dormitory_room}
                               </span>
                             )}
+                            <PhoneBadge phone={member.registrations?.students?.phone} />
                             {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
                               <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
                                 🧹 {formatChoreLabel(choreLocations, member.registration_id)}
@@ -1085,6 +1101,7 @@ export default function CarCheckinPage() {
                                   🛏 {member.registrations.dormitory_room}
                                 </span>
                               )}
+                              <PhoneBadge phone={member.registrations?.students?.phone} />
                               {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
                                 <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
                                   🧹 {formatChoreLabel(choreLocations, member.registration_id)}
@@ -1255,6 +1272,7 @@ export default function CarCheckinPage() {
                                           🛏 {member.registrations.dormitory_room}
                                         </span>
                                       )}
+                                      <PhoneBadge phone={member.registrations?.students?.phone} />
                                       {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
                                         <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
                                           🧹 {formatChoreLabel(choreLocations, member.registration_id)}

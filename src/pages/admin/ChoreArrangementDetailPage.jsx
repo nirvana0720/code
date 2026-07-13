@@ -154,6 +154,13 @@ export default function ChoreArrangementDetailPage() {
       ]
       mems.forEach((m, i) => infoRows.push([i + 1, m.name, m.phone || '', genderLabel(m.gender), m.car_name || '']))
       const ws = XLSX.utils.aoa_to_sheet(infoRows)
+      ws['!cols'] = [
+        { wch: 14 }, // 序號 / 標籤欄
+        { wch: 20 }, // 姓名 / 集合地點、坡務內容等內容欄
+        { wch: 14 }, // 電話
+        { wch: 8 },  // 性別
+        { wch: 16 }, // 上山車次
+      ]
       let base = safeSheetName(`${chore.session}${chore.unit || chore.work_content || '坡務'}`)
       let name = base, n = 1
       while (usedNames.has(name)) { name = safeSheetName(`${base}${n++}`) }

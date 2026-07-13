@@ -1413,7 +1413,7 @@ export async function getCarArrangement(eventId, direction = null) {
   let query = supabase
     .from('car_assignments')
     .select(`
-      car_id, car_name, seats, car_type, note, access_token, sort_order, direction, pre_depart, late_return,
+      car_id, car_name, seats, car_type, note, access_token, sort_order, direction, pre_depart, late_return, notice_text,
       car_members ( registration_id ),
       car_leaders ( registration_id ),
       car_monks ( id, monk_id, checked_in_at )
@@ -2068,7 +2068,7 @@ export async function getAllStudents(search = '') {
   const { data, error } = await fetchAllRows((from, to) => {
     let q = supabase
       .from('students')
-      .select('student_id, name, active, created_at, student_classes ( class_name, group_name )')
+      .select('student_id, name, active, created_at, line_user_id, student_classes ( class_name, group_name )')
       .order('student_id', { ascending: true })
       .range(from, to)
     if (search.trim()) q = q.ilike('name', `%${search.trim()}%`)

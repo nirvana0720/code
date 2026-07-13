@@ -229,6 +229,7 @@ export default function EventDetailPage() {
       multi_session: !!ev.multi_session,
       show_transport_to_public: !!ev.show_transport_to_public,
       show_dormitory_to_public: !!ev.show_dormitory_to_public,
+      default_notice_text: ev.default_notice_text ?? '',
       // 活動介紹頁
       show_on_activities: !!ev.show_on_activities,
       kiosk_open: ev.kiosk_open !== false,  // 預設 true；僅明確設為 false 才關閉刷卡報名
@@ -368,6 +369,7 @@ export default function EventDetailPage() {
         multi_session: form.multi_session,
         show_transport_to_public: form.show_transport_to_public,
         show_dormitory_to_public: form.show_dormitory_to_public,
+        default_notice_text: form.default_notice_text || null,
         // 活動介紹頁
         show_on_activities: form.show_on_activities,
         kiosk_open: form.kiosk_open,

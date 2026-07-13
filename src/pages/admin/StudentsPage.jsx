@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import * as XLSX from '@e965/xlsx'
+import { QRCodeSVG } from 'qrcode.react'
 import AdminLayout from '../../components/AdminLayout'
 import { getAllStudents, importStudents, setStudentActive, refreshClassRoster, deactivateStudentsByIds } from '../../lib/supabase'
+import { getBindingUrl } from '../../lib/lineBinding'
 
 // ── 下載模板 ─────────────────────────────────────────────────
 function downloadTemplate() {
@@ -148,6 +150,9 @@ export default function StudentsPage() {
   const [noClassLoading, setNoClassLoading] = useState(false)
   const [noClassWorking, setNoClassWorking] = useState(false)
   const [noClassResult, setNoClassResult] = useState(null)
+
+  // LINE 綁定 QR code 批次產生狀態
+  const [qrModalOpen, setQrModalOpen] = useState(false)
 
   // 中台上課紀錄匯入狀態
   const [rosterModal, setRosterModal] = useState(false)
@@ -1036,6 +1041,14 @@ export default function StudentsPage() {
         </div>
         <div className="flex flex-col items-center gap-1">
           <button
+            onClick={() => setQrModalOpen(true)}
+            className="border border-green-600 text-green-700 hover:bg-green-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            📱 產生綁定 QR code
+          </button>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <button
             onClick={openAddModal}
             className="bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
@@ -1104,7 +1117,14 @@ export default function StudentsPage() {
                       {s.student_id}
                     </td>
                     <td className={`px-4 py-3 font-medium ${inactive ? 'text-gray-400' : 'text-gray-800'}`}>
-                      {s.name}
+                      <span className="inline-flex items-center gap-1.5">
+                        {s.name}
+                        {s.line_user_id ? (
+                          <span className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5 shrink-0">LINE 已綁定 ✅</span>
+                        ) : (
+                          <span className="text-xs bg-gray-100 text-gray-400 border border-gray-200 rounded-full px-1.5 shrink-0">未綁定 ⬜</span>
+                        )}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {s.student_classes && s.student_classes.length > 0
@@ -1155,6 +1175,157 @@ export default function StudentsPage() {
           </table>
         </div>
       )}
+
+      {qrModalOpen && (
+        <QrBindingModal students={students} onClose={() => setQrModalOpen(false)} />
+      )}
     </AdminLayout>
+  )
+}
+
+// ── LINE 綁定 QR code 批次產生 modal ──────────────────────────
+// QR code 內容對所有人都一樣（只是加好友連結，見 lineBinding.js 說明）；
+// 真正的綁定靠學員自己在聊天室輸入學員編號，所以卡片上的學員編號文字才是重點
+function QrBindingModal({ students, onClose }) {
+  const activeStudents = useMemo(() => students.filter(s => s.active !== false), [students])
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState(() => new Set(activeStudents.filter(s => !s.line_user_id).map(s => s.student_id)))
+  const [step, setStep] = useState('select') // 'select' | 'print'
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return activeStudents
+    return activeStudents.filter(s => s.name.toLowerCase().includes(q) || s.student_id.includes(q))
+  }, [activeStudents, query])
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every(s => selected.has(s.student_id))
+
+  function toggle(studentId) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(studentId)) next.delete(studentId)
+      else next.add(studentId)
+      return next
+    })
+  }
+
+  function toggleAllFiltered() {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (allFilteredSelected) filtered.forEach(s => next.delete(s.student_id))
+      else filtered.forEach(s => next.add(s.student_id))
+      return next
+    })
+  }
+
+  const selectedStudents = activeStudents.filter(s => selected.has(s.student_id))
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto">
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          .qr-print-area, .qr-print-area * { visibility: visible; }
+          .qr-print-area { position: absolute; left: 0; top: 0; width: 100%; }
+        }
+      `}</style>
+      <div className="bg-white w-full max-w-3xl rounded-2xl shadow-xl flex flex-col max-h-[90vh]">
+        <div className="px-5 pt-5 pb-3 border-b flex items-center justify-between gap-3 print:hidden">
+          <h3 className="text-lg font-bold text-gray-800">📱 產生 LINE 綁定 QR code</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+        </div>
+
+        {step === 'select' ? (
+          <>
+            <div className="px-5 pt-3 pb-2 flex items-center gap-3 flex-wrap">
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="搜尋姓名或學員編號…"
+                className="flex-1 min-w-[10rem] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+              />
+              <button
+                onClick={toggleAllFiltered}
+                className="text-xs text-blue-600 border border-blue-300 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors"
+              >
+                {allFilteredSelected ? '取消全選' : '全選'}
+              </button>
+              <span className="text-xs text-gray-400">已選 {selected.size} 位</span>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 pb-3 divide-y">
+              {filtered.map(s => (
+                <label key={s.student_id} className="flex items-center gap-3 py-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(s.student_id)}
+                    onChange={() => toggle(s.student_id)}
+                    className="w-4 h-4 accent-blue-600"
+                  />
+                  <span className="font-mono text-xs text-gray-500 w-24 shrink-0">{s.student_id}</span>
+                  <span className="text-sm text-gray-800">{s.name}</span>
+                  {s.line_user_id ? (
+                    <span className="ml-auto text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5">已綁定</span>
+                  ) : (
+                    <span className="ml-auto text-xs bg-gray-100 text-gray-400 border border-gray-200 rounded-full px-1.5">未綁定</span>
+                  )}
+                </label>
+              ))}
+              {filtered.length === 0 && (
+                <p className="text-center text-gray-400 text-sm py-8">找不到學員</p>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t flex justify-end gap-3">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => setStep('print')}
+                disabled={selected.size === 0}
+                className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50"
+              >
+                產生卡片（{selected.size} 張）
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <div className="qr-print-area grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {selectedStudents.map(s => (
+                  <div key={s.student_id} className="border border-gray-300 rounded-xl p-4 flex flex-col items-center text-center break-inside-avoid">
+                    <QRCodeSVG value={getBindingUrl(s.student_id)} size={140} level="M" includeMargin />
+                    <p className="mt-2 font-semibold text-gray-800">{s.name}</p>
+                    <p className="text-xs text-gray-500 mt-1">加好友後請輸入您的學員編號：{s.student_id}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t flex justify-end gap-3 print:hidden">
+              <button
+                onClick={() => setStep('select')}
+                className="px-4 py-2 text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+              >
+                返回選擇
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-5 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+              >
+                🖨 列印
+              </button>
+              <button
+                onClick={onClose}
+                className="px-4 py-2 text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+              >
+                關閉
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   )
 }

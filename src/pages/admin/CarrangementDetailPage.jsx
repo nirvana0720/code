@@ -28,6 +28,7 @@ import { DIRECTIONS, chNum, genId, dirLabel, getName, getClasses, getGuestNote, 
 import autoArrange from '../../lib/autoArrange'
 import PersonRow from '../../components/PersonRow'
 import StatCard from '../../components/StatCard'
+import CarNotificationModal from '../../components/CarNotificationModal'
 
 
 export default function CarrangementDetailPage() {
@@ -76,6 +77,7 @@ export default function CarrangementDetailPage() {
   const [saving,  setSaving]    = useState(false)
   const [msg,     setMsg]       = useState('')
   const [copyMsg, setCopyMsg]   = useState('')
+  const [notifyOpen, setNotifyOpen] = useState(false)
   // 小車「指定主司機」按下後，紀錄正在處理的 group key（避免重複按／顯示 disabled）
   const [driverPickerBusy, setDriverPickerBusy] = useState(null)
 
@@ -258,6 +260,7 @@ export default function CarrangementDetailPage() {
         access_token: c.access_token ?? '',
         monks:        (c.car_monks ?? []).map(m => m.monk_id),
         preDepart:    c.pre_depart || false,
+        notice_text:  c.notice_text ?? '',
       }))
       out.carCount = out.cars.length
       out.seats    = out.cars[0]?.seats ?? 20
@@ -973,6 +976,13 @@ export default function CarrangementDetailPage() {
               className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
             >
               📥 匯出分車名單
+            </button>
+            <button
+              onClick={() => setNotifyOpen(true)}
+              disabled={cars.length === 0}
+              className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+            >
+              📨 發送乘車通知
             </button>
             <button
               onClick={handleSave}
@@ -1813,6 +1823,19 @@ export default function CarrangementDetailPage() {
         )}
 
       </div>
+
+      {/* 發送乘車通知彈窗 — 只帶已儲存的車（tempId 為真實 car_id，非本次編輯階段新產生的暫存 ID） */}
+      {notifyOpen && (
+        <CarNotificationModal
+          eventId={eventId}
+          direction={direction}
+          cars={cars
+            .filter(c => c.tempId && !String(c.tempId).startsWith('tmp-'))
+            .map(c => ({ car_id: c.tempId, car_name: c.car_name, notice_text: c.notice_text }))}
+          defaultNoticeText={event?.default_notice_text ?? ''}
+          onClose={() => setNotifyOpen(false)}
+        />
+      )}
     </AdminLayout>
   )
 }

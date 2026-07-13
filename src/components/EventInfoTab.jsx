@@ -136,6 +136,18 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
           </label>
         </div>
 
+        {/* 學員配合事項預設範本 — 排車完成後「發送乘車通知」預帶入每台車的文字，個別車可再覆寫 */}
+        <div className="sm:col-span-2">
+          <label className="block text-sm font-medium text-gray-600 mb-1">學員配合事項（預設範本）</label>
+          <textarea
+            value={form.default_notice_text ?? ''}
+            onChange={e => setForm(f => ({ ...f, default_notice_text: e.target.value }))}
+            rows={6}
+            placeholder="發送乘車通知時，預設帶入每台車的配合事項全文（例如集合時間、地點、注意事項），個別車次可在發送前另外修改"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
+        </div>
+
         {/* ── 報名方式 ─────────────────────────────────────── */}
         <div className="sm:col-span-2">
           {(() => {

@@ -92,7 +92,14 @@ export default function DormitoryImportPanel({ eventId, registrations, onImporte
   async function handleConfirm() {
     const matches = rows
       .filter(r => r.included && r.registrationId)
-      .map(r => ({ registration_id: r.registrationId, dormitory_room: r.room }))
+      .map(r => {
+        const reg = r.candidates.find(c => c.registration_id === r.registrationId)
+        return {
+          registration_id: r.registrationId,
+          dormitory_room: r.room,
+          answers: { ...(reg?.answers ?? {}), stay_overnight: true },
+        }
+      })
     if (matches.length === 0) {
       setError('沒有勾選任何要寫入的資料')
       return

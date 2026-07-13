@@ -11,8 +11,10 @@ const chunk = (arr, n) => {
 
 /**
  * 批次寫入安單寮號
+ * stay_overnight 是動態欄位（存在 answers JSONB 裡，非 registrations 實際欄位），
+ * 呼叫端需先合併好含 stay_overnight:true 的完整 answers 物件再傳入，比照 updateVolunteerGroups 的做法
  * @param {string} eventId
- * @param {Array<{ registration_id: string, dormitory_room: string }>} matches
+ * @param {Array<{ registration_id: string, dormitory_room: string, answers: object }>} matches
  */
 export async function updateDormitoryRooms(eventId, matches) {
   if (!matches || matches.length === 0) {
@@ -23,7 +25,7 @@ export async function updateDormitoryRooms(eventId, matches) {
     const results = await Promise.all(batch.map(m =>
       supabase
         .from('registrations')
-        .update({ dormitory_room: m.dormitory_room, stay_overnight: true })
+        .update({ dormitory_room: m.dormitory_room, answers: m.answers })
         .eq('registration_id', m.registration_id)
         .eq('event_id', eventId)
     ))

@@ -46,7 +46,7 @@ export default function ChoreCheckinPage() {
   const eventDate = formatDate(chore.events?.date_start)
 
   return (
-    <div className="min-h-screen bg-amber-50 pb-16">
+    <div className="min-h-screen bg-amber-50 pb-16 car-checkin-page">
       {/* Header */}
       <div className="bg-amber-700 text-white px-4 py-5 shadow-md">
         <div className="max-w-lg mx-auto">

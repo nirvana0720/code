@@ -13,6 +13,7 @@ import {
   removeMember,
 } from '../../lib/choreAssignment'
 import ChoreImportModal from '../../components/ChoreImportModal'
+import { saveWorkbookWithGridlines } from '../../lib/xlsxGridlines'
 
 const SESSIONS = [
   { key: '上午', label: '上午', emoji: '🌅' },
@@ -149,6 +150,8 @@ export default function ChoreArrangementDetailPage() {
         ['負責法師電話', chore.supervising_monk_phone || ''],
         ['精舍小組長', chore.leader_name || ''],
         ['精舍小組長電話', chore.leader_phone || ''],
+        ['出坡時間', (chore.session === '上午' ? event?.chore_am_work_time : event?.chore_pm_work_time) || ''],
+        ['報到時間', (chore.session === '上午' ? event?.chore_am_checkin_time : event?.chore_pm_checkin_time) || ''],
         [],
         ['序號', '姓名', '電話', '性別', '上山車次'],
       ]
@@ -167,7 +170,7 @@ export default function ChoreArrangementDetailPage() {
       usedNames.add(name)
       XLSX.utils.book_append_sheet(wb, ws, name)
     }
-    XLSX.writeFile(wb, `${event?.name ?? '活動'}_分坡名單.xlsx`)
+    saveWorkbookWithGridlines(wb, `${event?.name ?? '活動'}_分坡名單.xlsx`)
   }
 
   if (loading) return <AdminLayout><div className="text-center py-20 text-gray-400">載入中…</div></AdminLayout>
@@ -224,6 +227,18 @@ export default function ChoreArrangementDetailPage() {
             )
           })}
         </div>
+
+        {/* 出坡時間／報到時間（依目前選中的時段顯示，沒有資料就不顯示） */}
+        {(() => {
+          const work = sessionTab === '上午' ? event?.chore_am_work_time : event?.chore_pm_work_time
+          const checkin = sessionTab === '上午' ? event?.chore_am_checkin_time : event?.chore_pm_checkin_time
+          if (!work && !checkin) return null
+          return (
+            <div className="text-sm text-gray-600">
+              🕐 {work && <>出坡時間 {work}</>}{work && checkin && '　'}{checkin && <>報到時間 {checkin}</>}
+            </div>
+          )
+        })()}
 
         {/* 自動排坡列 */}
         <div className="flex items-center gap-3 flex-wrap">

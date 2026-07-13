@@ -18,8 +18,19 @@ import {
   uncheckInMonk,
 } from '../lib/supabase'
 import { getMemberName, isGuest, getMemberCheckedAt, isCheckedIn, isOtherTransport, regAsMember, getMemberClasses, formatMemberClasses, memberSortKey, sortCheckinMembers, formatDate, getAutoCheckedSet, markAutoChecked, getEffectivePreArrive, getPreArriveInfo, getEffectiveLateReturn, getLateReturnInfo, isMemberExcludedFromExpected, isVolunteerSelfReturn, isCarFullyEffectiveExcluded } from '../lib/checkinHelpers'
+import { getChoreLocationsByEvent } from '../lib/choreAssignment'
 import ScanToast from '../components/ScanToast'
 import DirectionBadge from '../components/DirectionBadge'
+
+// 福慧出坡：「上午 XXX / 下午 XXX」給車輛領隊找人用；沒有排到坡務就回傳 null 不顯示
+function formatChoreLabel(locMap, registrationId) {
+  const loc = locMap[registrationId]
+  if (!loc) return null
+  const parts = []
+  if (loc['上午']) parts.push(`上午 ${loc['上午']}`)
+  if (loc['下午']) parts.push(`下午 ${loc['下午']}`)
+  return parts.length > 0 ? parts.join(' / ') : null
+}
 
 // ─── 主頁面 ───────────────────────────────────────────────
 
@@ -43,6 +54,9 @@ export default function CarCheckinPage() {
   const [expandedSmallCarId, setExpandedSmallCarId] = useState(null)
   // 總領隊看板：上山/下山 Tab（'up' / 'down'）
   const [headDirection, setHeadDirection] = useState('up')
+
+  // 福慧出坡：{ [registration_id]: { 上午: location, 下午: location } }，只有 is_chore_event 活動才有資料
+  const [choreLocations, setChoreLocations] = useState({})
 
   // 共用
   const [scanMsg, setScanMsg]     = useState('')
@@ -109,11 +123,21 @@ export default function CarCheckinPage() {
         setLinkedCars(carInfo.linkedCars)
         setCar(carInfo.car)
       }
+      setChoreLocations(
+        carInfo.car.events?.is_chore_event
+          ? await getChoreLocationsByEvent(carInfo.car.events.event_id)
+          : {}
+      )
     } else if (hlRes.headLeader) {
       const leaderType = hlRes.headLeader.type ?? 'all'
       setMode(leaderType === 'small_car' ? 'small_car' : 'head')
       setHeadLeader(hlRes.headLeader)
       const eventId = hlRes.headLeader.events?.event_id ?? hlRes.headLeader.event_id
+      setChoreLocations(
+        hlRes.headLeader.events?.is_chore_event
+          ? await getChoreLocationsByEvent(eventId)
+          : {}
+      )
       const [carsRes, regsRes] = await Promise.all([
         leaderType === 'small_car'
           ? getAllSmallCarsProgress(eventId)
@@ -319,6 +343,7 @@ export default function CarCheckinPage() {
     const dateStart     = car.events?.date_start
     const dateEnd       = car.events?.date_end
     const showDormitory = !!car.events?.show_dormitory_to_public
+    const showChore     = !!car.events?.is_chore_event
     const memberCheckedIn = members.filter(isCheckedIn).length
     const monkCheckedIn   = monks.filter(m => !!m.checked_in_at).length
     const checkedIn     = memberCheckedIn + monkCheckedIn
@@ -482,6 +507,11 @@ export default function CarCheckinPage() {
                         🛏 {member.registrations.dormitory_room}
                       </span>
                     )}
+                    {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
+                      <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
+                        🧹 {formatChoreLabel(choreLocations, member.registration_id)}
+                      </span>
+                    )}
                     {ex && <span className={`text-xs ${exCls} border rounded-full px-1.5 shrink-0`}>{ex}</span>}
                   </div>
                   {formatMemberClasses(member) && (
@@ -543,6 +573,7 @@ export default function CarCheckinPage() {
     const dateStart  = headLeader?.events?.date_start
     const dateEnd    = headLeader?.events?.date_end
     const showDormitory = !!headLeader?.events?.show_dormitory_to_public
+    const showChore     = !!headLeader?.events?.is_chore_event
     const eventDate  = formatDate(dateStart)
     // 排除延後/提前者（與大車模式 isExcludedFromExpected 邏輯一致）
     const isExcludedHere = (m, c) => isMemberExcludedFromExpected(m, c, dateStart, dateEnd)
@@ -732,6 +763,11 @@ export default function CarCheckinPage() {
                                 🛏 {member.registrations.dormitory_room}
                               </span>
                             )}
+                            {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
+                              <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
+                                🧹 {formatChoreLabel(choreLocations, member.registration_id)}
+                              </span>
+                            )}
                             {preArr && <span className={`text-xs ${preArrCls} border rounded-full px-1.5 shrink-0`}>{preArr}</span>}
                           </div>
                           {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}
@@ -791,6 +827,7 @@ export default function CarCheckinPage() {
     const dateStart  = headLeader?.events?.date_start
     const dateEnd    = headLeader?.events?.date_end
     const showDormitory = !!headLeader?.events?.show_dormitory_to_public
+    const showChore     = !!headLeader?.events?.is_chore_event
     const eventDate  = formatDate(dateStart)
 
     // 依方向過濾（總領隊看板分上下山 Tab，上下山資訊不再混在一起）
@@ -1048,6 +1085,11 @@ export default function CarCheckinPage() {
                                   🛏 {member.registrations.dormitory_room}
                                 </span>
                               )}
+                              {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
+                                <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
+                                  🧹 {formatChoreLabel(choreLocations, member.registration_id)}
+                                </span>
+                              )}
                               {ex && <span className={`text-xs ${exCls} border rounded-full px-1.5 shrink-0`}>{ex}</span>}
                             </div>
                             {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}
@@ -1211,6 +1253,11 @@ export default function CarCheckinPage() {
                                       {showDormitory && member.registrations?.dormitory_room && (
                                         <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
                                           🛏 {member.registrations.dormitory_room}
+                                        </span>
+                                      )}
+                                      {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
+                                        <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
+                                          🧹 {formatChoreLabel(choreLocations, member.registration_id)}
                                         </span>
                                       )}
                                       {preArr && <span className={`text-xs ${preArrCls} border rounded-full px-1.5 shrink-0`}>{preArr}</span>}

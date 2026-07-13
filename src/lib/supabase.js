@@ -1769,6 +1769,18 @@ export async function getCarByToken(token) {
 }
 
 /**
+ * 用坡務 access_token 取得坡務資料（含成員姓名/性別/上山車次）
+ * 公開頁面使用，不需登入（小組長免登入報到頁 /chore-checkin/:token）
+ */
+export async function getChoreByToken(token) {
+  const { data, error } = await supabase.rpc('get_chore_by_token', { p_token: token })
+
+  if (error) return { chore: null, error: error.message }
+  if (!data) return { chore: null, error: 'NOT_FOUND' }
+  return { chore: data, error: null }
+}
+
+/**
  * 找出這個活動中，給定 registration_id 們作為領隊的所有車
  * 用於領隊報到頁顯示「切換到另一方向」Tab
  * 公開頁面使用，不需登入
@@ -1808,7 +1820,7 @@ export async function getHeadLeaderByToken(token) {
     .from('head_leader')
     .select(`
       id, registration_id, event_id, type,
-      events ( event_id, name, date_start, date_end, show_dormitory_to_public ),
+      events ( event_id, name, date_start, date_end, show_dormitory_to_public, is_chore_event ),
       registrations ( answers, student_id, students!student_id ( name ) )
     `)
     .eq('access_token', token)

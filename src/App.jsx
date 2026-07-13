@@ -12,9 +12,12 @@ import TemplatesPage from './pages/admin/TemplatesPage'
 import RelationshipsPage from './pages/admin/RelationshipsPage'
 import CarrangementPage from './pages/admin/CarrangementPage'
 import CarrangementDetailPage from './pages/admin/CarrangementDetailPage'
+import ChoreArrangementPage from './pages/admin/ChoreArrangementPage'
+import ChoreArrangementDetailPage from './pages/admin/ChoreArrangementDetailPage'
 import MonksPage from './pages/admin/MonksPage'
 import DonorManagePage from './pages/admin/DonorManagePage'
 import CarCheckinPage from './pages/CarCheckinPage'
+import ChoreCheckinPage from './pages/ChoreCheckinPage'
 import LeaderScanPage from './pages/LeaderScanPage'
 import ActivitiesPage from './pages/ActivitiesPage'
 import ActivityDetailPage from './pages/ActivityDetailPage'
@@ -62,12 +65,21 @@ export default function App() {
           <Route path="/admin/carrangement/:eventId" element={
             <ProtectedRoute adminOnly><CarrangementDetailPage /></ProtectedRoute>
           } />
+          <Route path="/admin/chore-arrangement" element={
+            <ProtectedRoute adminOnly><ChoreArrangementPage /></ProtectedRoute>
+          } />
+          <Route path="/admin/chore-arrangement/:eventId" element={
+            <ProtectedRoute adminOnly><ChoreArrangementDetailPage /></ProtectedRoute>
+          } />
 
           {/* 公開：領隊掃卡入口（刷學員證自動跳轉） */}
           <Route path="/leader" element={<LeaderScanPage />} />
 
           {/* 公開：領隊報到頁（不需登入，用 token 驗身） */}
           <Route path="/car-checkin/:token" element={<CarCheckinPage />} />
+
+          {/* 公開：坡務小組長查詢頁（不需登入，用 token 驗身） */}
+          <Route path="/chore-checkin/:token" element={<ChoreCheckinPage />} />
 
           {/* 公開：活動介紹頁 */}
           <Route path="/activities" element={<ActivitiesPage />} />

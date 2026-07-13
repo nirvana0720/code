@@ -26,6 +26,7 @@ import {
 
 import { DIRECTIONS, chNum, genId, dirLabel, getName, getClasses, getGuestNote, findGuestMatch, findGuestHost, fieldKeysFor, isSmallDriver, isSmallPassenger, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, sortedMembersForDisplay } from '../../lib/carrangeHelpers'
 import autoArrange from '../../lib/autoArrange'
+import { getChoreLocationsByEvent } from '../../lib/choreAssignment'
 import PersonRow from '../../components/PersonRow'
 import StatCard from '../../components/StatCard'
 import CarNotificationModal from '../../components/CarNotificationModal'
@@ -38,6 +39,8 @@ export default function CarrangementDetailPage() {
   const [loading, setLoading]     = useState(true)
   const [event,   setEvent]       = useState(null)
   const [regs,    setRegs]        = useState([])
+  // 福慧出坡：{ [registration_id]: { 上午: location, 下午: location } }，只在 event.is_chore_event 時才有資料
+  const [choreLocations, setChoreLocations] = useState({})
   const [relGroups, setRelGroups] = useState([])
 
   // ── 上下山兩份資料分開存 ──
@@ -193,9 +196,13 @@ export default function CarrangementDetailPage() {
       getMonks(),
     ])
     setAllMonks(monkList ?? [])
-    setEvent(events.find(e => e.event_id === eventId) ?? null)
+    const ev = events.find(e => e.event_id === eventId) ?? null
+    setEvent(ev)
     setRegs(registrations)
     setRelGroups(groups)
+
+    // 福慧出坡活動：一次查完坡務位置對照表，匯出時加欄用（避免逐人查詢）
+    setChoreLocations(ev?.is_chore_event ? await getChoreLocationsByEvent(eventId) : {})
 
     // 還原兩個方向的排車結果
     const up   = restoreDirection(savedCarsUp,   registrations, 'up')
@@ -621,6 +628,13 @@ export default function CarrangementDetailPage() {
     // Excel sheet 名稱受限：≤31 字、不能含 : \ / ? * [ ]
     const safeSheetName = name => String(name).replace(/[:\\/?*\[\]]/g, '').slice(0, 31)
 
+    // 福慧出坡活動：分車名單加「上午/下午坡務位置」欄，給車輛領隊知道等一下要去哪裡集合
+    const showChoreCols = !!event?.is_chore_event
+    const choreColHeaders = showChoreCols ? ['上午坡務位置', '下午坡務位置'] : []
+    const choreColsFor = regId => showChoreCols
+      ? [choreLocations[regId]?.['上午'] ?? '', choreLocations[regId]?.['下午'] ?? '']
+      : []
+
     // ── 排序工具 ──────────────────────────────────────
     // 班級層級順序：日間 < 夜間；初級 < 中級 < 高級 < 研經 < 其他 < 空白
     const classRank = name => {
@@ -740,7 +754,7 @@ export default function CarrangementDetailPage() {
       finalRegs.push(...remaining)  // 找不到 host 的訪客
 
       // 組 rows
-      const headers = ['序號', '車次', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '寮號', '備註']
+      const headers = ['序號', '車次', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '寮號', '備註', ...choreColHeaders]
       const data = []
       let seq = 1
 
@@ -751,7 +765,7 @@ export default function CarrangementDetailPage() {
         if (!monk) continue
         const up   = upMonkIds.has(mid)   ? 'V' : ''
         const down = downMonkIds.has(mid) ? 'V' : ''
-        data.push([seq++, carName, monk.name, '', '', '法師', '', up, down, '', '法師'])
+        data.push([seq++, carName, monk.name, '', '', '法師', '', up, down, '', '法師', ...choreColsFor(null)])
       }
 
       // 學員 / 訪客
@@ -768,7 +782,7 @@ export default function CarrangementDetailPage() {
         if (origNote) parts.push(origNote)
         // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
-        data.push([seq++, carName, getName(r), clsOf(r), grpOf(r), idOf(r), phone, up, down, r.dormitory_room ?? '', parts.join('/')])
+        data.push([seq++, carName, getName(r), clsOf(r), grpOf(r), idOf(r), phone, up, down, r.dormitory_room ?? '', parts.join('/'), ...choreColsFor(r.registration_id)])
       }
 
       return XLSX.utils.aoa_to_sheet([headers, ...data])
@@ -795,7 +809,7 @@ export default function CarrangementDetailPage() {
       const upGM   = guestSmallByDir.up
       const downGM = guestSmallByDir.down
 
-      const headers = ['序號', '車次', '車號', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '寮號', '備註']
+      const headers = ['序號', '車次', '車號', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '寮號', '備註', ...choreColHeaders]
       const data = []
       let seq = 1
       let carIdx = 1
@@ -842,7 +856,7 @@ export default function CarrangementDetailPage() {
           if (origNote) parts.push(origNote)
           // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
           const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
-          data.push([seq++, carName, plate || '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, up_, down_, r.dormitory_room ?? '', parts.join('/')])
+          data.push([seq++, carName, plate || '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, up_, down_, r.dormitory_room ?? '', parts.join('/'), ...choreColsFor(r.registration_id)])
         }
       }
 
@@ -870,7 +884,7 @@ export default function CarrangementDetailPage() {
         if (origNote) parts.push(origNote)
         // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
-        data.push([seq++, '小車（未指定）', '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, upV, downV, r.dormitory_room ?? '', parts.join('/')])
+        data.push([seq++, '小車（未指定）', '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, upV, downV, r.dormitory_room ?? '', parts.join('/'), ...choreColsFor(r.registration_id)])
       }
 
       return data.length > 0 ? XLSX.utils.aoa_to_sheet([headers, ...data]) : null
@@ -890,7 +904,7 @@ export default function CarrangementDetailPage() {
       if (otherRegs.length === 0) return null
 
       const sortedRegs = [...otherRegs].sort(sortByClassGroup)
-      const headers = ['序號', '姓名', '班級', '組別', '身份別', '電話', '去程方式', '回程方式', '寮號', '備註']
+      const headers = ['序號', '姓名', '班級', '組別', '身份別', '電話', '去程方式', '回程方式', '寮號', '備註', ...choreColHeaders]
       const data = []
       let seq = 1
       for (const r of sortedRegs) {
@@ -904,7 +918,7 @@ export default function CarrangementDetailPage() {
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
         const upT   = r.answers?.[transportUpKey]   ?? ''
         const downT = r.answers?.[transportDownKey] ?? ''
-        data.push([seq++, getName(r), clsOf(r), grpOf(r), idOf(r), phone, upT, downT, r.dormitory_room ?? '', parts.join('/')])
+        data.push([seq++, getName(r), clsOf(r), grpOf(r), idOf(r), phone, upT, downT, r.dormitory_room ?? '', parts.join('/'), ...choreColsFor(r.registration_id)])
       }
       return XLSX.utils.aoa_to_sheet([headers, ...data])
     }

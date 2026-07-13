@@ -100,6 +100,24 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
             </label>
           </div>
         )}
+        {/* 福慧出坡（排坡系統）— 勾選後此活動才會出現在排坡系統列表 */}
+        <div className="sm:col-span-2">
+          <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!form.is_chore_event}
+              onChange={e => setForm(f => ({ ...f, is_chore_event: e.target.checked }))}
+              className="w-4 h-4 accent-lime-600 mt-0.5"
+            />
+            <span>
+              福慧出坡（此活動需要排坡）
+              <span className="block text-xs text-gray-500 mt-0.5">
+                勾選後，此活動會出現在排坡系統列表，可匯入坡務表並依上山車輛自動排坡
+              </span>
+            </span>
+          </label>
+        </div>
+
         {/* 對外公開排車資訊 — 任何活動皆可開（回山活動最常用，但精舍也可能臨時用） */}
         <div className="sm:col-span-2">
           <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">

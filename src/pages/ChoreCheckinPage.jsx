@@ -11,6 +11,8 @@ function genderOf(groupName) {
   return '未知'
 }
 
+const telHref = phone => `tel:${String(phone).replace(/[\s-]/g, '')}`
+
 export default function ChoreCheckinPage() {
   const { token } = useParams()
   const [loading, setLoading] = useState(true)
@@ -60,9 +62,21 @@ export default function ChoreCheckinPage() {
         {/* 坡務基本資訊 */}
         <div className="bg-white rounded-xl shadow-sm border px-4 py-3 text-sm space-y-1.5">
           {chore.location && <div>📍 集合地點：<strong>{chore.location}</strong></div>}
-          {chore.supervising_monk && <div>🛕 負責法師：{chore.supervising_monk}</div>}
+          {(chore.supervising_monk || chore.supervising_monk_phone) && (
+            <div>
+              🛕 負責法師：{chore.supervising_monk}
+              {chore.supervising_monk_phone && (
+                <> ・<a href={telHref(chore.supervising_monk_phone)} className="text-blue-600 underline">{chore.supervising_monk_phone}</a></>
+              )}
+            </div>
+          )}
           {(chore.leader_name || chore.leader_phone) && (
-            <div>👤 精舍小組長：{chore.leader_name}{chore.leader_phone ? `（${chore.leader_phone}）` : ''}</div>
+            <div>
+              👤 精舍小組長：{chore.leader_name}
+              {chore.leader_phone && (
+                <>（<a href={telHref(chore.leader_phone)} className="text-blue-600 underline">{chore.leader_phone}</a>）</>
+              )}
+            </div>
           )}
         </div>
 
@@ -78,6 +92,9 @@ export default function ChoreCheckinPage() {
               members.map(m => (
                 <div key={m.registration_id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
                   <span className="flex-1 min-w-0 font-medium text-gray-800">{m.name}</span>
+                  {m.phone && (
+                    <a href={telHref(m.phone)} className="text-xs text-blue-600 underline shrink-0">{m.phone}</a>
+                  )}
                   <span className="text-xs text-gray-400 shrink-0">{genderOf(m.group_name)}</span>
                   <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2 py-0.5 shrink-0">
                     {m.car_name || '（未排車）'}

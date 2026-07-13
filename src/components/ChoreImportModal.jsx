@@ -94,7 +94,7 @@ export default function ChoreImportModal({ eventId, onImported, onClose }) {
                       <td className="px-3 py-2">{r.unit}</td>
                       <td className="px-3 py-2">{r.work_content}</td>
                       <td className="px-3 py-2">{r.location}</td>
-                      <td className="px-3 py-2">{r.supervising_monk}</td>
+                      <td className="px-3 py-2">{r.supervising_monk}{r.supervising_monk_phone ? `／${r.supervising_monk_phone}` : ''}</td>
                       <td className="px-3 py-2">{r.leader_name}{r.leader_phone ? `／${r.leader_phone}` : ''}</td>
                       <td className="px-3 py-2 text-right">{r.quota_male}</td>
                       <td className="px-3 py-2 text-right">{r.quota_female}</td>

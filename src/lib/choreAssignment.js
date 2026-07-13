@@ -44,7 +44,7 @@ export async function getUpCarMembersWithGender(eventId) {
 
   const { data: regs, error: regErr } = await supabase
     .from('registrations')
-    .select('registration_id, student_id, answers, registered_at, students!student_id ( name, student_classes ( group_name ) )')
+    .select('registration_id, student_id, answers, registered_at, students!student_id ( name, phone, student_classes ( group_name ) )')
     .in('registration_id', allRegIds)
   if (regErr) return { cars: [], error: regErr.message }
 
@@ -59,6 +59,7 @@ export async function getUpCarMembersWithGender(eventId) {
         registration_id: r.registration_id,
         student_id: r.student_id,
         name: r.students?.name ?? r.answers?.guest_name ?? '訪客',
+        phone: r.students?.phone || '',
         gender: deriveGenderFromClasses(r.students?.student_classes),
         car_id: c.car_id,
         car_name: c.car_name,
@@ -89,7 +90,7 @@ export async function getChoreMembersByEventSession(eventId, session) {
 
   const { data: regs, error: regErr } = await supabase
     .from('registrations')
-    .select('registration_id, student_id, answers, students!student_id ( name, student_classes ( group_name ) )')
+    .select('registration_id, student_id, answers, students!student_id ( name, phone, student_classes ( group_name ) )')
     .in('registration_id', regIds)
   if (regErr) return { members: [], error: regErr.message }
   const regMap = Object.fromEntries((regs || []).map(r => [r.registration_id, r]))
@@ -119,6 +120,7 @@ export async function getChoreMembersByEventSession(eventId, session) {
       chore_id: m.chore_id,
       registration_id: m.registration_id,
       name: r?.students?.name ?? r?.answers?.guest_name ?? '訪客',
+      phone: r?.students?.phone || '',
       gender: deriveGenderFromClasses(r?.students?.student_classes),
       car_name: carNameMap[m.registration_id] ?? '',
     }

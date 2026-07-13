@@ -20,6 +20,7 @@ const SESSIONS = [
 ]
 
 const genderLabel = g => g === 'male' ? '男' : g === 'female' ? '女' : '未知'
+const telHref = phone => `tel:${String(phone).replace(/[\s-]/g, '')}`
 
 export default function ChoreArrangementDetailPage() {
   const { eventId } = useParams()
@@ -75,6 +76,16 @@ export default function ChoreArrangementDetailPage() {
   const availableToAssign = useMemo(
     () => allUpMembers.filter(m => !assignedRegIdsInSession.has(m.registration_id)),
     [allUpMembers, assignedRegIdsInSession]
+  )
+
+  // 即時計算「目前尚未排入這個時段任何坡務」的人，取代自動排坡當下的靜態快照，
+  // 這樣手動加人/移除之後這份清單也會跟著即時更新，不會停留在上次自動排坡的結果
+  const unassignedLive = useMemo(
+    () => availableToAssign.map(m => ({
+      ...m,
+      reason: m.gender === 'unknown' ? '無性別資訊' : '尚未排入',
+    })),
+    [availableToAssign]
   )
 
   const summary = lastSummaryBySession[sessionTab]
@@ -135,11 +146,13 @@ export default function ChoreArrangementDetailPage() {
         ['坡務內容', chore.work_content || ''],
         ['集合地點', chore.location || ''],
         ['負責法師', chore.supervising_monk || ''],
-        ['精舍小組長', [chore.leader_name, chore.leader_phone].filter(Boolean).join(' ')],
+        ['負責法師電話', chore.supervising_monk_phone || ''],
+        ['精舍小組長', chore.leader_name || ''],
+        ['精舍小組長電話', chore.leader_phone || ''],
         [],
-        ['序號', '姓名', '性別', '上山車次'],
+        ['序號', '姓名', '電話', '性別', '上山車次'],
       ]
-      mems.forEach((m, i) => infoRows.push([i + 1, m.name, genderLabel(m.gender), m.car_name || '']))
+      mems.forEach((m, i) => infoRows.push([i + 1, m.name, m.phone || '', genderLabel(m.gender), m.car_name || '']))
       const ws = XLSX.utils.aoa_to_sheet(infoRows)
       let base = safeSheetName(`${chore.session}${chore.unit || chore.work_content || '坡務'}`)
       let name = base, n = 1
@@ -230,18 +243,20 @@ export default function ChoreArrangementDetailPage() {
                 </span>
               ))}
             </div>
-            {summary.unassigned.length > 0 && (
-              <div className="mt-2 bg-red-50 border border-red-300 rounded-lg px-3 py-2">
-                <div className="font-semibold text-red-700 text-xs mb-1">⚠️ 未排入（{summary.unassigned.length} 人），請手動處理：</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {summary.unassigned.map(m => (
-                    <span key={m.registration_id} className="text-xs bg-white border border-red-200 text-red-700 rounded-full px-2 py-0.5">
-                      {m.name}（{m.car_name}・{m.reason}）
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+          </div>
+        )}
+
+        {/* 即時未排入名單：不只自動排坡後才顯示，手動加人/移除後也會跟著更新 */}
+        {unassignedLive.length > 0 && (
+          <div className="bg-red-50 border border-red-300 rounded-lg px-3 py-2 text-sm">
+            <div className="font-semibold text-red-700 text-xs mb-1">⚠️ 未排入（{unassignedLive.length} 人），請手動處理：</div>
+            <div className="flex flex-wrap gap-1.5">
+              {unassignedLive.map(m => (
+                <span key={m.registration_id} className="text-xs bg-white border border-red-200 text-red-700 rounded-full px-2 py-0.5">
+                  {m.name}（{m.car_name}・{m.reason}）
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
@@ -287,9 +302,21 @@ export default function ChoreArrangementDetailPage() {
                     </div>
                     <div className="mt-1.5 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-0.5">
                       {chore.location && <span>📍 {chore.location}</span>}
-                      {chore.supervising_monk && <span>🛕 負責法師：{chore.supervising_monk}</span>}
+                      {(chore.supervising_monk || chore.supervising_monk_phone) && (
+                        <span>
+                          🛕 負責法師：{chore.supervising_monk}
+                          {chore.supervising_monk_phone && (
+                            <> ・<a href={telHref(chore.supervising_monk_phone)} className="text-blue-600 hover:underline">{chore.supervising_monk_phone}</a></>
+                          )}
+                        </span>
+                      )}
                       {(chore.leader_name || chore.leader_phone) && (
-                        <span>👤 小組長：{chore.leader_name}{chore.leader_phone ? `（${chore.leader_phone}）` : ''}</span>
+                        <span>
+                          👤 小組長：{chore.leader_name}
+                          {chore.leader_phone && (
+                            <>（<a href={telHref(chore.leader_phone)} className="text-blue-600 hover:underline">{chore.leader_phone}</a>）</>
+                          )}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -324,6 +351,9 @@ export default function ChoreArrangementDetailPage() {
                         mems.map(m => (
                           <div key={m.id} className="flex items-center gap-2 px-4 py-2 text-sm">
                             <span className="flex-1 min-w-0 font-medium">{m.name}</span>
+                            {m.phone && (
+                              <a href={telHref(m.phone)} className="text-xs text-blue-600 hover:underline shrink-0">{m.phone}</a>
+                            )}
                             <span className="text-xs text-gray-400">{genderLabel(m.gender)}</span>
                             <span className="text-xs text-gray-400">{m.car_name}</span>
                             <button

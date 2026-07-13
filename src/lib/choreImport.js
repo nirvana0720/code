@@ -36,10 +36,26 @@ function parseLeader(raw) {
   return { leader_name: raw, leader_phone: '' }
 }
 
+// 「見賦法師\n0975-220-455」或「見賦法師 0975220455」→ { supervising_monk, supervising_monk_phone }
+// 抓出裡面像電話的連續數字（可含 -），剩下文字當姓名；抓不到電話格式就整段存姓名，不讓解析失敗擋掉整筆匯入
+function parseMonk(raw) {
+  if (!raw) return { supervising_monk: '', supervising_monk_phone: '' }
+  const match = raw.match(/\d[\d-]{7,}\d/)
+  if (match) {
+    const digitCount = match[0].replace(/\D/g, '').length
+    if (digitCount >= 9) {
+      const phone = match[0]
+      const name = raw.replace(phone, '').replace(/\s+/g, ' ').trim()
+      return { supervising_monk: name, supervising_monk_phone: phone }
+    }
+  }
+  return { supervising_monk: raw.replace(/\s+/g, ' ').trim(), supervising_monk_phone: '' }
+}
+
 /**
  * 解析坡務表 Excel（單一工作表），回傳可預覽/確認的坡務列陣列
  * @param {File} file
- * @returns {Promise<Array<{session, unit, work_content, location, supervising_monk, leader_name, leader_phone, quota_male, quota_female, date_for_display}>>}
+ * @returns {Promise<Array<{session, unit, work_content, location, supervising_monk, supervising_monk_phone, leader_name, leader_phone, quota_male, quota_female, date_for_display}>>}
  */
 export async function parseChoreExcel(file) {
   const buf = await file.arrayBuffer()
@@ -85,17 +101,18 @@ export async function parseChoreExcel(file) {
     const unit           = cellAt(row, colUnit)
     const work_content   = cellAt(row, colWork)
     const location        = cellAt(row, colLocation)
-    const supervising_monk = cellAt(row, colMonk)
+    const monkRaw          = cellAt(row, colMonk)
     const leaderRaw       = cellAt(row, colLeader)
     const quota_male   = parseInt(cellAt(row, colMale), 10)   || 0
     const quota_female = parseInt(cellAt(row, colFemale), 10) || 0
 
     // 整列空白（不含男女人數皆 0）視為分隔/裝飾列，略過
-    if (!unit && !work_content && !location && !supervising_monk && !leaderRaw && quota_male === 0 && quota_female === 0) {
+    if (!unit && !work_content && !location && !monkRaw && !leaderRaw && quota_male === 0 && quota_female === 0) {
       continue
     }
 
     const { leader_name, leader_phone } = parseLeader(leaderRaw)
+    const { supervising_monk, supervising_monk_phone } = parseMonk(monkRaw)
 
     results.push({
       session: carrySession,
@@ -103,6 +120,7 @@ export async function parseChoreExcel(file) {
       work_content,
       location,
       supervising_monk,
+      supervising_monk_phone,
       leader_name,
       leader_phone,
       quota_male,
@@ -130,6 +148,7 @@ export async function importChores(eventId, choreRows) {
     work_content: r.work_content || null,
     location: r.location || null,
     supervising_monk: r.supervising_monk || null,
+    supervising_monk_phone: r.supervising_monk_phone || null,
     leader_name: r.leader_name || null,
     leader_phone: r.leader_phone || null,
     quota_male: r.quota_male ?? 0,

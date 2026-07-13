@@ -737,7 +737,7 @@ export default function CarrangementDetailPage() {
       finalRegs.push(...remaining)  // 找不到 host 的訪客
 
       // 組 rows
-      const headers = ['序號', '車次', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '備註']
+      const headers = ['序號', '車次', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '寮號', '備註']
       const data = []
       let seq = 1
 
@@ -748,7 +748,7 @@ export default function CarrangementDetailPage() {
         if (!monk) continue
         const up   = upMonkIds.has(mid)   ? 'V' : ''
         const down = downMonkIds.has(mid) ? 'V' : ''
-        data.push([seq++, carName, monk.name, '', '', '法師', '', up, down, '法師'])
+        data.push([seq++, carName, monk.name, '', '', '法師', '', up, down, '', '法師'])
       }
 
       // 學員 / 訪客
@@ -765,7 +765,7 @@ export default function CarrangementDetailPage() {
         if (origNote) parts.push(origNote)
         // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
-        data.push([seq++, carName, getName(r), clsOf(r), grpOf(r), idOf(r), phone, up, down, parts.join('/')])
+        data.push([seq++, carName, getName(r), clsOf(r), grpOf(r), idOf(r), phone, up, down, r.dormitory_room ?? '', parts.join('/')])
       }
 
       return XLSX.utils.aoa_to_sheet([headers, ...data])
@@ -792,7 +792,7 @@ export default function CarrangementDetailPage() {
       const upGM   = guestSmallByDir.up
       const downGM = guestSmallByDir.down
 
-      const headers = ['序號', '車次', '車號', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '備註']
+      const headers = ['序號', '車次', '車號', '姓名', '班級', '組別', '身份別', '電話', '去程', '回程', '寮號', '備註']
       const data = []
       let seq = 1
       let carIdx = 1
@@ -839,7 +839,7 @@ export default function CarrangementDetailPage() {
           if (origNote) parts.push(origNote)
           // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
           const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
-          data.push([seq++, carName, plate || '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, up_, down_, parts.join('/')])
+          data.push([seq++, carName, plate || '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, up_, down_, r.dormitory_room ?? '', parts.join('/')])
         }
       }
 
@@ -867,7 +867,7 @@ export default function CarrangementDetailPage() {
         if (origNote) parts.push(origNote)
         // 訪客電話：guest_phone（Supabase cron 活動結束 7 天後自動清除）
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
-        data.push([seq++, '小車（未指定）', '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, upV, downV, parts.join('/')])
+        data.push([seq++, '小車（未指定）', '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, upV, downV, r.dormitory_room ?? '', parts.join('/')])
       }
 
       return data.length > 0 ? XLSX.utils.aoa_to_sheet([headers, ...data]) : null
@@ -887,7 +887,7 @@ export default function CarrangementDetailPage() {
       if (otherRegs.length === 0) return null
 
       const sortedRegs = [...otherRegs].sort(sortByClassGroup)
-      const headers = ['序號', '姓名', '班級', '組別', '身份別', '電話', '去程方式', '回程方式', '備註']
+      const headers = ['序號', '姓名', '班級', '組別', '身份別', '電話', '去程方式', '回程方式', '寮號', '備註']
       const data = []
       let seq = 1
       for (const r of sortedRegs) {
@@ -901,7 +901,7 @@ export default function CarrangementDetailPage() {
         const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
         const upT   = r.answers?.[transportUpKey]   ?? ''
         const downT = r.answers?.[transportDownKey] ?? ''
-        data.push([seq++, getName(r), clsOf(r), grpOf(r), idOf(r), phone, upT, downT, parts.join('/')])
+        data.push([seq++, getName(r), clsOf(r), grpOf(r), idOf(r), phone, upT, downT, r.dormitory_room ?? '', parts.join('/')])
       }
       return XLSX.utils.aoa_to_sheet([headers, ...data])
     }

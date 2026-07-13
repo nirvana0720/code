@@ -1394,6 +1394,7 @@ export async function getEventRegistrationsDetail(eventId) {
       updated_at,
       pre_depart_override,
       late_return_override,
+      dormitory_room,
       students!student_id ( name, student_classes(class_name, group_name) )
     `)
     .eq('event_id', eventId)

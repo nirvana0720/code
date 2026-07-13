@@ -22,6 +22,63 @@ function normalizeSession(raw) {
   return s
 }
 
+// 「08:30:00」→「08:30」；Excel 時間序列值（0~1 小數）→「HH:MM」；其餘原樣回傳（例如「08:45~11:30」整段文字）
+function cleanTimeText(raw) {
+  if (!raw) return ''
+  let t = String(raw).trim()
+  if (/^0?\.\d+$/.test(t)) {
+    const totalMinutes = Math.round(parseFloat(t) * 24 * 60)
+    const hh = String(Math.floor(totalMinutes / 60) % 24).padStart(2, '0')
+    const mm = String(totalMinutes % 60).padStart(2, '0')
+    return `${hh}:${mm}`
+  }
+  t = t.replace(/(\d{1,2}:\d{2}):\d{2}\b/g, '$1')
+  return t.trim()
+}
+
+// 在說明區塊某一列裡找出上午/下午各自的時間文字
+// 優先找「上午」「下午」文字標籤後面接的時間；找不到標籤就依欄位順序（第一個給上午，第二個給下午）
+function extractSessionRow(row, labelIdx) {
+  const rest = row.slice(labelIdx + 1).map(c => String(c ?? '').trim()).filter(Boolean)
+  if (rest.length === 0) return { am: '', pm: '' }
+  const joined = rest.join(' ')
+  const amMatch = joined.match(/上午[:：]?\s*([\d:：~\-－\s]+)/)
+  const pmMatch = joined.match(/下午[:：]?\s*([\d:：~\-－\s]+)/)
+  if (amMatch || pmMatch) {
+    return {
+      am: amMatch ? cleanTimeText(amMatch[1]) : '',
+      pm: pmMatch ? cleanTimeText(pmMatch[1]) : '',
+    }
+  }
+  return { am: cleanTimeText(rest[0] ?? ''), pm: cleanTimeText(rest[1] ?? '') }
+}
+
+// 在說明區塊（標題列之前的所有列）找出含有指定標籤文字的列，回傳該列與標籤所在欄位索引
+function findLabelRow(rows, limit, label) {
+  for (let i = 0; i < limit; i++) {
+    const row = rows[i] ?? []
+    const idx = row.findIndex(c => String(c ?? '').includes(label))
+    if (idx !== -1) return { row, idx }
+  }
+  return null
+}
+
+/**
+ * 解析 Excel 最上面說明區塊的「出坡時間」「報到時間」，抓不到就回傳空字串（不擋住整份匯入）
+ * @returns {{am_work: string, am_checkin: string, pm_work: string, pm_checkin: string}}
+ */
+function parseSessionTimes(rows, headerIdx) {
+  try {
+    const workRow = findLabelRow(rows, headerIdx, '出坡時間')
+    const checkinRow = findLabelRow(rows, headerIdx, '報到時間')
+    const work = workRow ? extractSessionRow(workRow.row, workRow.idx) : { am: '', pm: '' }
+    const checkin = checkinRow ? extractSessionRow(checkinRow.row, checkinRow.idx) : { am: '', pm: '' }
+    return { am_work: work.am, am_checkin: checkin.am, pm_work: work.pm, pm_checkin: checkin.pm }
+  } catch {
+    return { am_work: '', am_checkin: '', pm_work: '', pm_checkin: '' }
+  }
+}
+
 // 「王大明/法名/0910223156」→ { leader_name, leader_phone }
 // 格式不規則時整段存 leader_name，leader_phone 留空，不讓解析失敗擋掉整筆匯入
 function parseLeader(raw) {
@@ -53,9 +110,9 @@ function parseMonk(raw) {
 }
 
 /**
- * 解析坡務表 Excel（單一工作表），回傳可預覽/確認的坡務列陣列
+ * 解析坡務表 Excel（單一工作表），回傳可預覽/確認的坡務列陣列，以及最上面說明區塊的出坡/報到時間
  * @param {File} file
- * @returns {Promise<Array<{session, unit, work_content, location, supervising_monk, supervising_monk_phone, leader_name, leader_phone, quota_male, quota_female, date_for_display}>>}
+ * @returns {Promise<{chores: Array<{session, unit, work_content, location, supervising_monk, supervising_monk_phone, leader_name, leader_phone, quota_male, quota_female, date_for_display}>, sessionTimes: {am_work: string, am_checkin: string, pm_work: string, pm_checkin: string}}>}
  */
 export async function parseChoreExcel(file) {
   const buf = await file.arrayBuffer()
@@ -69,6 +126,8 @@ export async function parseChoreExcel(file) {
   if (headerIdx === -1) {
     throw new Error('找不到標題列（需同時包含「坡務內容」與「集合地點」欄位），請確認 Excel 格式')
   }
+
+  const sessionTimes = parseSessionTimes(rows, headerIdx)
 
   const headerRow = rows[headerIdx]
   const subRow    = rows[headerIdx + 1] || []
@@ -129,7 +188,7 @@ export async function parseChoreExcel(file) {
     })
   }
 
-  return results
+  return { chores: results, sessionTimes }
 }
 
 /**

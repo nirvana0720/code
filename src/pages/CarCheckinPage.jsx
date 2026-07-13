@@ -32,6 +32,23 @@ function formatChoreLabel(locMap, registrationId) {
   return parts.length > 0 ? parts.join(' / ') : null
 }
 
+// 福慧出坡：頁面上方顯示今天上午/下午的出坡時間、報到時間；沒有資料的時段不顯示
+function formatSessionTimes(events) {
+  if (!events) return null
+  const parts = []
+  if (events.chore_am_work_time || events.chore_am_checkin_time) {
+    let s = `上午出坡${events.chore_am_work_time ? ' ' + events.chore_am_work_time : ''}`
+    if (events.chore_am_checkin_time) s += `（報到 ${events.chore_am_checkin_time}）`
+    parts.push(s)
+  }
+  if (events.chore_pm_work_time || events.chore_pm_checkin_time) {
+    let s = `下午出坡${events.chore_pm_work_time ? ' ' + events.chore_pm_work_time : ''}`
+    if (events.chore_pm_checkin_time) s += `（報到 ${events.chore_pm_checkin_time}）`
+    parts.push(s)
+  }
+  return parts.length > 0 ? parts.join('　') : null
+}
+
 // 電話徽章：方便車輛領隊找人，沒有電話就不顯示
 const telHref = phone => `tel:${String(phone).replace(/[\s-]/g, '')}`
 function PhoneBadge({ phone }) {
@@ -426,6 +443,15 @@ export default function CarCheckinPage() {
             </div>
           </div>
         </div>
+
+        {/* 福慧出坡：今天上午/下午出坡時間、報到時間 */}
+        {showChore && formatSessionTimes(car.events) && (
+          <div className="px-4 pt-3 max-w-lg mx-auto">
+            <div className="bg-lime-50 border border-lime-200 rounded-lg px-3 py-2 text-xs text-lime-800">
+              🕐 {formatSessionTimes(car.events)}
+            </div>
+          </div>
+        )}
 
         {/* 掃描按鈕 */}
         <div className="px-4 pt-4 max-w-lg mx-auto">

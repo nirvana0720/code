@@ -61,6 +61,16 @@ export default function ChoreCheckinPage() {
       <div className="px-4 pt-4 max-w-lg mx-auto space-y-3">
         {/* 坡務基本資訊 */}
         <div className="bg-white rounded-xl shadow-sm border px-4 py-3 text-sm space-y-1.5">
+          {(() => {
+            const work = chore.session === '上午' ? chore.events?.chore_am_work_time : chore.events?.chore_pm_work_time
+            const checkin = chore.session === '上午' ? chore.events?.chore_am_checkin_time : chore.events?.chore_pm_checkin_time
+            if (!work && !checkin) return null
+            return (
+              <div>
+                🕐 {work && <>出坡時間：{work}</>}{work && checkin && '　'}{checkin && <>報到時間：{checkin}</>}
+              </div>
+            )
+          })()}
           {chore.location && <div>📍 集合地點：<strong>{chore.location}</strong></div>}
           {(chore.supervising_monk || chore.supervising_monk_phone) && (
             <div>

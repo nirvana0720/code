@@ -2,12 +2,16 @@
 // 一份 Excel 可能同時含上午/下午資料，依解析出的 session 欄位自動分流，不需使用者另外選
 import { useState } from 'react'
 import { parseChoreExcel, importChores } from '../lib/choreImport'
+import { supabase } from '../lib/supabase'
+
+const EMPTY_SESSION_TIMES = { am_work: '', am_checkin: '', pm_work: '', pm_checkin: '' }
 
 export default function ChoreImportModal({ eventId, onImported, onClose }) {
   const [parsing, setParsing] = useState(false)
   const [saving, setSaving]   = useState(false)
   const [error, setError]     = useState('')
   const [rows, setRows]       = useState([])
+  const [sessionTimes, setSessionTimes] = useState(EMPTY_SESSION_TIMES)
 
   const dates = [...new Set(rows.map(r => r.date_for_display).filter(Boolean))]
   const morningCount = rows.filter(r => r.session === '上午').length
@@ -20,14 +24,16 @@ export default function ChoreImportModal({ eventId, onImported, onClose }) {
     setParsing(true)
     setError('')
     try {
-      const parsed = await parseChoreExcel(file)
-      if (parsed.length === 0) {
+      const { chores, sessionTimes: st } = await parseChoreExcel(file)
+      if (chores.length === 0) {
         setError('沒有解析出任何坡務資料，請確認 Excel 格式是否正確')
       }
-      setRows(parsed)
+      setRows(chores)
+      setSessionTimes(st)
     } catch (err) {
       setError('Excel 解析失敗：' + err.message)
       setRows([])
+      setSessionTimes(EMPTY_SESSION_TIMES)
     }
     setParsing(false)
   }
@@ -36,9 +42,20 @@ export default function ChoreImportModal({ eventId, onImported, onClose }) {
     setSaving(true)
     setError('')
     const { success, imported, error: err } = await importChores(eventId, rows)
-    setSaving(false)
     if (!success) {
+      setSaving(false)
       setError('寫入失敗：' + err)
+      return
+    }
+    const { error: evErr } = await supabase.from('events').update({
+      chore_am_work_time: sessionTimes.am_work || null,
+      chore_am_checkin_time: sessionTimes.am_checkin || null,
+      chore_pm_work_time: sessionTimes.pm_work || null,
+      chore_pm_checkin_time: sessionTimes.pm_checkin || null,
+    }).eq('event_id', eventId)
+    setSaving(false)
+    if (evErr) {
+      setError('坡務已匯入，但出坡／報到時間寫入失敗：' + evErr.message)
       return
     }
     onImported?.(imported)
@@ -70,6 +87,16 @@ export default function ChoreImportModal({ eventId, onImported, onClose }) {
               解析出 <strong>{rows.length}</strong> 筆坡務（🌅 上午 {morningCount}／🌇 下午 {afternoonCount}）
               {dates.length > 0 && <span className="ml-2">・資料日期：{dates.join('、')}（請核對是否為本場活動）</span>}
             </div>
+
+            {(sessionTimes.am_work || sessionTimes.am_checkin || sessionTimes.pm_work || sessionTimes.pm_checkin) && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-3 text-sm text-blue-800">
+                <div className="font-semibold mb-1">🕐 出坡時間／報到時間（請核對）</div>
+                <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs">
+                  <span>🌅 上午出坡：{sessionTimes.am_work || '（未偵測到）'}　報到：{sessionTimes.am_checkin || '（未偵測到）'}</span>
+                  <span>🌇 下午出坡：{sessionTimes.pm_work || '（未偵測到）'}　報到：{sessionTimes.pm_checkin || '（未偵測到）'}</span>
+                </div>
+              </div>
+            )}
 
             <div className="overflow-x-auto border border-gray-200 rounded-lg mb-4">
               <table className="min-w-full text-sm">

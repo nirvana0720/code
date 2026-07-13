@@ -118,6 +118,51 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
           </label>
         </div>
 
+        {/* 出坡時間／報到時間 — 匯入坡務表時自動帶入，保留可編輯以便手動微調 */}
+        {form.is_chore_event && (
+          <div className="sm:col-span-2 border border-lime-200 rounded-xl p-4 bg-lime-50 space-y-3">
+            <p className="text-sm font-semibold text-lime-800">🕐 出坡時間／報到時間（匯入坡務表後自動帶入，可直接修改）</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">上午出坡時間</label>
+                <input
+                  value={form.chore_am_work_time ?? ''}
+                  onChange={e => setForm(f => ({ ...f, chore_am_work_time: e.target.value }))}
+                  placeholder="例：08:45~11:30"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">上午報到時間</label>
+                <input
+                  value={form.chore_am_checkin_time ?? ''}
+                  onChange={e => setForm(f => ({ ...f, chore_am_checkin_time: e.target.value }))}
+                  placeholder="例：08:30"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">下午出坡時間</label>
+                <input
+                  value={form.chore_pm_work_time ?? ''}
+                  onChange={e => setForm(f => ({ ...f, chore_pm_work_time: e.target.value }))}
+                  placeholder="例：14:00~17:00"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">下午報到時間</label>
+                <input
+                  value={form.chore_pm_checkin_time ?? ''}
+                  onChange={e => setForm(f => ({ ...f, chore_pm_checkin_time: e.target.value }))}
+                  placeholder="例：13:50"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-lime-400"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 對外公開排車資訊 — 任何活動皆可開（回山活動最常用，但精舍也可能臨時用） */}
         <div className="sm:col-span-2">
           <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">

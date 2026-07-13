@@ -230,6 +230,10 @@ export default function EventDetailPage() {
       show_transport_to_public: !!ev.show_transport_to_public,
       show_dormitory_to_public: !!ev.show_dormitory_to_public,
       is_chore_event: !!ev.is_chore_event,
+      chore_am_work_time: ev.chore_am_work_time ?? '',
+      chore_am_checkin_time: ev.chore_am_checkin_time ?? '',
+      chore_pm_work_time: ev.chore_pm_work_time ?? '',
+      chore_pm_checkin_time: ev.chore_pm_checkin_time ?? '',
       default_notice_text: ev.default_notice_text ?? '',
       // 活動介紹頁
       show_on_activities: !!ev.show_on_activities,
@@ -371,6 +375,10 @@ export default function EventDetailPage() {
         show_transport_to_public: form.show_transport_to_public,
         show_dormitory_to_public: form.show_dormitory_to_public,
         is_chore_event: form.is_chore_event,
+        chore_am_work_time: form.chore_am_work_time || null,
+        chore_am_checkin_time: form.chore_am_checkin_time || null,
+        chore_pm_work_time: form.chore_pm_work_time || null,
+        chore_pm_checkin_time: form.chore_pm_checkin_time || null,
         default_notice_text: form.default_notice_text || null,
         // 活動介紹頁
         show_on_activities: form.show_on_activities,

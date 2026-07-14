@@ -9,6 +9,7 @@ import {
   walkinRegister, walkinAddSession, getStudentById,
 } from '../../lib/supabase'
 import CameraScanner from '../../components/CameraScanner'
+import { printDonorTicket } from '../../lib/printAgent'
 
 const IDLE_SECONDS = 5 // 成功/失敗畫面停留秒數
 
@@ -250,6 +251,7 @@ export default function CheckinPage() {
           checkedInAt: res.checkedInAt,
           regId: res.registration.registration_id,
         })
+        printDonorTicket({ name: res.name, donor: donorRec })
         startCountdown()
         return
       }
@@ -271,6 +273,7 @@ export default function CheckinPage() {
         refreshStats()
         setStatus('success')
         setResult({ name: res.name, regId: res.registration.registration_id })
+        printDonorTicket({ name: res.name, donor: donorRec })
         startCountdown()
       } else {
         setStatus('error')
@@ -308,7 +311,10 @@ export default function CheckinPage() {
       // 注意：學員編號不是合法 UUID，訪客查詢可能回 400；這種情況視同「未報名」
       const guestResult = await getGuestRegistrationForCheckin(id, scanned)
       registration = guestResult.registration
-      error = guestResult.error || 'NOT_REGISTERED'  // 查詢失敗也當未報名
+      // 找到訪客報名 → error 要清成 null；只有真的沒找到或查詢失敗才當未報名
+      // （舊寫法 `guestResult.error || 'NOT_REGISTERED'` 把「查到但 error 是 null」也錯判成未報名，
+      //  導致訪客報到永遠顯示「找不到此學員」）
+      error = guestResult.registration ? null : (guestResult.error || 'NOT_REGISTERED')
       isGuest = !!guestResult.registration
     }
 
@@ -347,6 +353,7 @@ export default function CheckinPage() {
     if (registration.checked_in_at) {
       setStatus('already')
       setResult({ name, checkedInAt: registration.checked_in_at, registrationId: registration.registration_id })
+      printDonorTicket({ name, donor: donorRec })
       startCountdown()
       return
     }
@@ -357,6 +364,7 @@ export default function CheckinPage() {
       refreshStats()
       setStatus('success')
       setResult({ name, registrationId: registration.registration_id })
+      printDonorTicket({ name, donor: donorRec })
       startCountdown()
     } else {
       setStatus('error')
@@ -635,12 +643,20 @@ export default function CheckinPage() {
             <p className="text-xl text-green-600">報到成功！</p>
             <DonorCard donor={donor} />
             <p className="text-sm text-gray-400 mt-4">{countdown} 秒後自動重置</p>
-            <button
-              onClick={resetToIdle}
-              className="mt-4 text-xs text-gray-400 hover:text-gray-600 underline"
-            >
-              立即重置
-            </button>
+            <div className="flex items-center justify-center gap-4 mt-2">
+              <button
+                onClick={() => printDonorTicket({ name: result.name, donor })}
+                className="text-xs text-gray-400 hover:text-gray-600 underline"
+              >
+                🖨 重新列印
+              </button>
+              <button
+                onClick={resetToIdle}
+                className="text-xs text-gray-400 hover:text-gray-600 underline"
+              >
+                立即重置
+              </button>
+            </div>
           </div>
         )}
 
@@ -651,6 +667,12 @@ export default function CheckinPage() {
             <p className="text-xl text-amber-600">已於 {new Date(result.checkedInAt).toLocaleTimeString('zh-TW', { hour12: false })} 報到過</p>
             <DonorCard donor={donor} />
             <div className="flex gap-3 justify-center mt-5">
+              <button
+                onClick={() => printDonorTicket({ name: result.name, donor })}
+                className="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-lg transition-colors"
+              >
+                🖨 重新列印
+              </button>
               <button
                 onClick={handleUncheck}
                 className="text-sm text-red-500 hover:text-red-700 border border-red-200 hover:border-red-400 px-4 py-2 rounded-lg transition-colors"

@@ -251,7 +251,7 @@ export default function CheckinPage() {
           checkedInAt: res.checkedInAt,
           regId: res.registration.registration_id,
         })
-        printDonorTicket({ name: res.name, donor: donorRec })
+        printDonorTicket({ name: res.name, donor: donorRec, eventName: event?.name })
         startCountdown()
         return
       }
@@ -273,7 +273,7 @@ export default function CheckinPage() {
         refreshStats()
         setStatus('success')
         setResult({ name: res.name, regId: res.registration.registration_id })
-        printDonorTicket({ name: res.name, donor: donorRec })
+        printDonorTicket({ name: res.name, donor: donorRec, eventName: event?.name })
         startCountdown()
       } else {
         setStatus('error')
@@ -353,7 +353,7 @@ export default function CheckinPage() {
     if (registration.checked_in_at) {
       setStatus('already')
       setResult({ name, checkedInAt: registration.checked_in_at, registrationId: registration.registration_id })
-      printDonorTicket({ name, donor: donorRec })
+      printDonorTicket({ name, donor: donorRec, eventName: event?.name })
       startCountdown()
       return
     }
@@ -364,7 +364,7 @@ export default function CheckinPage() {
       refreshStats()
       setStatus('success')
       setResult({ name, registrationId: registration.registration_id })
-      printDonorTicket({ name, donor: donorRec })
+      printDonorTicket({ name, donor: donorRec, eventName: event?.name })
       startCountdown()
     } else {
       setStatus('error')
@@ -645,7 +645,7 @@ export default function CheckinPage() {
             <p className="text-sm text-gray-400 mt-4">{countdown} 秒後自動重置</p>
             <div className="flex items-center justify-center gap-4 mt-2">
               <button
-                onClick={() => printDonorTicket({ name: result.name, donor })}
+                onClick={() => printDonorTicket({ name: result.name, donor, eventName: event?.name })}
                 className="text-xs text-gray-400 hover:text-gray-600 underline"
               >
                 🖨 重新列印
@@ -668,7 +668,7 @@ export default function CheckinPage() {
             <DonorCard donor={donor} />
             <div className="flex gap-3 justify-center mt-5">
               <button
-                onClick={() => printDonorTicket({ name: result.name, donor })}
+                onClick={() => printDonorTicket({ name: result.name, donor, eventName: event?.name })}
                 className="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-lg transition-colors"
               >
                 🖨 重新列印

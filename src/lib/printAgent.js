@@ -5,7 +5,8 @@ const PRINT_AGENT_URL = 'http://127.0.0.1:9789/print'
 const TIMEOUT_MS = 4000
 
 // donor: 功德主紀錄物件（donor_item, seat, corsage, offering, donor_note），可為 null
-export async function printDonorTicket({ name, donor } = {}) {
+// eventName: 活動全名（例如「普宜精舍金剛經共修法會暨護法會頒證大典」），印在小單副標
+export async function printDonorTicket({ name, donor, eventName } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
@@ -19,6 +20,7 @@ export async function printDonorTicket({ name, donor } = {}) {
         corsage: donor?.corsage ?? '',
         offering: donor?.offering ?? '',
         note: donor?.donor_note ?? '',
+        eventName: eventName ?? '',
       }),
       signal: controller.signal,
     })

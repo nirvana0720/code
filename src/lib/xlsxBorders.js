@@ -90,14 +90,19 @@ function addBorderAndFillStyles(xml) {
   return { xml: out, xfCount }
 }
 
-// 把 <fonts> 區塊裡每一個字型的 <name val="..."/> 都換成標楷體，其餘屬性（大小、粗體等）不動
+// 把 <fonts> 區塊裡每一個字型的 <name val="..."/> 都換成標楷體，其餘屬性（大小、粗體等）不動。
+// 同時把 <scheme val="minor"/>／val="major" 整個移除：只要 font 帶 scheme 屬性，
+// Excel 顯示時會改成跟隨 xl/theme/theme1.xml 的 minorFont/majorFont typeface，
+// 忽略這裡寫的 <name>（這正是之前改了 <name> 但畫面沒變成標楷體的原因），
+// 拿掉 scheme 才能讓 <name> 真正生效。
 function setFontToKaiti(xml) {
   const fontsMatch = xml.match(/(<fonts\b[^>]*>)([\s\S]*?)(<\/fonts>)/)
   if (!fontsMatch) {
     console.warn('[saveWorkbookWithBorders] styles.xml 找不到 <fonts> 區塊，略過字型調整')
     return xml
   }
-  const patchedInner = fontsMatch[2].replace(/<name val="[^"]*"\s*\/>/g, '<name val="DFKai-SB"/>')
+  let patchedInner = fontsMatch[2].replace(/<name val="[^"]*"\s*\/>/g, '<name val="DFKai-SB"/>')
+  patchedInner = patchedInner.replace(/<scheme val="[^"]*"\s*\/>/g, '')
   return xml.replace(fontsMatch[0], `${fontsMatch[1]}${patchedInner}${fontsMatch[3]}`)
 }
 

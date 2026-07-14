@@ -13,7 +13,7 @@ import {
   removeMember,
 } from '../../lib/choreAssignment'
 import ChoreImportModal from '../../components/ChoreImportModal'
-import { saveWorkbookWithGridlines } from '../../lib/xlsxGridlines'
+import { saveWorkbookWithBorders } from '../../lib/xlsxBorders'
 
 const SESSIONS = [
   { key: '上午', label: '上午', emoji: '🌅' },
@@ -170,7 +170,7 @@ export default function ChoreArrangementDetailPage() {
       usedNames.add(name)
       XLSX.utils.book_append_sheet(wb, ws, name)
     }
-    saveWorkbookWithGridlines(wb, `${event?.name ?? '活動'}_分坡名單.xlsx`)
+    saveWorkbookWithBorders(wb, `${event?.name ?? '活動'}_分坡名單.xlsx`)
   }
 
   if (loading) return <AdminLayout><div className="text-center py-20 text-gray-400">載入中…</div></AdminLayout>

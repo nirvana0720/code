@@ -132,6 +132,10 @@ export default function ChoreArrangementDetailPage() {
     })
   }
 
+  // 每張分坡工作表版面固定：左欄 5 項（A/B 欄）、右欄 4 項（D/E 欄，C 欄留空隔開）、
+  // 空一列後接學員名單標題列（A7~E7）。標籤儲存格座標對所有 sheet 都一樣。
+  const CHORE_SHEET_LABEL_CELLS = ['A1', 'A2', 'A3', 'A4', 'A5', 'D1', 'D2', 'D3', 'D4', 'A7', 'B7', 'C7', 'D7', 'E7']
+
   function handleExport() {
     const allChores = [...(choresBySession['上午'] || []), ...(choresBySession['下午'] || [])]
     if (allChores.length === 0) { alert('沒有坡務資料可匯出'); return }
@@ -141,21 +145,34 @@ export default function ChoreArrangementDetailPage() {
     const usedNames = new Set()
     for (const chore of allChores) {
       const mems = (membersBySession[chore.session] || []).filter(m => m.chore_id === chore.chore_id)
-      const infoRows = [
-        ['時段', chore.session],
+      const workTime    = (chore.session === '上午' ? event?.chore_am_work_time : event?.chore_pm_work_time) || ''
+      const checkinTime = (chore.session === '上午' ? event?.chore_am_checkin_time : event?.chore_pm_checkin_time) || ''
+
+      // 左欄（A/B）5 項、右欄（D/E）4 項，C 欄留空隔開
+      const leftItems = [
+        ['報到時間', checkinTime],
+        ['出坡時間', workTime],
         ['單位', chore.unit || ''],
+        ['精舍小組長', chore.leader_name || ''],
+        ['小組長電話', chore.leader_phone || ''],
+      ]
+      const rightItems = [
         ['坡務內容', chore.work_content || ''],
         ['集合地點', chore.location || ''],
         ['負責法師', chore.supervising_monk || ''],
         ['負責法師電話', chore.supervising_monk_phone || ''],
-        ['精舍小組長', chore.leader_name || ''],
-        ['精舍小組長電話', chore.leader_phone || ''],
-        ['出坡時間', (chore.session === '上午' ? event?.chore_am_work_time : event?.chore_pm_work_time) || ''],
-        ['報到時間', (chore.session === '上午' ? event?.chore_am_checkin_time : event?.chore_pm_checkin_time) || ''],
-        [],
-        ['序號', '姓名', '電話', '性別', '上山車次'],
       ]
+      const infoRows = []
+      for (let i = 0; i < Math.max(leftItems.length, rightItems.length); i++) {
+        const row = []
+        if (leftItems[i]) { row[0] = leftItems[i][0]; row[1] = leftItems[i][1] }
+        if (rightItems[i]) { row[3] = rightItems[i][0]; row[4] = rightItems[i][1] }
+        infoRows.push(row)
+      }
+      infoRows.push([])
+      infoRows.push(['序號', '姓名', '電話', '性別', '上山車次'])
       mems.forEach((m, i) => infoRows.push([i + 1, m.name, m.phone || '', genderLabel(m.gender), m.car_name || '']))
+
       const ws = XLSX.utils.aoa_to_sheet(infoRows)
       ws['!cols'] = [
         { wch: 14 }, // 序號 / 標籤欄
@@ -170,7 +187,7 @@ export default function ChoreArrangementDetailPage() {
       usedNames.add(name)
       XLSX.utils.book_append_sheet(wb, ws, name)
     }
-    saveWorkbookWithBorders(wb, `${event?.name ?? '活動'}_分坡名單.xlsx`)
+    saveWorkbookWithBorders(wb, `${event?.name ?? '活動'}_分坡名單.xlsx`, CHORE_SHEET_LABEL_CELLS)
   }
 
   if (loading) return <AdminLayout><div className="text-center py-20 text-gray-400">載入中…</div></AdminLayout>

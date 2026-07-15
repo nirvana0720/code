@@ -1814,67 +1814,38 @@ export async function getLinkedCarsForLeader(token, leaderRegIds) {
 /**
  * 用總領隊 access_token 取得活動資料
  * 公開頁面使用，不需登入
+ * 走 SECURITY DEFINER RPC（含「活動已結束回傳 NULL」判斷），取代直接查 head_leader 表
  */
 export async function getHeadLeaderByToken(token) {
-  const { data, error } = await supabase
-    .from('head_leader')
-    .select(`
-      id, registration_id, event_id, type,
-      events ( event_id, name, date_start, date_end, show_dormitory_to_public, is_chore_event ),
-      registrations ( answers, student_id, students!student_id ( name ) )
-    `)
-    .eq('access_token', token)
-    .single()
+  const { data, error } = await supabase.rpc('get_head_leader_by_token', { p_token: token })
 
-  if (error) {
-    if (error.code === 'PGRST116') return { headLeader: null, error: 'NOT_FOUND' }
-    return { headLeader: null, error: error.message }
-  }
+  if (error) return { headLeader: null, error: error.message }
+  if (!data) return { headLeader: null, error: 'NOT_FOUND' }
   return { headLeader: data, error: null }
 }
 
 /**
- * 取得活動所有車的報到進度（總領隊看板用，大車＋小車）
+ * 判斷 token（car_assignments / head_leader / chores 任一張表）是否因活動已結束而被鎖住
+ * 用於公開報到頁「查無資料」時，區分「單純無效」與「活動已結束」兩種訊息
  */
-export async function getAllCarsProgress(eventId) {
-  const { data, error } = await supabase
-    .from('car_assignments')
-    .select(`
-      car_id, car_name, seats, sort_order, car_type, direction, pre_depart, late_return,
-      car_leaders ( registration_id ),
-      car_members (
-        registration_id,
-        checked_in_at,
-        registrations (
-          registration_id, answers, checked_in_at, student_id, pre_depart_override, late_return_override, dormitory_room,
-          students!student_id ( name, phone, student_classes ( class_name, group_name ) )
-        )
-      ),
-      car_monks ( id, monk_id, checked_in_at, temple_monks ( name ) )
-    `)
-    .eq('event_id', eventId)
-    .order('car_type', { ascending: false })   // large 排前面
-    .order('sort_order', { ascending: true })
-
-  if (error) return { cars: [], error: error.message }
-  return { cars: data || [], error: null }
+export async function isTokenExpired(token) {
+  const { data, error } = await supabase.rpc('is_token_expired', { p_token: token })
+  if (error) return false
+  return !!data
 }
 
 /**
- * 取得活動所有 registrations（總領隊看板「其他交通」用）
- * 撈該活動全部報名，前端再依方向 + 交通方式過濾
- * 「其他交通」= 不歸大車（精舍）也不歸小車（自行開車/搭學員）的人
+ * 取得活動所有車的報到進度＋（總領隊才需要的）全部報名資料
+ * 供總領隊看板／小車領隊看板共用，走 SECURITY DEFINER RPC（get_all_cars_progress_by_token），
+ * 用 head_leader.access_token 驗證身份＋活動未過期，取代直接查 car_assignments/registrations 表——
+ * 這兩張表的 anon 直接讀取政策已於 fix_car_token_security.sql 移除，直查會一律回傳空結果
+ * @param {string} token 總領隊或小車領隊看板自己的 access_token
+ * @returns {{ cars: object[], regs: object[], error: string|null }}
  */
-export async function getEventRegistrations(eventId) {
-  const { data, error } = await supabase
-    .from('registrations')
-    .select(`
-      registration_id, answers, checked_in_at, checked_in_down_at, student_id, pre_depart_override, late_return_override,
-      students!student_id ( name, student_classes ( class_name, group_name ) )
-    `)
-    .eq('event_id', eventId)
-  if (error) return { regs: [], error: error.message }
-  return { regs: data || [], error: null }
+export async function getAllCarsProgressByToken(token) {
+  const { data, error } = await supabase.rpc('get_all_cars_progress_by_token', { p_token: token })
+  if (error || !data) return { cars: [], regs: [], error: error?.message ?? null }
+  return { cars: data.cars ?? [], regs: data.regs ?? [], error: null }
 }
 
 /**
@@ -1893,33 +1864,6 @@ export async function setTransportOverride(regId, field, value) {
     .eq('registration_id', regId)
   if (error) return { success: false, error: error.message }
   return { success: true, error: null }
-}
-
-/**
- * 取得活動所有小車的報到進度（小車領隊看板用）
- */
-export async function getAllSmallCarsProgress(eventId) {
-  const { data, error } = await supabase
-    .from('car_assignments')
-    .select(`
-      car_id, car_name, seats, sort_order, car_type, direction, pre_depart, late_return,
-      car_leaders ( registration_id ),
-      car_members (
-        registration_id,
-        checked_in_at,
-        registrations (
-          registration_id, answers, checked_in_at, student_id, pre_depart_override, late_return_override, dormitory_room,
-          students!student_id ( name, phone, student_classes ( class_name, group_name ) )
-        )
-      ),
-      car_monks ( id, monk_id, checked_in_at, temple_monks ( name ) )
-    `)
-    .eq('event_id', eventId)
-    .eq('car_type', 'small')
-    .order('sort_order', { ascending: true })
-
-  if (error) return { cars: [], error: error.message }
-  return { cars: data || [], error: null }
 }
 
 /**
@@ -2091,14 +2035,56 @@ export async function getAllStudents(search = '') {
 }
 
 
+// ─── 功德主動態欄位（event_donor_fields）───────────────────
+
+export async function listEventDonorFields(eventId) {
+  const { data, error } = await supabase
+    .from('event_donor_fields')
+    .select('*')
+    .eq('event_id', eventId)
+    .order('field_order', { ascending: true })
+
+  if (error) return { fields: [], error: error.message }
+  return { fields: data || [], error: null }
+}
+
+/**
+ * 儲存功德主欄位設定（先刪全部再插入，比照 saveEventFields）
+ *   fields: [{ field_key, field_label, field_order }]
+ */
+export async function saveEventDonorFields(eventId, fields) {
+  const { error: delErr } = await supabase
+    .from('event_donor_fields')
+    .delete()
+    .eq('event_id', eventId)
+
+  if (delErr) return { success: false, error: delErr.message }
+
+  if (fields.length === 0) return { success: true, error: null }
+
+  const rows = fields.map((f, i) => ({
+    event_id:    eventId,
+    field_key:   f.field_key,
+    field_label: f.field_label,
+    field_order: i,
+  }))
+
+  const { error: insertErr } = await supabase
+    .from('event_donor_fields')
+    .insert(rows)
+
+  if (insertErr) return { success: false, error: insertErr.message }
+  return { success: true, error: null }
+}
+
 // ─── 功德主管理（event_donors）─────────────────────────────
 // 設計重點：
 //   - 學員型：student_id 有值，唯一鍵 (event_id, student_id)
 //   - 訪客型：student_id=null，唯一鍵 (event_id, name)
-//   - 顯示欄位（donor_item / seat / corsage / offering / donor_note）任一空白 → 報到時不顯示該列
+//   - 顯示欄位存在 answers jsonb（動態欄位，由 event_donor_fields 決定有哪些欄位）；欄位空白 → 報到時不顯示該列
 //   - bulkUpsertEventDonors 採「合併」策略：依鍵 lookup，有則 UPDATE，沒則 INSERT；不刪除既有
 
-const DONOR_COLS = 'donor_id, event_id, student_id, name, donor_item, seat, corsage, offering, donor_note, created_at, updated_at'
+const DONOR_COLS = 'donor_id, event_id, student_id, name, answers, created_at, updated_at'
 
 export async function listEventDonors(eventId) {
   const { data, error } = await supabase
@@ -2112,16 +2098,12 @@ export async function listEventDonors(eventId) {
 }
 
 export async function addEventDonor(eventId, donor) {
-  // donor = { student_id?, name, donor_item?, seat?, corsage?, offering?, donor_note? }
+  // donor = { student_id?, name, answers: {field_key: value} }
   const row = {
     event_id:   eventId,
     student_id: donor.student_id || null,
     name:       (donor.name || '').trim(),
-    donor_item: emptyToNull(donor.donor_item),
-    seat:       emptyToNull(donor.seat),
-    corsage:    emptyToNull(donor.corsage),
-    offering:   emptyToNull(donor.offering),
-    donor_note: emptyToNull(donor.donor_note),
+    answers:    cleanAnswers(donor.answers),
   }
   if (!row.name) return { donor: null, error: '姓名不可為空' }
 
@@ -2139,11 +2121,7 @@ export async function updateEventDonor(donorId, patch) {
   const row = {}
   if (patch.name !== undefined)       row.name       = (patch.name || '').trim()
   if (patch.student_id !== undefined) row.student_id = patch.student_id || null
-  if (patch.donor_item !== undefined) row.donor_item = emptyToNull(patch.donor_item)
-  if (patch.seat !== undefined)       row.seat       = emptyToNull(patch.seat)
-  if (patch.corsage !== undefined)    row.corsage    = emptyToNull(patch.corsage)
-  if (patch.offering !== undefined)   row.offering   = emptyToNull(patch.offering)
-  if (patch.donor_note !== undefined) row.donor_note = emptyToNull(patch.donor_note)
+  if (patch.answers !== undefined)    row.answers    = cleanAnswers(patch.answers)
 
   if (row.name !== undefined && !row.name) return { donor: null, error: '姓名不可為空' }
 
@@ -2169,7 +2147,7 @@ export async function deleteEventDonor(donorId) {
 
 /**
  * 批次匯入功德主（合併策略）
- *   rows: [{ student_id?, name, donor_item?, seat?, corsage?, offering?, donor_note? }]
+ *   rows: [{ student_id?, name, answers }]
  *   - 學員型（有 student_id）：以 (event_id, student_id) 比對；有則 update，無則 insert
  *   - 訪客型（無 student_id）：以 (event_id, name) 比對；有則 update，無則 insert
  *   不刪除 Excel 以外的既有名單。
@@ -2211,11 +2189,7 @@ export async function bulkUpsertEventDonors(eventId, rows) {
       event_id:   eventId,
       student_id: studentId,
       name,
-      donor_item: emptyToNull(raw.donor_item),
-      seat:       emptyToNull(raw.seat),
-      corsage:    emptyToNull(raw.corsage),
-      offering:   emptyToNull(raw.offering),
-      donor_note: emptyToNull(raw.donor_note),
+      answers:    cleanAnswers(raw.answers),
     }
 
     // 找既有：學員型優先用 student_id，訪客型用 name
@@ -2227,11 +2201,7 @@ export async function bulkUpsertEventDonors(eventId, rows) {
         patch: {
           name:       payload.name,
           student_id: payload.student_id,
-          donor_item: payload.donor_item,
-          seat:       payload.seat,
-          corsage:    payload.corsage,
-          offering:   payload.offering,
-          donor_note: payload.donor_note,
+          answers:    payload.answers,
         },
         raw,
       })
@@ -2311,6 +2281,16 @@ function emptyToNull(v) {
   if (v === undefined || v === null) return null
   const s = String(v).trim()
   return s === '' ? null : s
+}
+
+// answers 物件的每個 value 空字串轉 null 後 strip（沒填的欄位不佔 jsonb 空間，報到時不顯示）
+function cleanAnswers(answers) {
+  const obj = {}
+  for (const [k, v] of Object.entries(answers || {})) {
+    const cleaned = emptyToNull(v)
+    if (cleaned !== null) obj[k] = cleaned
+  }
+  return obj
 }
 
 // ─── Phase 5：多場次報名 ───────────────────────────────────

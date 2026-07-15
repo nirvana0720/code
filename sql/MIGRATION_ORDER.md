@@ -94,6 +94,7 @@
 | 順序 | 檔案 | 說明 |
 |------|------|------|
 | 最新 | `fix_car_token_security.sql` | 車次 Token 安全修復（RLS + RPC） |
+| 最新 | `add_donor_dynamic_fields.sql` | 功德主管理改動態欄位（event_donor_fields 新表 + event_donors.answers + backfill） |
 
 ## ⚠️ 注意事項
 

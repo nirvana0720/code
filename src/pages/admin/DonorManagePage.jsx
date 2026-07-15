@@ -11,51 +11,62 @@ import {
   updateEventDonor,
   deleteEventDonor,
   bulkUpsertEventDonors,
+  listEventDonorFields,
+  saveEventDonorFields,
 } from '../../lib/supabase'
 
-// ── Excel 模板下載 ──────────────────────────────────────────
-function downloadTemplate() {
-  // 只有表頭，沒有範例資料（師父反映範例會誤導）
-  const ws = XLSX.utils.aoa_to_sheet([
-    ['學員編號', '姓名', '功德項目', '座位', '胸花', '供具', '備註'],
-  ])
-  ws['!cols'] = [
-    { wch: 12 }, // 學員編號
-    { wch: 10 }, // 姓名
-    { wch: 14 }, // 功德項目
-    { wch: 10 }, // 座位
-    { wch: 12 }, // 胸花
-    { wch: 14 }, // 供具
-    { wch: 20 }, // 備註
-  ]
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, '功德主名單')
-  XLSX.writeFile(wb, '功德主匯入模板.xlsx')
-}
+// 預設欄位（跟 migration 的 backfill 用同一組 key/label/順序）
+const DEFAULT_DONOR_FIELDS = [
+  { field_key: 'donor_item', field_label: '功德項目' },
+  { field_key: 'seat',       field_label: '座位' },
+  { field_key: 'corsage',    field_label: '胸花' },
+  { field_key: 'offering',   field_label: '供具' },
+  { field_key: 'donor_note', field_label: '備註' },
+]
 
-// ── 欄位映射：支援多種中文表頭 ─────────────────────────────
-const COL_ALIASES = {
-  student_id: ['學員編號', '編號', 'student_id', 'StudentID'],
-  name:       ['姓名',     'name', 'Name'],
+// ── 欄位映射：Excel 表頭比對，依目前欄位設定動態產生別名 ────
+// 舊 key（donor_item 等）保留當內建別名以防萬一
+const LEGACY_ALIASES = {
   donor_item: ['功德項目', '項目', 'donor_item'],
-  seat:       ['座位',     'seat'],
-  corsage:    ['胸花',     'corsage'],
-  offering:   ['供具',     'offering'],
-  donor_note: ['備註',     '備考', 'donor_note', 'note'],
+  seat:       ['座位', 'seat'],
+  corsage:    ['胸花', 'corsage'],
+  offering:   ['供具', 'offering'],
+  donor_note: ['備註', '備考', 'donor_note', 'note'],
 }
 
-function mapRow(rawRow) {
+function buildColAliases(fields) {
+  return {
+    student_id: ['學員編號', '編號', 'student_id', 'StudentID'],
+    name:       ['姓名', 'name', 'Name'],
+    ...Object.fromEntries(fields.map(f => [
+      f.field_key,
+      Array.from(new Set([f.field_label, f.field_key, ...(LEGACY_ALIASES[f.field_key] || [])])),
+    ])),
+  }
+}
+
+function mapRow(rawRow, colAliases) {
   const keys = Object.keys(rawRow)
   const row = {}
-  for (const [field, aliases] of Object.entries(COL_ALIASES)) {
+  for (const [field, aliases] of Object.entries(colAliases)) {
     const key = keys.find(k => aliases.includes(k.trim()))
     row[field] = key ? String(rawRow[key] ?? '').trim() : ''
   }
   return row
 }
 
+function downloadTemplate(fields) {
+  // 只有表頭，沒有範例資料（師父反映範例會誤導）
+  const header = ['學員編號', '姓名', ...fields.map(f => f.field_label)]
+  const ws = XLSX.utils.aoa_to_sheet([header])
+  ws['!cols'] = header.map((h, i) => ({ wch: i === 0 ? 12 : i === 1 ? 10 : 14 }))
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '功德主名單')
+  XLSX.writeFile(wb, '功德主匯入模板.xlsx')
+}
+
 // ── 比對 students：依 student_id 或 姓名（含多筆同名處理）────
-function matchToStudents(rows, students) {
+function matchToStudents(rows, students, fields) {
   // 建 lookup
   const byId   = new Map() // student_id → student
   const byName = new Map() // name → [student, ...]
@@ -93,6 +104,9 @@ function matchToStudents(rows, students) {
       candidates = []
     }
 
+    const answers = {}
+    for (const f of fields) answers[f.field_key] = r[f.field_key] || ''
+
     return {
       idx,
       raw: r,
@@ -101,11 +115,7 @@ function matchToStudents(rows, students) {
       matchType,
       resolvedStudentId: resolvedId,
       candidates,
-      donor_item: r.donor_item || '',
-      seat:       r.seat       || '',
-      corsage:    r.corsage    || '',
-      offering:   r.offering   || '',
-      donor_note: r.donor_note || '',
+      answers,
     }
   })
 }
@@ -123,6 +133,7 @@ export default function DonorManagePage() {
   const [eventName, setEventName] = useState('')
   const [donors, setDonors]       = useState([])
   const [students, setStudents]   = useState([])
+  const [fields, setFields]       = useState([]) // event_donor_fields（有序）
   const [loading, setLoading]     = useState(true)
   const [msg, setMsg]             = useState('')
 
@@ -138,21 +149,37 @@ export default function DonorManagePage() {
   const [formOpen, setFormOpen]   = useState(false)
   const [editingDonor, setEditingDonor] = useState(null)
 
+  // 欄位設定
+  const [fieldSettingsOpen, setFieldSettingsOpen] = useState(false)
+  const [fieldDrafts, setFieldDrafts] = useState([]) // 編輯中的草稿
+  const [savingFields, setSavingFields] = useState(false)
+
   // 篩選
   const [search, setSearch] = useState('')
 
   // 載入
   const load = useCallback(async () => {
     setLoading(true)
-    const [donorsRes, studentsRes, eventsRes] = await Promise.all([
+    const [donorsRes, studentsRes, eventsRes, fieldsRes] = await Promise.all([
       listEventDonors(id),
       getAllStudents(''),
       getAllEvents(),
+      listEventDonorFields(id),
     ])
     setDonors(donorsRes.donors || [])
     setStudents(studentsRes.students || [])
     const ev = (eventsRes.events || []).find(e => e.event_id === id)
     setEventName(ev?.name ?? '')
+
+    let currentFields = fieldsRes.fields || []
+    // 該活動從沒設定過欄位 → 自動補建 5 個預設欄位，確保任何法會第一次打開都有東西可用
+    if (currentFields.length === 0) {
+      await saveEventDonorFields(id, DEFAULT_DONOR_FIELDS)
+      const refetched = await listEventDonorFields(id)
+      currentFields = refetched.fields || []
+    }
+    setFields(currentFields)
+    setFieldDrafts(currentFields.map(f => ({ field_key: f.field_key, field_label: f.field_label })))
     setLoading(false)
   }, [id])
 
@@ -162,6 +189,48 @@ export default function DonorManagePage() {
   function flash(text) {
     setMsg(text)
     setTimeout(() => setMsg(''), 3000)
+  }
+
+  // ── 欄位設定 ────────────────────────────────────────────────
+  function updateFieldDraftLabel(i, label) {
+    setFieldDrafts(ds => ds.map((d, idx) => idx === i
+      ? { ...d, field_label: label }
+      : d
+    ))
+  }
+  // 比照 FieldRow.jsx：離開輸入框時才把顯示名稱定案為程式識別碼（只在還沒定過 key 時）
+  function blurFieldDraftLabel(i, label) {
+    setFieldDrafts(ds => ds.map((d, idx) => (idx === i && !d.field_key)
+      ? { ...d, field_key: label }
+      : d
+    ))
+  }
+  function addFieldDraft() {
+    setFieldDrafts(ds => [...ds, { field_key: '', field_label: '' }])
+  }
+  function removeFieldDraft(i) {
+    setFieldDrafts(ds => ds.filter((_, idx) => idx !== i))
+  }
+  function moveFieldDraft(i, dir) {
+    setFieldDrafts(ds => {
+      const j = i + dir
+      if (j < 0 || j >= ds.length) return ds
+      const next = [...ds]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  }
+  async function handleSaveFields() {
+    const cleaned = fieldDrafts
+      .map(d => ({ field_key: (d.field_key || d.field_label).trim(), field_label: d.field_label.trim() }))
+      .filter(d => d.field_label)
+    if (cleaned.length === 0) { flash('❌ 至少需要一個欄位'); return }
+    setSavingFields(true)
+    const { success, error } = await saveEventDonorFields(id, cleaned)
+    setSavingFields(false)
+    if (!success) { flash(`❌ 儲存欄位失敗：${error}`); return }
+    await load()
+    flash('✅ 欄位設定已儲存')
   }
 
   // ── 匯入：選檔解析 ─────────────────────────────────────────
@@ -179,13 +248,14 @@ export default function DonorManagePage() {
         const raw   = XLSX.utils.sheet_to_json(sheet, { defval: '' })
         if (raw.length === 0) { setParseError('檔案是空的，請確認格式正確'); return }
 
-        const rows = raw.map(mapRow).filter(r => r.name) // 必須有姓名
+        const colAliases = buildColAliases(fields)
+        const rows = raw.map(r => mapRow(r, colAliases)).filter(r => r.name) // 必須有姓名
         if (rows.length === 0) {
           setParseError('找不到有效資料，請確認有「姓名」欄位（學員編號可空白）')
           return
         }
 
-        const matched = matchToStudents(rows, students)
+        const matched = matchToStudents(rows, students, fields)
         setPreviewRows(matched)
         setPreviewOpen(true)
       } catch (err) {
@@ -234,11 +304,7 @@ export default function DonorManagePage() {
     const payload = previewRows.map(r => ({
       student_id: r.matchType === 'student' ? r.resolvedStudentId : null,
       name:       r.name,
-      donor_item: r.donor_item,
-      seat:       r.seat,
-      corsage:    r.corsage,
-      offering:   r.offering,
-      donor_note: r.donor_note,
+      answers:    r.answers,
     }))
     const res = await bulkUpsertEventDonors(id, payload)
     setImporting(false)
@@ -272,10 +338,11 @@ export default function DonorManagePage() {
     const q = search.trim().toLowerCase()
     if (!q) return donors
     return donors.filter(d => {
-      const txt = `${d.name} ${d.student_id ?? ''} ${d.donor_item ?? ''} ${d.donor_note ?? ''}`.toLowerCase()
+      const answerTxt = fields.map(f => d.answers?.[f.field_key] ?? '').join(' ')
+      const txt = `${d.name} ${d.student_id ?? ''} ${answerTxt}`.toLowerCase()
       return txt.includes(q)
     })
-  }, [donors, search])
+  }, [donors, search, fields])
 
   // ── students option（給單筆新增的下拉用）─────────────────────
   const studentOptions = useMemo(() => students.map(s => ({
@@ -311,12 +378,80 @@ export default function DonorManagePage() {
         <p className="text-sm mb-4 px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg">{msg}</p>
       )}
 
+      {/* 欄位設定摺疊區塊 */}
+      <div className="bg-white border border-gray-200 rounded-xl mb-5">
+        <button
+          onClick={() => setFieldSettingsOpen(o => !o)}
+          className="w-full flex items-center justify-between px-5 py-3 text-left"
+        >
+          <p className="text-sm font-semibold text-gray-700">⚙️ 欄位設定</p>
+          <span className="text-gray-400 text-sm">{fieldSettingsOpen ? '收合 ▲' : '展開 ▼'}</span>
+        </button>
+        {fieldSettingsOpen && (
+          <div className="px-5 pb-5 border-t border-gray-100 pt-4">
+            <div className="space-y-2">
+              {fieldDrafts.map((d, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-4 text-right">{i + 1}.</span>
+                  <input
+                    value={d.field_label}
+                    onChange={e => updateFieldDraftLabel(i, e.target.value)}
+                    onBlur={e => blurFieldDraftLabel(i, e.target.value)}
+                    placeholder="顯示名稱（例：牌位）"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                  />
+                  <input
+                    value={d.field_key}
+                    readOnly
+                    className="w-40 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-400 bg-gray-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => moveFieldDraft(i, -1)}
+                    disabled={i === 0}
+                    className="text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1"
+                    title="上移"
+                  >▲</button>
+                  <button
+                    type="button"
+                    onClick={() => moveFieldDraft(i, 1)}
+                    disabled={i === fieldDrafts.length - 1}
+                    className="text-gray-400 hover:text-gray-700 disabled:opacity-30 px-1"
+                    title="下移"
+                  >▼</button>
+                  <button
+                    type="button"
+                    onClick={() => removeFieldDraft(i)}
+                    className="text-red-400 hover:text-red-600 text-sm px-1"
+                  >✕ 刪除</button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mt-4">
+              <button
+                type="button"
+                onClick={addFieldDraft}
+                className="text-sm text-purple-700 hover:text-purple-900 border border-dashed border-purple-300 hover:border-purple-500 px-3 py-1.5 rounded-lg"
+              >＋ 新增欄位</button>
+              <button
+                type="button"
+                onClick={handleSaveFields}
+                disabled={savingFields}
+                className="ml-auto px-4 py-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg disabled:opacity-50"
+              >
+                {savingFields ? '儲存中…' : '💾 儲存欄位設定'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* 操作區：模板下載 / 匯入 / 單筆新增 */}
       <div className="bg-white border border-gray-200 rounded-xl p-5 mb-5">
         <p className="text-sm font-semibold text-gray-700 mb-3">📁 名單管理</p>
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={downloadTemplate}
+            onClick={() => downloadTemplate(fields)}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border-2 border-purple-300 text-purple-700 rounded-lg text-sm font-medium hover:bg-purple-50 transition-colors"
           >
             📥 下載 Excel 模板
@@ -348,7 +483,7 @@ export default function DonorManagePage() {
           </p>
         )}
         <p className="text-xs text-gray-500 mt-3">
-          欄位：學員編號（可空白）、姓名、功德項目、座位、胸花、供具、備註 — 顯示時空白欄位不會出現
+          欄位：學員編號（可空白）、姓名、{fields.map(f => f.field_label).join('、')} — 顯示時空白欄位不會出現
         </p>
       </div>
 
@@ -361,7 +496,7 @@ export default function DonorManagePage() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="搜尋姓名／編號／功德項目…"
+            placeholder="搜尋姓名／編號／欄位內容…"
             className="ml-auto w-64 px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
           />
         </div>
@@ -378,11 +513,9 @@ export default function DonorManagePage() {
                 <tr>
                   <th className="text-left px-3 py-2 font-medium whitespace-nowrap">姓名</th>
                   <th className="text-left px-3 py-2 font-medium whitespace-nowrap">編號</th>
-                  <th className="text-left px-3 py-2 font-medium whitespace-nowrap">功德項目</th>
-                  <th className="text-left px-3 py-2 font-medium whitespace-nowrap">座位</th>
-                  <th className="text-left px-3 py-2 font-medium whitespace-nowrap">胸花</th>
-                  <th className="text-left px-3 py-2 font-medium whitespace-nowrap">供具</th>
-                  <th className="text-left px-3 py-2 font-medium">備註</th>
+                  {fields.map(f => (
+                    <th key={f.field_key} className="text-left px-3 py-2 font-medium whitespace-nowrap">{f.field_label}</th>
+                  ))}
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
@@ -398,11 +531,11 @@ export default function DonorManagePage() {
                     <td className="px-3 py-2 whitespace-nowrap text-gray-600 text-xs tabular-nums">
                       {d.student_id || '—'}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">{d.donor_item || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{d.seat        || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{d.corsage     || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-2 whitespace-nowrap">{d.offering    || <span className="text-gray-300">—</span>}</td>
-                    <td className="px-3 py-2 text-gray-600">{d.donor_note  || <span className="text-gray-300">—</span>}</td>
+                    {fields.map(f => (
+                      <td key={f.field_key} className="px-3 py-2 whitespace-nowrap">
+                        {d.answers?.[f.field_key] || <span className="text-gray-300">—</span>}
+                      </td>
+                    ))}
                     <td className="px-3 py-2 whitespace-nowrap text-right">
                       <button
                         onClick={() => openEdit(d)}
@@ -425,7 +558,7 @@ export default function DonorManagePage() {
       {previewOpen && (
         <ImportPreviewModal
           rows={previewRows}
-          students={students}
+          fields={fields}
           importing={importing}
           importResult={importResult}
           onClose={() => { setPreviewOpen(false); setImportResult(null) }}
@@ -440,6 +573,7 @@ export default function DonorManagePage() {
       {formOpen && (
         <DonorFormModal
           eventId={id}
+          fields={fields}
           editingDonor={editingDonor}
           studentOptions={studentOptions}
           onClose={() => setFormOpen(false)}
@@ -452,7 +586,7 @@ export default function DonorManagePage() {
 
 
 // ── 匯入 preview modal ─────────────────────────────────────
-function ImportPreviewModal({ rows, students, importing, importResult, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
+function ImportPreviewModal({ rows, fields, importing, importResult, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
   const stats = useMemo(() => {
     const s = { student: 0, guest: 0, ambiguous: 0, unknown_id: 0 }
     rows.forEach(r => { s[r.matchType] = (s[r.matchType] || 0) + 1 })
@@ -501,11 +635,9 @@ function ImportPreviewModal({ rows, students, importing, importResult, onClose, 
                 <th className="text-left px-2 py-2 font-medium whitespace-nowrap">姓名</th>
                 <th className="text-left px-2 py-2 font-medium whitespace-nowrap">編號（Excel）</th>
                 <th className="text-left px-2 py-2 font-medium whitespace-nowrap">比對狀態</th>
-                <th className="text-left px-2 py-2 font-medium whitespace-nowrap">功德項目</th>
-                <th className="text-left px-2 py-2 font-medium whitespace-nowrap">座位</th>
-                <th className="text-left px-2 py-2 font-medium whitespace-nowrap">胸花</th>
-                <th className="text-left px-2 py-2 font-medium whitespace-nowrap">供具</th>
-                <th className="text-left px-2 py-2 font-medium">備註</th>
+                {fields.map(f => (
+                  <th key={f.field_key} className="text-left px-2 py-2 font-medium whitespace-nowrap">{f.field_label}</th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -544,11 +676,9 @@ function ImportPreviewModal({ rows, students, importing, importResult, onClose, 
                         >改為訪客</button>
                       )}
                     </td>
-                    <td className="px-2 py-2 text-xs">{r.donor_item || '—'}</td>
-                    <td className="px-2 py-2 text-xs">{r.seat       || '—'}</td>
-                    <td className="px-2 py-2 text-xs">{r.corsage    || '—'}</td>
-                    <td className="px-2 py-2 text-xs">{r.offering   || '—'}</td>
-                    <td className="px-2 py-2 text-xs">{r.donor_note || '—'}</td>
+                    {fields.map(f => (
+                      <td key={f.field_key} className="px-2 py-2 text-xs">{r.answers[f.field_key] || '—'}</td>
+                    ))}
                   </tr>
                 )
               })}
@@ -588,16 +718,12 @@ function ImportPreviewModal({ rows, students, importing, importResult, onClose, 
 
 
 // ── 單筆新增 / 編輯 modal ──────────────────────────────────
-function DonorFormModal({ eventId, editingDonor, studentOptions, onClose, onSaved }) {
+function DonorFormModal({ eventId, fields, editingDonor, studentOptions, onClose, onSaved }) {
   const isEdit = !!editingDonor
   const [form, setForm] = useState({
     student_id: editingDonor?.student_id ?? '',
     name:       editingDonor?.name       ?? '',
-    donor_item: editingDonor?.donor_item ?? '',
-    seat:       editingDonor?.seat       ?? '',
-    corsage:    editingDonor?.corsage    ?? '',
-    offering:   editingDonor?.offering   ?? '',
-    donor_note: editingDonor?.donor_note ?? '',
+    answers:    Object.fromEntries(fields.map(f => [f.field_key, editingDonor?.answers?.[f.field_key] ?? ''])),
   })
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
@@ -614,6 +740,10 @@ function DonorFormModal({ eventId, editingDonor, studentOptions, onClose, onSave
       student_id: value,
       name: s?.label || f.name,
     }))
+  }
+
+  function setAnswer(key, value) {
+    setForm(f => ({ ...f, answers: { ...f.answers, [key]: value } }))
   }
 
   async function handleSubmit(e) {
@@ -670,47 +800,16 @@ function DonorFormModal({ eventId, editingDonor, studentOptions, onClose, onSave
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
               />
             </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">功德項目（例：如意功德主）</label>
-              <input
-                value={form.donor_item}
-                onChange={e => setForm(f => ({ ...f, donor_item: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">座位</label>
-              <input
-                value={form.seat}
-                onChange={e => setForm(f => ({ ...f, seat: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">胸花</label>
-              <input
-                value={form.corsage}
-                onChange={e => setForm(f => ({ ...f, corsage: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">供具</label>
-              <input
-                value={form.offering}
-                onChange={e => setForm(f => ({ ...f, offering: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-gray-600 mb-1">備註</label>
-              <textarea
-                rows={2}
-                value={form.donor_note}
-                onChange={e => setForm(f => ({ ...f, donor_note: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300 resize-y"
-              />
-            </div>
+            {fields.map(f => (
+              <div key={f.field_key} className="sm:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">{f.field_label}</label>
+                <input
+                  value={form.answers[f.field_key] ?? ''}
+                  onChange={e => setAnswer(f.field_key, e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                />
+              </div>
+            ))}
           </div>
           {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">

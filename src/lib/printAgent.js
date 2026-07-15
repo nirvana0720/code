@@ -4,22 +4,24 @@
 const PRINT_AGENT_URL = 'http://127.0.0.1:9789/print'
 const TIMEOUT_MS = 4000
 
-// donor: 功德主紀錄物件（donor_item, seat, corsage, offering, donor_note），可為 null
+// donor: 功德主紀錄物件（answers: {field_key: value}），可為 null
+// donorFields: 該活動的功德主動態欄位設定（有序，[{field_key, field_label}]）
 // eventName: 活動全名（例如「普宜精舍金剛經共修法會暨護法會頒證大典」），印在小單副標
-export async function printDonorTicket({ name, donor, eventName } = {}) {
+export async function printDonorTicket({ name, donor, donorFields, eventName } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
+    // 依 event_donor_fields 順序把 answers 轉成 [{label, value}]，空值不送
+    const fields = (donorFields || [])
+      .map(f => ({ label: f.field_label, value: donor?.answers?.[f.field_key] ?? '' }))
+      .filter(f => f.value && String(f.value).trim())
+
     const res = await fetch(PRINT_AGENT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: name ?? '',
-        donorItem: donor?.donor_item ?? '',
-        seat: donor?.seat ?? '',
-        corsage: donor?.corsage ?? '',
-        offering: donor?.offering ?? '',
-        note: donor?.donor_note ?? '',
+        fields,
         eventName: eventName ?? '',
       }),
       signal: controller.signal,

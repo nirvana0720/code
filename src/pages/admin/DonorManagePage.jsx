@@ -13,6 +13,7 @@ import {
   bulkUpsertEventDonors,
   listEventDonorFields,
   saveEventDonorFields,
+  getRegistrationsWithStudents,
 } from '../../lib/supabase'
 
 // 預設欄位（跟 migration 的 backfill 用同一組 key/label/順序）
@@ -25,23 +26,12 @@ const DEFAULT_DONOR_FIELDS = [
 ]
 
 // ── 欄位映射：Excel 表頭比對，依目前欄位設定動態產生別名 ────
-// 舊 key（donor_item 等）保留當內建別名以防萬一
-const LEGACY_ALIASES = {
-  donor_item: ['功德項目', '項目', 'donor_item'],
-  seat:       ['座位', 'seat'],
-  corsage:    ['胸花', 'corsage'],
-  offering:   ['供具', 'offering'],
-  donor_note: ['備註', '備考', 'donor_note', 'note'],
-}
-
+// 只用目前的 field_label 當唯一比對依據，避免使用者改名／互換欄位時別名重疊衝突
 function buildColAliases(fields) {
   return {
     student_id: ['學員編號', '編號', 'student_id', 'StudentID'],
     name:       ['姓名', 'name', 'Name'],
-    ...Object.fromEntries(fields.map(f => [
-      f.field_key,
-      Array.from(new Set([f.field_label, f.field_key, ...(LEGACY_ALIASES[f.field_key] || [])])),
-    ])),
+    ...Object.fromEntries(fields.map(f => [f.field_key, [f.field_label]])),
   }
 }
 
@@ -127,6 +117,29 @@ const MATCH_BADGE = {
   unknown_id: { label: '⚠️ 編號找不到', cls: 'bg-red-100 text-red-700 border-red-200' },
 }
 
+// ── 比對本場法會報名紀錄：建立 student_id / 訪客姓名 查找集合 ──
+function buildRegistrationLookup(registrations) {
+  const studentIds = new Set()
+  const guestNames = new Set()
+  for (const r of registrations) {
+    if (r.student_id) studentIds.add(r.student_id)
+    const guestName = (r.answers?.guest_name || '').trim()
+    if (guestName) guestNames.add(guestName)
+  }
+  return { studentIds, guestNames }
+}
+
+// 依目前比對結果（學員型看 resolvedStudentId／訪客型看姓名）判斷是否查無本場報名紀錄
+function checkNoRegistration(row, regLookup) {
+  if (row.matchType === 'student') {
+    return !regLookup.studentIds.has(row.resolvedStudentId)
+  }
+  if (row.matchType === 'guest') {
+    return !regLookup.guestNames.has(row.name.trim())
+  }
+  return false // 同名待選／編號找不到尚未定案，待使用者選定後才判斷
+}
+
 // ── 主頁面 ──────────────────────────────────────────────────
 export default function DonorManagePage() {
   const { id } = useParams()
@@ -143,6 +156,7 @@ export default function DonorManagePage() {
   const [previewRows, setPreviewRows] = useState([])
   const [importing, setImporting]     = useState(false)
   const [importResult, setImportResult] = useState(null)
+  const [regLookup, setRegLookup] = useState({ studentIds: new Set(), guestNames: new Set() })
   const fileInputRef = useRef(null)
 
   // 單筆新增 / 編輯
@@ -234,35 +248,36 @@ export default function DonorManagePage() {
   }
 
   // ── 匯入：選檔解析 ─────────────────────────────────────────
-  function handleFileChange(e) {
+  async function handleFileChange(e) {
     const file = e.target.files?.[0]
     if (!file) return
     setParseError('')
     setImportResult(null)
 
-    const reader = new FileReader()
-    reader.onload = ev => {
-      try {
-        const wb    = XLSX.read(ev.target.result, { type: 'array' })
-        const sheet = wb.Sheets[wb.SheetNames[0]]
-        const raw   = XLSX.utils.sheet_to_json(sheet, { defval: '' })
-        if (raw.length === 0) { setParseError('檔案是空的，請確認格式正確'); return }
+    try {
+      const [buffer, regRes] = await Promise.all([
+        file.arrayBuffer(),
+        getRegistrationsWithStudents(id),
+      ])
+      const wb    = XLSX.read(buffer, { type: 'array' })
+      const sheet = wb.Sheets[wb.SheetNames[0]]
+      const raw   = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+      if (raw.length === 0) { setParseError('檔案是空的，請確認格式正確'); return }
 
-        const colAliases = buildColAliases(fields)
-        const rows = raw.map(r => mapRow(r, colAliases)).filter(r => r.name) // 必須有姓名
-        if (rows.length === 0) {
-          setParseError('找不到有效資料，請確認有「姓名」欄位（學員編號可空白）')
-          return
-        }
-
-        const matched = matchToStudents(rows, students, fields)
-        setPreviewRows(matched)
-        setPreviewOpen(true)
-      } catch (err) {
-        setParseError(`解析失敗：${err.message}`)
+      const colAliases = buildColAliases(fields)
+      const rows = raw.map(r => mapRow(r, colAliases)).filter(r => r.name) // 必須有姓名
+      if (rows.length === 0) {
+        setParseError('找不到有效資料，請確認有「姓名」欄位（學員編號可空白）')
+        return
       }
+
+      setRegLookup(buildRegistrationLookup(regRes.registrations || []))
+      const matched = matchToStudents(rows, students, fields)
+      setPreviewRows(matched)
+      setPreviewOpen(true)
+    } catch (err) {
+      setParseError(`解析失敗：${err.message}`)
     }
-    reader.readAsArrayBuffer(file)
     e.target.value = ''
   }
 
@@ -300,8 +315,10 @@ export default function DonorManagePage() {
   // ── 匯入：執行 ───────────────────────────────────────────
   async function handleConfirmImport() {
     setImporting(true)
-    // 把 preview rows 轉成 bulkUpsert 接收的格式
-    const payload = previewRows.map(r => ({
+    // 查無本場法會報名紀錄的列直接排除，不寫入
+    const skipped   = previewRows.filter(r => checkNoRegistration(r, regLookup))
+    const toImport  = previewRows.filter(r => !checkNoRegistration(r, regLookup))
+    const payload = toImport.map(r => ({
       student_id: r.matchType === 'student' ? r.resolvedStudentId : null,
       name:       r.name,
       answers:    r.answers,
@@ -312,7 +329,11 @@ export default function DonorManagePage() {
     if (res.success) {
       setPreviewOpen(false)
       await load()
-      flash(`✅ 匯入完成：新增 ${res.inserted} 筆 / 更新 ${res.updated} 筆`)
+      const base = `✅ 已匯入 ${payload.length} 筆`
+      const skipMsg = skipped.length > 0
+        ? `，${skipped.length} 筆因查無本場法會報名紀錄未匯入：${skipped.map(r => r.name).join('、')}⋯請先幫他們完成報名後再重新匯入這幾筆。`
+        : ''
+      flash(base + skipMsg)
     }
   }
 
@@ -559,6 +580,7 @@ export default function DonorManagePage() {
         <ImportPreviewModal
           rows={previewRows}
           fields={fields}
+          regLookup={regLookup}
           importing={importing}
           importResult={importResult}
           onClose={() => { setPreviewOpen(false); setImportResult(null) }}
@@ -586,14 +608,18 @@ export default function DonorManagePage() {
 
 
 // ── 匯入 preview modal ─────────────────────────────────────
-function ImportPreviewModal({ rows, fields, importing, importResult, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
+function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
   const stats = useMemo(() => {
-    const s = { student: 0, guest: 0, ambiguous: 0, unknown_id: 0 }
-    rows.forEach(r => { s[r.matchType] = (s[r.matchType] || 0) + 1 })
+    const s = { student: 0, guest: 0, ambiguous: 0, unknown_id: 0, noRegistration: 0 }
+    rows.forEach(r => {
+      s[r.matchType] = (s[r.matchType] || 0) + 1
+      if (checkNoRegistration(r, regLookup)) s.noRegistration += 1
+    })
     return s
-  }, [rows])
+  }, [rows, regLookup])
 
-  const hasPending = stats.ambiguous > 0 || stats.unknown_id > 0
+  const hasPending  = stats.ambiguous > 0 || stats.unknown_id > 0
+  const importCount = rows.length - stats.noRegistration
 
   return (
     <div className="fixed inset-0 z-40 bg-black/50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto">
@@ -612,6 +638,9 @@ function ImportPreviewModal({ rows, fields, importing, importResult, onClose, on
             {stats.unknown_id > 0 && (
               <span className="px-2 py-0.5 rounded-full border bg-red-100 text-red-700 border-red-200">⚠️ 編號找不到 {stats.unknown_id}</span>
             )}
+            {stats.noRegistration > 0 && (
+              <span className="px-2 py-0.5 rounded-full border bg-red-100 text-red-700 border-red-200">🚫 查無報名 {stats.noRegistration}</span>
+            )}
             {hasPending && (
               <button
                 onClick={onAllToGuest}
@@ -624,6 +653,11 @@ function ImportPreviewModal({ rows, fields, importing, importResult, onClose, on
           {hasPending && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
               下方有 {stats.ambiguous + stats.unknown_id} 筆無法自動比對學員，請逐筆選擇或一鍵改為訪客
+            </p>
+          )}
+          {stats.noRegistration > 0 && (
+            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
+              下方紅色標記的 {stats.noRegistration} 筆查無本場法會報名紀錄，確認匯入時將自動排除、不會寫入名單
             </p>
           )}
         </div>
@@ -643,9 +677,15 @@ function ImportPreviewModal({ rows, fields, importing, importResult, onClose, on
             <tbody className="divide-y">
               {rows.map(r => {
                 const badge = MATCH_BADGE[r.matchType]
+                const noRegistration = checkNoRegistration(r, regLookup)
                 return (
-                  <tr key={r.idx} className="align-top">
-                    <td className="px-2 py-2 whitespace-nowrap font-semibold text-gray-800">{r.name}</td>
+                  <tr key={r.idx} className={`align-top ${noRegistration ? 'bg-red-50' : ''}`}>
+                    <td className="px-2 py-2 whitespace-nowrap font-semibold text-gray-800">
+                      {r.name}
+                      {noRegistration && (
+                        <span className="ml-1.5 text-[11px] text-red-600 font-normal">（查無報名）</span>
+                      )}
+                    </td>
                     <td className="px-2 py-2 whitespace-nowrap text-xs text-gray-600 tabular-nums">{r.student_id_input || '—'}</td>
                     <td className="px-2 py-2 whitespace-nowrap">
                       <span className={`text-[11px] border rounded-full px-2 py-0.5 ${badge.cls}`}>{badge.label}</span>
@@ -708,7 +748,7 @@ function ImportPreviewModal({ rows, fields, importing, importResult, onClose, on
             onClick={onConfirm}
             className="px-5 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg disabled:opacity-50"
           >
-            {importing ? '匯入中…' : `確認匯入 ${rows.length} 筆`}
+            {importing ? '匯入中…' : `確認匯入 ${importCount} 筆`}
           </button>
         </div>
       </div>

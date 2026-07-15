@@ -1,7 +1,7 @@
 // 坡務小組長免登入查詢頁（純顯示，不需登入，用 token 驗身）
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { getChoreByToken } from '../lib/supabase'
+import { getChoreByToken, isTokenExpired } from '../lib/supabase'
 import { formatDate } from '../lib/checkinHelpers'
 
 function genderOf(groupName) {
@@ -17,9 +17,11 @@ export default function ChoreCheckinPage() {
   const { token } = useParams()
   const [loading, setLoading] = useState(true)
   const [chore, setChore]     = useState(null)
+  const [expired, setExpired] = useState(false)
 
   useEffect(() => {
-    getChoreByToken(token).then(({ chore }) => {
+    getChoreByToken(token).then(async ({ chore }) => {
+      if (!chore) setExpired(await isTokenExpired(token))
       setChore(chore)
       setLoading(false)
     })
@@ -31,11 +33,21 @@ export default function ChoreCheckinPage() {
     </div>
   )
 
+  if (!chore && expired) return (
+    <div className="min-h-screen bg-amber-50 flex items-center justify-center p-8">
+      <div className="text-center">
+        <div className="text-5xl mb-4">📅</div>
+        <div className="text-xl font-semibold text-gray-700 mb-2">此活動已結束，查詢頁面已關閉</div>
+        <div className="text-gray-500 text-sm">如需查詢坡務資料，請洽詢精舍師父</div>
+      </div>
+    </div>
+  )
+
   if (!chore) return (
     <div className="min-h-screen bg-amber-50 flex items-center justify-center p-8">
       <div className="text-center">
         <div className="text-5xl mb-4">🔒</div>
-        <div className="text-xl font-semibold text-gray-700 mb-2">連結無效或已過期</div>
+        <div className="text-xl font-semibold text-gray-700 mb-2">連結無效</div>
         <div className="text-gray-500 text-sm">請向師父索取正確的坡務連結</div>
       </div>
     </div>

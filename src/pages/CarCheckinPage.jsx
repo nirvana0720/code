@@ -5,9 +5,7 @@ import {
   getCarByToken,
   getLinkedCarsForLeader,
   getHeadLeaderByToken,
-  getAllCarsProgress,
-  getAllSmallCarsProgress,
-  getEventRegistrations,
+  getAllCarsProgressByToken,
   checkIn,
   checkInAllCar,
   uncheckIn,
@@ -16,21 +14,15 @@ import {
   kioskCheckinOtherTransport,
   checkInMonk,
   uncheckInMonk,
+  isTokenExpired,
 } from '../lib/supabase'
-import { getMemberName, isGuest, getMemberCheckedAt, isCheckedIn, isOtherTransport, regAsMember, getMemberClasses, formatMemberClasses, memberSortKey, sortCheckinMembers, formatDate, getAutoCheckedSet, markAutoChecked, getEffectivePreArrive, getPreArriveInfo, getEffectiveLateReturn, getLateReturnInfo, isMemberExcludedFromExpected, isVolunteerSelfReturn, isCarFullyEffectiveExcluded } from '../lib/checkinHelpers'
+import { getMemberName, isGuest, getMemberCheckedAt, isCheckedIn, isOtherTransport, regAsMember, formatMemberClasses, sortCheckinMembers, formatDate, getAutoCheckedSet, markAutoChecked, getEffectivePreArrive, getPreArriveInfo, getEffectiveLateReturn, getLateReturnInfo, isMemberExcludedFromExpected, isVolunteerSelfReturn, isCarFullyEffectiveExcluded } from '../lib/checkinHelpers'
 import { getChoreLocationsByEvent } from '../lib/choreAssignment'
 import ScanToast from '../components/ScanToast'
 import DirectionBadge from '../components/DirectionBadge'
-
-// 福慧出坡：「上午 XXX / 下午 XXX」給車輛領隊找人用；沒有排到坡務就回傳 null 不顯示
-function formatChoreLabel(locMap, registrationId) {
-  const loc = locMap[registrationId]
-  if (!loc) return null
-  const parts = []
-  if (loc['上午']) parts.push(`上午 ${loc['上午']}`)
-  if (loc['下午']) parts.push(`下午 ${loc['下午']}`)
-  return parts.length > 0 ? parts.join(' / ') : null
-}
+import MemberCheckinRow from '../components/checkin/MemberCheckinRow'
+import DormitoryTab from '../components/checkin/DormitoryTab'
+import ChoreTab from '../components/checkin/ChoreTab'
 
 // 福慧出坡：頁面上方顯示今天上午/下午的出坡時間、報到時間；沒有資料的時段不顯示
 function formatSessionTimes(events) {
@@ -49,17 +41,28 @@ function formatSessionTimes(events) {
   return parts.length > 0 ? parts.join('　') : null
 }
 
-// 電話徽章：方便車輛領隊找人，沒有電話就不顯示
-const telHref = phone => `tel:${String(phone).replace(/[\s-]/g, '')}`
-function PhoneBadge({ phone }) {
-  if (!phone) return null
+// 報到／寮區／坡務頁籤切換列（大車／小車領隊／總領隊三處共用，色調依各自 header 主題傳入）
+function TabBar({ active, onChange, showDormitory, showChore, wrapClass, activeClass }) {
+  if (!showDormitory && !showChore) return null
+  const tabs = [
+    { key: 'checkin', label: '✅ 報到' },
+    ...(showDormitory ? [{ key: 'dormitory', label: '🛏 寮區' }] : []),
+    ...(showChore ? [{ key: 'chore', label: '🧹 坡務' }] : []),
+  ]
   return (
-    <a
-      href={telHref(phone)}
-      className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5 shrink-0"
-    >
-      📞 {phone}
-    </a>
+    <div className={`flex gap-1 mt-3 ${wrapClass} rounded-lg p-1`}>
+      {tabs.map(t => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={`flex-1 py-1.5 rounded-md text-sm font-medium transition-colors ${
+            active === t.key ? `${activeClass} shadow-sm` : 'text-white/80 hover:text-white'
+          }`}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -86,8 +89,11 @@ export default function CarCheckinPage() {
   // 總領隊看板：上山/下山 Tab（'up' / 'down'）
   const [headDirection, setHeadDirection] = useState('up')
 
-  // 福慧出坡：{ [registration_id]: { 上午: location, 下午: location } }，只有 is_chore_event 活動才有資料
+  // 福慧出坡：{ [registration_id]: { 上午: {...}, 下午: {...} } }，只有 is_chore_event 活動才有資料
   const [choreLocations, setChoreLocations] = useState({})
+
+  // 報到／寮區／坡務頁籤（同一個 token，純前端切換，不用新增路由）
+  const [activeTab, setActiveTab] = useState('checkin')
 
   // 共用
   const [scanMsg, setScanMsg]     = useState('')
@@ -122,6 +128,7 @@ export default function CarCheckinPage() {
 
   async function load() {
     setLoading(true)
+    setActiveTab('checkin')
     const [carInfo, hlRes] = await Promise.all([
       loadCarWithLinked(token),
       getHeadLeaderByToken(token),
@@ -169,14 +176,8 @@ export default function CarCheckinPage() {
           ? await getChoreLocationsByEvent(eventId)
           : {}
       )
-      const [carsRes, regsRes] = await Promise.all([
-        leaderType === 'small_car'
-          ? getAllSmallCarsProgress(eventId)
-          : getAllCarsProgress(eventId),
-        leaderType === 'small_car' ? Promise.resolve({ regs: [] }) : getEventRegistrations(eventId),
-      ])
-      const { cars } = carsRes
-      setAllEventRegs(regsRes.regs ?? [])
+      const { cars, regs } = await getAllCarsProgressByToken(token)
+      setAllEventRegs(regs ?? [])
       // 提前上山者自動標記為已報到（靜默執行）
       // 注意：用 sessionStorage 過濾「本 session 已自動勾過」的人，避免取消後 F5 又被勾回
       const dateStart = hlRes.headLeader.events?.date_start
@@ -195,15 +196,14 @@ export default function CarCheckinPage() {
       if (toAutoCheck.length > 0) {
         await Promise.all(toAutoCheck.map(({ member, carId }) => checkInCarMember(token, carId, member.registration_id)))
         markAutoChecked(token, toAutoCheck.map(({ member }) => member.registration_id))
-        const { cars: fresh } = leaderType === 'small_car'
-          ? await getAllSmallCarsProgress(eventId)
-          : await getAllCarsProgress(eventId)
+        const { cars: fresh } = await getAllCarsProgressByToken(token)
         setAllCars(fresh ?? cars)
       } else {
         setAllCars(cars)
       }
     } else {
-      setMode('invalid')
+      const expired = await isTokenExpired(token)
+      setMode(expired ? 'expired' : 'invalid')
     }
     setLoading(false)
   }
@@ -220,25 +220,17 @@ export default function CarCheckinPage() {
         const same = fresh.linkedCars.find(c => c.car_id === currentId)
         setCar(same ?? fresh.car)
       }
-    } else if (mode === 'head') {
-      const eventId = headLeader?.events?.event_id ?? headLeader?.event_id
-      const [{ cars }, { regs }] = await Promise.all([
-        getAllCarsProgress(eventId),
-        getEventRegistrations(eventId),
-      ])
+    } else if (mode === 'head' || mode === 'small_car') {
+      const { cars, regs } = await getAllCarsProgressByToken(token)
       setAllCars(cars)
       setAllEventRegs(regs ?? [])
-    } else if (mode === 'small_car') {
-      const eventId = headLeader?.events?.event_id ?? headLeader?.event_id
-      const { cars } = await getAllSmallCarsProgress(eventId)
-      setAllCars(cars)
     }
     setRefreshing(false)
-  }, [mode, token, headLeader, car])
+  }, [mode, token, car])
 
   // ── 自動每 30 秒重新整理 ──
   useEffect(() => {
-    if (!mode || mode === 'invalid' || mode === 'loading') return
+    if (!mode || mode === 'invalid' || mode === 'expired' || mode === 'loading') return
     const id = setInterval(refresh, 30_000)
     return () => clearInterval(id)
   }, [mode, refresh])
@@ -354,11 +346,21 @@ export default function CarCheckinPage() {
     </div>
   )
 
+  if (mode === 'expired') return (
+    <div className="min-h-screen bg-amber-50 flex items-center justify-center p-8">
+      <div className="text-center">
+        <div className="text-5xl mb-4">📅</div>
+        <div className="text-xl font-semibold text-gray-700 mb-2">此活動已結束，報到頁面已關閉</div>
+        <div className="text-gray-500 text-sm">如需查詢報到資料，請洽詢精舍師父</div>
+      </div>
+    </div>
+  )
+
   if (mode === 'invalid') return (
     <div className="min-h-screen bg-amber-50 flex items-center justify-center p-8">
       <div className="text-center">
         <div className="text-5xl mb-4">🔒</div>
-        <div className="text-xl font-semibold text-gray-700 mb-2">連結無效或已過期</div>
+        <div className="text-xl font-semibold text-gray-700 mb-2">連結無效</div>
         <div className="text-gray-500 text-sm">請向師父索取正確的報到連結</div>
       </div>
     </div>
@@ -375,6 +377,8 @@ export default function CarCheckinPage() {
     const dateEnd       = car.events?.date_end
     const showDormitory = !!car.events?.show_dormitory_to_public
     const showChore     = !!car.events?.is_chore_event
+    const showDormitoryTab = showDormitory && members.some(m => m.registrations?.dormitory_room)
+    const showChoreTab     = showChore
     const memberCheckedIn = members.filter(isCheckedIn).length
     const monkCheckedIn   = monks.filter(m => !!m.checked_in_at).length
     const checkedIn     = memberCheckedIn + monkCheckedIn
@@ -441,148 +445,126 @@ export default function CarCheckinPage() {
                 style={{ width: `${pct}%` }}
               />
             </div>
+
+            <TabBar
+              active={activeTab} onChange={setActiveTab}
+              showDormitory={showDormitoryTab} showChore={showChoreTab}
+              wrapClass="bg-amber-800/40" activeClass="bg-white text-amber-700"
+            />
           </div>
         </div>
 
-        {/* 福慧出坡：今天上午/下午出坡時間、報到時間 */}
-        {showChore && formatSessionTimes(car.events) && (
-          <div className="px-4 pt-3 max-w-lg mx-auto">
-            <div className="bg-lime-50 border border-lime-200 rounded-lg px-3 py-2 text-xs text-lime-800">
-              🕐 {formatSessionTimes(car.events)}
+        {activeTab === 'checkin' && (
+          <>
+            {/* 福慧出坡：今天上午/下午出坡時間、報到時間 */}
+            {showChore && formatSessionTimes(car.events) && (
+              <div className="px-4 pt-3 max-w-lg mx-auto">
+                <div className="bg-lime-50 border border-lime-200 rounded-lg px-3 py-2 text-xs text-lime-800">
+                  🕐 {formatSessionTimes(car.events)}
+                </div>
+              </div>
+            )}
+
+            {/* 掃描按鈕 */}
+            <div className="px-4 pt-4 max-w-lg mx-auto">
+              <button
+                onClick={() => setShowCamera(true)}
+                className="w-full py-3 bg-white border-2 border-amber-400 rounded-xl text-amber-700 font-semibold text-sm hover:bg-amber-50 active:bg-amber-100 transition-colors shadow-sm"
+              >
+                📷 用相機掃描學員證
+              </button>
+              <p className="text-center text-xs text-gray-400 mt-1.5">
+                硬體掃描機直接對著螢幕掃即可
+              </p>
             </div>
+
+            {/* 成員清單 */}
+            <div className="px-4 pt-3 max-w-lg mx-auto space-y-2">
+              {/* 法師列表（排最上面，提醒領隊優先勾選） */}
+              {monks.length > 0 && (
+                <div className="mb-1">
+                  <div className="text-xs text-purple-500 font-semibold px-1 mb-1.5">🛕 法師（手動點選報到）</div>
+                  {monks.map(cm => {
+                    const chk = !!cm.checked_in_at
+                    return (
+                      <div
+                        key={cm.id}
+                        className={`flex items-center gap-3 bg-white rounded-xl px-4 py-3 shadow-sm border mb-2 transition-opacity ${
+                          chk ? 'border-green-200 opacity-60' : 'border-purple-300'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                          <span className={`font-medium ${chk ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+                            {cm.temple_monks?.name ?? '（未知）'}
+                          </span>
+                          <span className="text-xs bg-purple-100 text-purple-700 rounded-full px-1.5 shrink-0">法師</span>
+                        </div>
+                        <button
+                          onClick={() => handleToggleMonkCheckin(cm.id, cm.checked_in_at)}
+                          className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
+                            chk
+                              ? 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500'
+                              : 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800'
+                          }`}
+                        >
+                          {chk ? '已到' : '報到'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                  <div className="border-t border-dashed border-gray-200 my-3"></div>
+                </div>
+              )}
+
+              {sorted.map(member => {
+                const checked  = isCheckedIn(member)
+                const isLeader = (car.car_leaders ?? []).some(
+                  l => l.registration_id === member.registration_id
+                )
+                const dir = car.direction ?? 'down'
+                const ex  = dir === 'down'
+                  ? getEffectiveLateReturn(member, car, dateEnd)
+                  : getEffectivePreArrive(member, car, dateStart)
+                const exCls = dir === 'down'
+                  ? 'bg-amber-100 text-amber-700 border-amber-200'
+                  : 'bg-teal-100 text-teal-700 border-teal-200'
+                const exLabel = dir === 'down' ? '延後回程' : '提前出發'
+
+                return (
+                  <MemberCheckinRow
+                    key={member.registration_id}
+                    variant="card"
+                    member={member}
+                    isLeader={isLeader}
+                    checked={checked}
+                    disabled={!!ex}
+                    disabledLabel={exLabel}
+                    disabledTitle={ex ? `已標記為${exLabel}，從應到排除（如需手動處理，請至排車頁取消標記）` : ''}
+                    badgeLabel={ex}
+                    badgeClassName={exCls}
+                    onToggle={() => handleToggleCheckin(car.car_id, member.registration_id, getMemberCheckedAt(member))}
+                  />
+                )
+              })}
+
+              {members.length === 0 && monks.length === 0 && (
+                <div className="text-center text-gray-400 py-12 text-sm">此車目前無成員</div>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeTab === 'dormitory' && (
+          <div className="px-4 pt-3 max-w-lg mx-auto">
+            <DormitoryTab members={members} />
           </div>
         )}
 
-        {/* 掃描按鈕 */}
-        <div className="px-4 pt-4 max-w-lg mx-auto">
-          <button
-            onClick={() => setShowCamera(true)}
-            className="w-full py-3 bg-white border-2 border-amber-400 rounded-xl text-amber-700 font-semibold text-sm hover:bg-amber-50 active:bg-amber-100 transition-colors shadow-sm"
-          >
-            📷 用相機掃描學員證
-          </button>
-          <p className="text-center text-xs text-gray-400 mt-1.5">
-            硬體掃描機直接對著螢幕掃即可
-          </p>
-        </div>
-
-        {/* 成員清單 */}
-        <div className="px-4 pt-3 max-w-lg mx-auto space-y-2">
-          {/* 法師列表（排最上面，提醒領隊優先勾選） */}
-          {monks.length > 0 && (
-            <div className="mb-1">
-              <div className="text-xs text-purple-500 font-semibold px-1 mb-1.5">🛕 法師（手動點選報到）</div>
-              {monks.map(cm => {
-                const chk = !!cm.checked_in_at
-                return (
-                  <div
-                    key={cm.id}
-                    className={`flex items-center gap-3 bg-white rounded-xl px-4 py-3 shadow-sm border mb-2 transition-opacity ${
-                      chk ? 'border-green-200 opacity-60' : 'border-purple-300'
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                      <span className={`font-medium ${chk ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                        {cm.temple_monks?.name ?? '（未知）'}
-                      </span>
-                      <span className="text-xs bg-purple-100 text-purple-700 rounded-full px-1.5 shrink-0">法師</span>
-                    </div>
-                    <button
-                      onClick={() => handleToggleMonkCheckin(cm.id, cm.checked_in_at)}
-                      className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                        chk
-                          ? 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500'
-                          : 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800'
-                      }`}
-                    >
-                      {chk ? '已到' : '報到'}
-                    </button>
-                  </div>
-                )
-              })}
-              <div className="border-t border-dashed border-gray-200 my-3"></div>
-            </div>
-          )}
-
-          {sorted.map(member => {
-            const name       = getMemberName(member)
-            const guest      = isGuest(member)
-            const checked    = isCheckedIn(member)
-            const isLeader   = (car.car_leaders ?? []).some(
-              l => l.registration_id === member.registration_id
-            )
-            const dir = car.direction ?? 'down'
-            const ex  = dir === 'down'
-              ? getEffectiveLateReturn(member, car, dateEnd)
-              : getEffectivePreArrive(member, car, dateStart)
-            const exCls = dir === 'down'
-              ? 'bg-amber-100 text-amber-700 border-amber-200'
-              : 'bg-teal-100 text-teal-700 border-teal-200'
-            const exLabel = dir === 'down' ? '延後回程' : '提前出發'
-
-            return (
-              <div
-                key={member.registration_id}
-                className={`flex items-center gap-3 bg-white rounded-xl px-4 py-3 shadow-sm border transition-opacity ${
-                  checked ? 'border-green-200 opacity-60' : 'border-gray-200'
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`font-medium truncate ${checked ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-                      {name}
-                    </span>
-                    {isLeader && (
-                      <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 shrink-0">
-                        領隊
-                      </span>
-                    )}
-                    {guest && (
-                      <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-1.5 shrink-0">
-                        訪客
-                      </span>
-                    )}
-                    {showDormitory && member.registrations?.dormitory_room && (
-                      <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
-                        🛏 {member.registrations.dormitory_room}
-                      </span>
-                    )}
-                    <PhoneBadge phone={member.registrations?.students?.phone} />
-                    {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
-                      <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
-                        🧹 {formatChoreLabel(choreLocations, member.registration_id)}
-                      </span>
-                    )}
-                    {ex && <span className={`text-xs ${exCls} border rounded-full px-1.5 shrink-0`}>{ex}</span>}
-                  </div>
-                  {formatMemberClasses(member) && (
-                    <div className="text-xs text-gray-500 mt-0.5 truncate">
-                      {formatMemberClasses(member)}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => !ex && handleToggleCheckin(car.car_id, member.registration_id, getMemberCheckedAt(member))}
-                  disabled={!!ex}
-                  title={ex ? `已標記為${exLabel}，從應到排除（如需手動處理，請至排車頁取消標記）` : ''}
-                  className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${
-                    ex
-                      ? 'bg-gray-50 text-gray-300 cursor-not-allowed border border-gray-200'
-                      : checked
-                        ? 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500'
-                        : 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800'
-                  }`}
-                >
-                  {ex ? exLabel : checked ? '已到' : '報到'}
-                </button>
-              </div>
-            )
-          })}
-
-          {members.length === 0 && monks.length === 0 && (
-            <div className="text-center text-gray-400 py-12 text-sm">此車目前無成員</div>
-          )}
-        </div>
+        {activeTab === 'chore' && (
+          <div className="px-4 pt-3 max-w-lg mx-auto">
+            <ChoreTab members={members} choreLocations={choreLocations} />
+          </div>
+        )}
 
         {/* 重新整理按鈕 */}
         <button
@@ -620,6 +602,10 @@ export default function CarCheckinPage() {
     const isExcludedHere = (m, c) => isMemberExcludedFromExpected(m, c, dateStart, dateEnd)
     // 先依方向過濾（tab 控制）
     const directionCars = allCars.filter(c => (c.direction ?? 'down') === headDirection)
+    // 寮區／坡務頁籤範圍：目前方向所有小車成員合併（不分車），跟隨 headDirection
+    const dormChoreMembers = directionCars.flatMap(c => c.car_members ?? [])
+    const showDormitoryTab = showDormitory && dormChoreMembers.some(m => m.registrations?.dormitory_room)
+    const showChoreTab     = showChore
     // 整車提前/延後/義工車直接整車排除
     const activeCars = directionCars.filter(c => {
       if (headDirection === 'down') {
@@ -683,9 +669,17 @@ export default function CarCheckinPage() {
               <span>已到 <strong className="text-xl">{checkedAll}</strong></span>
               <span>未到 <strong className="text-xl">{uncheckedAll}</strong></span>
             </div>
+
+            <TabBar
+              active={activeTab} onChange={setActiveTab}
+              showDormitory={showDormitoryTab} showChore={showChoreTab}
+              wrapClass="bg-green-800/40" activeClass="bg-white text-green-800"
+            />
           </div>
         </div>
 
+        {activeTab === 'checkin' && (
+          <>
         <p className="text-center text-xs text-gray-400 mt-3 px-4">
           確認每台小車都出發後，按「全車確認出發」即可
         </p>
@@ -777,8 +771,6 @@ export default function CarCheckinPage() {
                     )
                   })}
                   {sortCheckinMembers(members, (c.car_leaders ?? []).map(l => l.registration_id)).map(member => {
-                    const name   = getMemberName(member)
-                    const guest  = isGuest(member)
                     const chkRaw = isCheckedIn(member)
                     const dir    = c.direction ?? 'down'
                     const preArr = dir === 'down'
@@ -791,46 +783,24 @@ export default function CarCheckinPage() {
                       ? 'bg-amber-100 text-amber-700 border-amber-200'
                       : 'bg-teal-100 text-teal-700 border-teal-200'
                     const isLeader = (c.car_leaders ?? []).some(l => l.registration_id === member.registration_id)
-                    const cls    = formatMemberClasses(member)
+                    const disabledLabel = volSelfReturn
+                      ? (member.registrations?.answers?.identity === '義工' ? '義工' : '自行')
+                      : dir === 'down' ? '延後' : '提前'
                     return (
-                      <div key={member.registration_id} className={`flex items-center gap-3 px-4 py-2.5 ${chk ? 'opacity-50' : ''}`}>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className={`text-sm ${chk ? 'line-through text-gray-400' : 'text-gray-700 font-medium'}`}>{name}</span>
-                            {isLeader && <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 shrink-0">領隊</span>}
-                            {guest  && <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-1.5 shrink-0">訪客</span>}
-                            {showDormitory && member.registrations?.dormitory_room && (
-                              <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
-                                🛏 {member.registrations.dormitory_room}
-                              </span>
-                            )}
-                            <PhoneBadge phone={member.registrations?.students?.phone} />
-                            {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
-                              <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
-                                🧹 {formatChoreLabel(choreLocations, member.registration_id)}
-                              </span>
-                            )}
-                            {preArr && <span className={`text-xs ${preArrCls} border rounded-full px-1.5 shrink-0`}>{preArr}</span>}
-                          </div>
-                          {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}
-                        </div>
-                        <button
-                          onClick={() => !memberExcluded && handleToggleCheckin(c.car_id, member.registration_id, getMemberCheckedAt(member))}
-                          disabled={memberExcluded}
-                          title={memberExcluded ? (volSelfReturn ? '義工車自行回程，從應到排除' : `已標記為${dir === 'down' ? '延後回程' : '提前出發'}，從應到排除`) : ''}
-                          className={`shrink-0 px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                            memberExcluded
-                              ? 'bg-gray-50 text-gray-300 cursor-not-allowed border border-gray-200'
-                              : chk ? 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500' : 'bg-green-100 text-green-700 hover:bg-green-200'
-                          }`}
-                        >
-                          {memberExcluded
-                            ? (volSelfReturn
-                              ? (member.registrations?.answers?.identity === '義工' ? '義工' : '自行')
-                              : dir === 'down' ? '延後' : '提前')
-                            : chk ? '已到' : '報到'}
-                        </button>
-                      </div>
+                      <MemberCheckinRow
+                        key={member.registration_id}
+                        variant="row"
+                        buttonTone="soft"
+                        member={member}
+                        isLeader={isLeader}
+                        checked={chk}
+                        disabled={memberExcluded}
+                        disabledLabel={disabledLabel}
+                        disabledTitle={memberExcluded ? (volSelfReturn ? '義工車自行回程，從應到排除' : `已標記為${dir === 'down' ? '延後回程' : '提前出發'}，從應到排除`) : ''}
+                        badgeLabel={preArr}
+                        badgeClassName={preArrCls}
+                        onToggle={() => handleToggleCheckin(c.car_id, member.registration_id, getMemberCheckedAt(member))}
+                      />
                     )
                   })}
                 </div>
@@ -847,6 +817,20 @@ export default function CarCheckinPage() {
             </div>
           )}
         </div>
+          </>
+        )}
+
+        {activeTab === 'dormitory' && (
+          <div className="px-4 pt-3 max-w-lg mx-auto">
+            <DormitoryTab members={dormChoreMembers} />
+          </div>
+        )}
+
+        {activeTab === 'chore' && (
+          <div className="px-4 pt-3 max-w-lg mx-auto">
+            <ChoreTab members={dormChoreMembers} choreLocations={choreLocations} />
+          </div>
+        )}
 
         {/* 重新整理 */}
         <button
@@ -907,6 +891,14 @@ export default function CarCheckinPage() {
     const otherRegsInDir = otherAllInDir.filter(r => !isOtherExcluded(r))
     const otherExcluded  = otherAllInDir.filter(isOtherExcluded)
     const otherTotal   = otherRegsInDir.length
+
+    // 寮區／坡務頁籤範圍：目前方向所有大車＋小車＋其他交通合併（不分車），跟隨 headDirection
+    const dormChoreMembers = [
+      ...carsInDir.flatMap(c => c.car_members ?? []),
+      ...otherRegsInDir.map(regAsMember),
+    ]
+    const showDormitoryTab = showDormitory && dormChoreMembers.some(m => m.registrations?.dormitory_room)
+    const showChoreTab     = showChore
     // 義工：預設已報到（不需刷卡），信眾：需實際報到時間（方向分離）
     const otherCheckedField = headDirection === 'down' ? 'checked_in_down_at' : 'checked_in_at'
     const otherChecked = otherRegsInDir.filter(r =>
@@ -1023,9 +1015,17 @@ export default function CarCheckinPage() {
                 <span className="text-xs opacity-60 self-center">（回報聯絡組資訊）</span>
               </div>
             )}
+
+            <TabBar
+              active={activeTab} onChange={setActiveTab}
+              showDormitory={showDormitoryTab} showChore={showChoreTab}
+              wrapClass="bg-amber-900/40" activeClass="bg-white text-amber-800"
+            />
           </div>
         </div>
 
+        {activeTab === 'checkin' && (
+          <>
         {/* 全域掃描按鈕 */}
         <div className="px-4 pt-4 max-w-lg mx-auto">
           <button
@@ -1103,11 +1103,8 @@ export default function CarCheckinPage() {
                       )
                     })}
                     {sorted.map(member => {
-                      const name     = getMemberName(member)
-                      const guest    = isGuest(member)
                       const chk      = isCheckedIn(member)
                       const isLeader = (c.car_leaders ?? []).some(l => l.registration_id === member.registration_id)
-                      const cls      = formatMemberClasses(member)
                       const ex = headDirection === 'down'
                         ? getEffectiveLateReturn(member, c, dateEnd)
                         : getEffectivePreArrive(member, c, dateStart)
@@ -1116,40 +1113,19 @@ export default function CarCheckinPage() {
                         : 'bg-teal-100 text-teal-700 border-teal-200'
                       const exLabel = headDirection === 'down' ? '延後回程' : '提前出發'
                       return (
-                        <div key={member.registration_id} className={`flex items-center gap-3 px-4 py-2.5 ${chk ? 'opacity-55' : ''}`}>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className={`text-sm truncate ${chk ? 'line-through text-gray-400' : 'text-gray-700 font-medium'}`}>{name}</span>
-                              {isLeader && <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 shrink-0">領隊</span>}
-                              {guest    && <span className="text-xs bg-blue-100  text-blue-600  rounded-full px-1.5 shrink-0">訪客</span>}
-                              {showDormitory && member.registrations?.dormitory_room && (
-                                <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
-                                  🛏 {member.registrations.dormitory_room}
-                                </span>
-                              )}
-                              <PhoneBadge phone={member.registrations?.students?.phone} />
-                              {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
-                                <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
-                                  🧹 {formatChoreLabel(choreLocations, member.registration_id)}
-                                </span>
-                              )}
-                              {ex && <span className={`text-xs ${exCls} border rounded-full px-1.5 shrink-0`}>{ex}</span>}
-                            </div>
-                            {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}
-                          </div>
-                          <button
-                            onClick={() => !ex && handleToggleCheckin(c.car_id, member.registration_id, getMemberCheckedAt(member))}
-                            disabled={!!ex}
-                            title={ex ? `已標記為${exLabel}，從應到排除` : ''}
-                            className={`shrink-0 px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                              ex
-                                ? 'bg-gray-50 text-gray-300 cursor-not-allowed border border-gray-200'
-                                : chk ? 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500' : 'bg-green-600 text-white hover:bg-green-700'
-                            }`}
-                          >
-                            {ex ? exLabel : chk ? '已到' : '報到'}
-                          </button>
-                        </div>
+                        <MemberCheckinRow
+                          key={member.registration_id}
+                          variant="row"
+                          member={member}
+                          isLeader={isLeader}
+                          checked={chk}
+                          disabled={!!ex}
+                          disabledLabel={exLabel}
+                          disabledTitle={ex ? `已標記為${exLabel}，從應到排除` : ''}
+                          badgeLabel={ex}
+                          badgeClassName={exCls}
+                          onToggle={() => handleToggleCheckin(c.car_id, member.registration_id, getMemberCheckedAt(member))}
+                        />
                       )
                     })}
                   </div>
@@ -1273,8 +1249,6 @@ export default function CarCheckinPage() {
                               )
                             })}
                             {sorted.map(member => {
-                              const name  = getMemberName(member)
-                              const guest = isGuest(member)
                               const chkRaw = isCheckedIn(member)
                               const preArr = headDirection === 'down'
                                 ? getEffectiveLateReturn(member, c, dateEnd)
@@ -1285,46 +1259,24 @@ export default function CarCheckinPage() {
                                 ? 'bg-amber-100 text-amber-700 border-amber-200'
                                 : 'bg-teal-100 text-teal-700 border-teal-200'
                               const isLeader = innerLeaderRegIds.includes(member.registration_id)
-                              const cls   = formatMemberClasses(member)
+                              const disabledLabel = volSelfReturn
+                                ? (member.registrations?.answers?.identity === '義工' ? '義工' : '自行')
+                                : headDirection === 'down' ? '延後' : '提前'
                               return (
-                                <div key={member.registration_id} className={`flex items-center gap-3 px-5 py-2.5 ${chk ? 'opacity-55' : ''}`}>
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className={`text-sm truncate ${chk ? 'line-through text-gray-400' : 'text-gray-700 font-medium'}`}>{name}</span>
-                                      {isLeader && <span className="text-xs bg-amber-100 text-amber-700 rounded-full px-1.5 shrink-0">領隊</span>}
-                                      {guest  && <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-1.5 shrink-0">訪客</span>}
-                                      {showDormitory && member.registrations?.dormitory_room && (
-                                        <span className="text-xs bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-1.5 shrink-0">
-                                          🛏 {member.registrations.dormitory_room}
-                                        </span>
-                                      )}
-                                      <PhoneBadge phone={member.registrations?.students?.phone} />
-                                      {showChore && formatChoreLabel(choreLocations, member.registration_id) && (
-                                        <span className="text-xs bg-lime-100 text-lime-700 border border-lime-200 rounded-full px-1.5 shrink-0">
-                                          🧹 {formatChoreLabel(choreLocations, member.registration_id)}
-                                        </span>
-                                      )}
-                                      {preArr && <span className={`text-xs ${preArrCls} border rounded-full px-1.5 shrink-0`}>{preArr}</span>}
-                                    </div>
-                                    {cls && <div className="text-[11px] text-gray-500 mt-0.5 truncate">{cls}</div>}
-                                  </div>
-                                  <button
-                                    onClick={() => !memberExcluded && handleToggleCheckin(c.car_id, member.registration_id, getMemberCheckedAt(member))}
-                                    disabled={memberExcluded}
-                                    title={memberExcluded ? (volSelfReturn ? '義工車自行回程，從應到排除' : `已標記為${headDirection === 'down' ? '延後回程' : '提前出發'}，從應到排除`) : ''}
-                                    className={`shrink-0 px-3 py-1 rounded-lg text-xs font-semibold transition-colors ${
-                                      memberExcluded
-                                        ? 'bg-gray-50 text-gray-300 cursor-not-allowed border border-gray-200'
-                                        : chk ? 'bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500' : 'bg-green-600 text-white hover:bg-green-700'
-                                    }`}
-                                  >
-                                    {memberExcluded
-                                      ? (volSelfReturn
-                                        ? (member.registrations?.answers?.identity === '義工' ? '義工' : '自行')
-                                        : headDirection === 'down' ? '延後' : '提前')
-                                      : chk ? '已到' : '報到'}
-                                  </button>
-                                </div>
+                                <MemberCheckinRow
+                                  key={member.registration_id}
+                                  variant="row"
+                                  paddingX="px-5"
+                                  member={member}
+                                  isLeader={isLeader}
+                                  checked={chk}
+                                  disabled={memberExcluded}
+                                  disabledLabel={disabledLabel}
+                                  disabledTitle={memberExcluded ? (volSelfReturn ? '義工車自行回程，從應到排除' : `已標記為${headDirection === 'down' ? '延後回程' : '提前出發'}，從應到排除`) : ''}
+                                  badgeLabel={preArr}
+                                  badgeClassName={preArrCls}
+                                  onToggle={() => handleToggleCheckin(c.car_id, member.registration_id, getMemberCheckedAt(member))}
+                                />
                               )
                             })}
                           </div>
@@ -1409,6 +1361,20 @@ export default function CarCheckinPage() {
             </div>
           )}
         </div>
+          </>
+        )}
+
+        {activeTab === 'dormitory' && (
+          <div className="px-4 pt-4 max-w-lg mx-auto">
+            <DormitoryTab members={dormChoreMembers} />
+          </div>
+        )}
+
+        {activeTab === 'chore' && (
+          <div className="px-4 pt-4 max-w-lg mx-auto">
+            <ChoreTab members={dormChoreMembers} choreLocations={choreLocations} />
+          </div>
+        )}
 
         {/* 重新整理 */}
         <button

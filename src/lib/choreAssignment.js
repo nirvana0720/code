@@ -1,7 +1,7 @@
 // 福慧出坡：排坡查詢與自動排坡邏輯
 import { supabase } from './supabase'
 
-function deriveGenderFromClasses(classes) {
+export function deriveGenderFromClasses(classes) {
   for (const c of (classes || [])) {
     if (c.group_name?.includes('男')) return 'male'
     if (c.group_name?.includes('女')) return 'female'
@@ -239,30 +239,14 @@ export async function removeMember(choreMemberId) {
 }
 
 /**
- * 取得整個活動的坡務地點對照表：{ [registration_id]: { 上午: location, 下午: location } }
- * 供「分車名單」匯出加欄、以及領隊報到頁顯示「今日出坡位置」共用（避免逐人查詢）
+ * 取得整個活動的坡務對照表：
+ * { [registration_id]: { 上午: {chore_id, unit, work_content, location, sort_order} | undefined, 下午: {...} | undefined } }
+ * 供「分車名單」匯出加欄、以及領隊報到頁「坡務」頁籤分組共用（避免逐人查詢）
+ * 走 SECURITY DEFINER RPC（get_chore_locations_by_event），取代直接查 chores/chore_members 表——
+ * 這支函式會被 CarCheckinPage.jsx（公開領隊報到頁）呼叫，不能依賴 anon 直接查表權限
  */
 export async function getChoreLocationsByEvent(eventId) {
-  const { data: chores, error } = await supabase
-    .from('chores')
-    .select('chore_id, session, location')
-    .eq('event_id', eventId)
-  if (error || !chores || chores.length === 0) return {}
-
-  const choreMap = Object.fromEntries(chores.map(c => [c.chore_id, c]))
-  const choreIds = chores.map(c => c.chore_id)
-
-  const { data: members } = await supabase
-    .from('chore_members')
-    .select('chore_id, registration_id')
-    .in('chore_id', choreIds)
-
-  const map = {}
-  for (const m of (members || [])) {
-    const chore = choreMap[m.chore_id]
-    if (!chore) continue
-    if (!map[m.registration_id]) map[m.registration_id] = {}
-    map[m.registration_id][chore.session] = chore.location || ''
-  }
-  return map
+  const { data, error } = await supabase.rpc('get_chore_locations_by_event', { p_event_id: eventId })
+  if (error || !data) return {}
+  return data
 }

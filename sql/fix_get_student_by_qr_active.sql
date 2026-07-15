@@ -22,8 +22,6 @@ RETURNS TABLE (
   student_id      TEXT,
   qr_code         TEXT,
   name            TEXT,
-  class_name      TEXT,
-  group_name      TEXT,
   active          BOOLEAN,
   created_at      TIMESTAMPTZ,
   student_classes JSONB
@@ -38,8 +36,6 @@ BEGIN
     s.student_id,
     s.qr_code,
     s.name,
-    s.class_name,
-    s.group_name,
     s.active,
     s.created_at,
     COALESCE(

@@ -35,7 +35,7 @@ BEGIN
               row_to_json(s.*) AS students
             FROM registrations reg
             LEFT JOIN LATERAL (
-              SELECT st.name, st.student_id,
+              SELECT st.name, st.student_id, st.phone,
                 (SELECT json_agg(sc.*) FROM student_classes sc WHERE sc.student_id = st.student_id) AS student_classes
               FROM students st WHERE st.student_id = reg.student_id
             ) s ON true
@@ -106,7 +106,7 @@ BEGIN
               row_to_json(s.*) AS students
             FROM registrations reg
             LEFT JOIN LATERAL (
-              SELECT st.name, st.student_id,
+              SELECT st.name, st.student_id, st.phone,
                 (SELECT json_agg(sc.*) FROM student_classes sc WHERE sc.student_id = st.student_id) AS student_classes
               FROM students st WHERE st.student_id = reg.student_id
             ) s ON true

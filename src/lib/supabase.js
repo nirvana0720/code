@@ -1870,64 +1870,28 @@ export async function setTransportOverride(regId, field, value) {
  * 根據學員 QR code（student_id）找出該學員在有效活動中的領隊角色
  * 用於 /leader 掃卡入口頁
  * 回傳 roles 陣列，每筆包含 { type, token, eventId, eventName, carName? }
+ *
+ * 2026-07-16 改走 SECURITY DEFINER RPC（find_leader_by_student_id_public）：
+ * 原本直接查 registrations / car_leaders / car_assignments / head_leader
+ * 四張表，但 registrations、car_assignments 的 anon SELECT 政策已在
+ * 6 月健檢移除，anon 身份完全查不到資料，導致任何領隊刷卡都誤判成
+ * 「你不是本次活動的領隊」。詳見 sql/fix_leader_scan_rpc.sql。
  */
 export async function findLeaderByStudentId(studentId) {
-  // Step 1：找出該學員的所有 registration_id
-  const { data: regData, error: regErr } = await supabase
-    .from('registrations')
-    .select('registration_id, event_id')
-    .eq('student_id', studentId)
+  const { data, error } = await supabase.rpc('find_leader_by_student_id_public', {
+    p_student_id: studentId,
+  })
 
-  if (regErr || !regData?.length) return { roles: [] }
+  if (error || !data?.length) return { roles: [] }
 
-  const regIds = regData.map(r => r.registration_id)
-
-  // Step 2：查是否為某台大車的領隊
-  const { data: carLeaderData } = await supabase
-    .from('car_leaders')
-    .select(`
-      registration_id,
-      car_assignments (
-        car_name, access_token, car_type, direction,
-        events ( event_id, name, status )
-      )
-    `)
-    .in('registration_id', regIds)
-
-  // Step 3：查是否為總領隊或小車領隊
-  const { data: headLeaderData } = await supabase
-    .from('head_leader')
-    .select(`
-      registration_id, type, access_token,
-      events ( event_id, name, status )
-    `)
-    .in('registration_id', regIds)
-
-  const roles = []
-
-  for (const cl of carLeaderData || []) {
-    const car = cl.car_assignments
-    if (!car || car.events?.status !== 'active') continue
-    roles.push({
-      type: 'car',
-      token: car.access_token,
-      eventId: car.events.event_id,
-      eventName: car.events.name,
-      carName: car.car_name,
-      direction: car.direction ?? 'down',
-    })
-  }
-
-  for (const hl of headLeaderData || []) {
-    if (hl.events?.status !== 'active') continue
-    roles.push({
-      type: hl.type,           // 'all' or 'small_car'
-      token: hl.access_token,
-      eventId: hl.events.event_id,
-      eventName: hl.events.name,
-      carName: null,
-    })
-  }
+  const roles = data.map(row => ({
+    type: row.role_type,       // 'car' | 'all' | 'small_car'
+    token: row.token,
+    eventId: row.event_id,
+    eventName: row.event_name,
+    carName: row.car_name,
+    direction: row.direction ?? 'down',
+  }))
 
   return { roles }
 }

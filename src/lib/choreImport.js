@@ -134,6 +134,8 @@ export async function parseChoreExcel(file) {
 
   const colSession = findCol(headerRow, c => c.includes('時段'))
   const colDate     = findCol(headerRow, c => c === '日期' || c.includes('日期'))
+  // 「精舍」跟「精舍小組長」都含「精舍」兩字，用「不含小組長」排除避免誤配到小組長欄
+  const colTemple   = findCol(headerRow, c => c.includes('精舍') && !c.includes('小組長'))
   const colUnit     = findCol(headerRow, c => c.includes('單位'))
   const colMonk     = findCol(headerRow, c => c.includes('負責法師'))
   const colWork     = findCol(headerRow, c => c.includes('坡務內容'))
@@ -150,6 +152,7 @@ export async function parseChoreExcel(file) {
   const results = []
   let carrySession = ''
   let carryDate = ''
+  let carryTemple = ''
 
   for (const row of rows.slice(headerIdx + 2)) {
     const sessionRaw = cellAt(row, colSession)
@@ -157,6 +160,7 @@ export async function parseChoreExcel(file) {
     if (sessionRaw) carrySession = normalizeSession(sessionRaw)
     if (dateRaw) carryDate = dateRaw
 
+    const templeRaw       = cellAt(row, colTemple)
     const unit           = cellAt(row, colUnit)
     const work_content   = cellAt(row, colWork)
     const location        = cellAt(row, colLocation)
@@ -164,6 +168,8 @@ export async function parseChoreExcel(file) {
     const leaderRaw       = cellAt(row, colLeader)
     const quota_male   = parseInt(cellAt(row, colMale), 10)   || 0
     const quota_female = parseInt(cellAt(row, colFemale), 10) || 0
+
+    if (templeRaw) carryTemple = templeRaw
 
     // 整列空白（不含男女人數皆 0）視為分隔/裝飾列，略過
     if (!unit && !work_content && !location && !monkRaw && !leaderRaw && quota_male === 0 && quota_female === 0) {
@@ -175,6 +181,7 @@ export async function parseChoreExcel(file) {
 
     results.push({
       session: carrySession,
+      temple: carryTemple,
       unit,
       work_content,
       location,
@@ -203,6 +210,8 @@ export async function importChores(eventId, choreRows) {
   const rows = choreRows.map((r, i) => ({
     event_id: eventId,
     session: r.session,
+    temple: r.temple || null,
+    chore_date: r.date_for_display || null,
     unit: r.unit || null,
     work_content: r.work_content || null,
     location: r.location || null,

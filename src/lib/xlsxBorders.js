@@ -63,12 +63,14 @@ function addBorderAndFillStyles(xml) {
   if (!fillsMatch) throw new Error('styles.xml 找不到 <fills> 區塊')
   const fillCount = parseInt(fillsMatch[1], 10)
   const newFillIndex = fillCount
+  const newYellowFillIndex = fillCount + 1
   // fgColor/bgColor 都設成同一個淺灰色：OOXML 對 patternType="solid" 實際顯示用哪個顏色，
   // 不同 Excel 版本/實作認知不一致，兩個都設同色可確保無論哪個生效畫面都正確。
   const grayFill = '<fill><patternFill patternType="solid"><fgColor rgb="FFF0F0F0"/><bgColor rgb="FFF0F0F0"/></patternFill></fill>'
+  const yellowFill = '<fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor rgb="FFFFFF00"/></patternFill></fill>'
   out = out.replace(
     fillsMatch[0],
-    `<fills count="${fillCount + 1}">${fillsMatch[2]}${grayFill}</fills>`
+    `<fills count="${fillCount + 2}">${fillsMatch[2]}${grayFill}${yellowFill}</fills>`
   )
 
   const cellXfsMatch = out.match(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/)
@@ -81,10 +83,11 @@ function addBorderAndFillStyles(xml) {
   const xfCount = xfs.length
   const borderOnlyXfs = xfs.map(xf => withBorder(xf, newBorderIndex))
   const borderFillXfs = xfs.map(xf => withBorderAndFill(xf, newBorderIndex, newFillIndex))
-  const newInner = cellXfsMatch[2] + borderOnlyXfs.join('') + borderFillXfs.join('')
+  const borderYellowXfs = xfs.map(xf => withBorderAndFill(xf, newBorderIndex, newYellowFillIndex))
+  const newInner = cellXfsMatch[2] + borderOnlyXfs.join('') + borderFillXfs.join('') + borderYellowXfs.join('')
   out = out.replace(
     cellXfsMatch[0],
-    `<cellXfs count="${xfCount * 3}">${newInner}</cellXfs>`
+    `<cellXfs count="${xfCount * 4}">${newInner}</cellXfs>`
   )
 
   return { xml: out, xfCount }
@@ -117,7 +120,7 @@ function remapCellStyle(cElemStr, offset) {
 
 // 依 <dimension ref="A1:H23"/> 讀出的實際資料範圍，把範圍內每個 <c> 的樣式換成框線版；
 // 座標落在 labelCellSet 裡的則換成框線＋灰底版（標籤儲存格）
-function patchSheetXml(xml, contentOffset, labelOffset, labelCellSet) {
+function patchSheetXml(xml, contentOffset, labelOffset, labelCellSet, highlightOffset, highlightCellSet) {
   const dimMatch = xml.match(/<dimension ref="([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?"\s*\/>/)
   if (!dimMatch) {
     console.warn('[saveWorkbookWithBorders] 找不到 <dimension>，此工作表略過加框線')
@@ -138,7 +141,7 @@ function patchSheetXml(xml, contentOffset, labelOffset, labelCellSet) {
     const col = colToNum(refMatch[1])
     const row = parseInt(refMatch[2], 10)
     if (col < minCol || col > maxCol || row < minRow || row > maxRow) return cellStr
-    const offset = labelCellSet.has(ref) ? labelOffset : contentOffset
+    const offset = highlightCellSet.has(ref) ? highlightOffset : (labelCellSet.has(ref) ? labelOffset : contentOffset)
     return remapCellStyle(cellStr, offset)
   })
 
@@ -165,7 +168,11 @@ function triggerDownload(bytes, filename) {
  * @param {string[]} [labelCells] 標籤/項目儲存格座標（例如 ['A1','A2','D1',...]），套用框線＋灰底版樣式；
  *   其餘有資料的儲存格套用框線版（無底色）樣式，適用於工作表內所有 sheet（每個 sheet 版面結構相同）
  */
-export function saveWorkbookWithBorders(wb, filename, labelCells = []) {
+export function saveWorkbookWithBorders(wb, filename, labelCellsOrOptions = []) {
+  const opts = Array.isArray(labelCellsOrOptions)
+    ? { labelCells: labelCellsOrOptions, highlightCells: [] }
+    : { labelCells: labelCellsOrOptions.labelCells || [], highlightCells: labelCellsOrOptions.highlightCells || [] }
+
   const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' })
   const files = unzipSync(new Uint8Array(buf))
 
@@ -181,14 +188,16 @@ export function saveWorkbookWithBorders(wb, filename, labelCells = []) {
   const newStylesXml = setFontToKaiti(borderedFilledStylesXml)
   files[stylesName] = new TextEncoder().encode(newStylesXml)
 
-  const labelCellSet = new Set(labelCells)
+  const labelCellSet = new Set(opts.labelCells)
+  const highlightCellSet = new Set(opts.highlightCells)
   const contentOffset = xfCount
   const labelOffset = xfCount * 2
+  const highlightOffset = xfCount * 3
 
   for (const name of Object.keys(files)) {
     if (/^xl\/worksheets\/sheet\d+\.xml$/.test(name)) {
       const xml = new TextDecoder('utf-8').decode(files[name])
-      const patched = patchSheetXml(xml, contentOffset, labelOffset, labelCellSet)
+      const patched = patchSheetXml(xml, contentOffset, labelOffset, labelCellSet, highlightOffset, highlightCellSet)
       files[name] = new TextEncoder().encode(patched)
     }
   }

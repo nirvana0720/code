@@ -102,6 +102,7 @@ export default function ChoreImportModal({ eventId, onImported, onClose }) {
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600">
                   <tr>
+                    <th className="px-3 py-2 text-left">精舍</th>
                     <th className="px-3 py-2 text-left">日期</th>
                     <th className="px-3 py-2 text-left">時段</th>
                     <th className="px-3 py-2 text-left">單位</th>
@@ -116,6 +117,7 @@ export default function ChoreImportModal({ eventId, onImported, onClose }) {
                 <tbody className="divide-y">
                   {rows.map((r, i) => (
                     <tr key={i}>
+                      <td className="px-3 py-2 text-gray-500">{r.temple}</td>
                       <td className="px-3 py-2 text-gray-500">{r.date_for_display}</td>
                       <td className="px-3 py-2">{r.session}</td>
                       <td className="px-3 py-2">{r.unit}</td>

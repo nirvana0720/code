@@ -23,6 +23,87 @@ const SESSIONS = [
 const genderLabel = g => g === 'male' ? '男' : g === 'female' ? '女' : '未知'
 const telHref = phone => `tel:${String(phone).replace(/[\s-]/g, '')}`
 
+// 依車次分組（未排車的人歸「未排車」），車次依自然排序（1車、2車、10車…）
+function groupMembersByCar(mems) {
+  const groups = new Map()
+  for (const m of mems) {
+    const key = m.car_name || '未排車'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(m.name)
+  }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-Hant', { numeric: true }))
+}
+
+// 匯出總表：一個坡務一列，車次欄列不重複車次、組員欄依車次分組換行顯示
+// 例如「1車：王大明、王小明\n2車：李新添、王翠花」
+const ROSTER_COLS = [
+  { wch: 5 }, { wch: 10 }, { wch: 10 }, { wch: 6 }, { wch: 5 }, { wch: 5 },
+  { wch: 12 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 32 },
+]
+const ROSTER_HIGHLIGHT_CELLS = ['A1', 'B1', 'C1']
+const ROSTER_LABEL_CELLS = [
+  'A3', 'B3', 'C3', 'D3', 'A4', 'A5',
+  ...['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'].flatMap(col => [`${col}7`, `${col}8`]),
+]
+
+function buildRosterAoa(title, chores, membersBySession, event) {
+  const aoa = [
+    [title],
+    [],
+    ['出坡時間', '', '報到時間', ''],
+    ['上午', event?.chore_am_work_time || '', event?.chore_am_checkin_time || '', ''],
+    ['下午', event?.chore_pm_work_time || '', event?.chore_pm_checkin_time || '', ''],
+    [],
+    ['序', '精舍', '日期', '時段', '人數', '', '單位', '負責法師', '坡務內容', '集合地點', '精舍小組長', '車次', '組員'],
+    ['', '', '', '', '男', '女', '', '', '', '', '', '', ''],
+  ]
+  chores.forEach((chore, i) => {
+    const mems = (membersBySession[chore.session] || []).filter(m => m.chore_id === chore.chore_id)
+    const groups = groupMembersByCar(mems)
+    const carText = groups.map(([car]) => car).join('、')
+    const memberText = groups.map(([car, names]) => `${car}：${names.join('、')}`).join('\n')
+    aoa.push([
+      i + 1,
+      chore.temple || '',
+      chore.chore_date || '',
+      chore.session,
+      chore.quota_male || 0,
+      chore.quota_female || 0,
+      chore.unit || '',
+      chore.supervising_monk || '',
+      chore.work_content || '',
+      chore.location || '',
+      chore.leader_name || '',
+      carText,
+      memberText,
+    ])
+  })
+  return aoa
+}
+
+function buildRosterSheet(title, chores, membersBySession, event) {
+  const ws = XLSX.utils.aoa_to_sheet(buildRosterAoa(title, chores, membersBySession, event))
+  ws['!cols'] = ROSTER_COLS
+  ws['!merges'] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 1 } },
+    { s: { r: 2, c: 2 }, e: { r: 2, c: 3 } },
+    { s: { r: 6, c: 0 }, e: { r: 7, c: 0 } },
+    { s: { r: 6, c: 1 }, e: { r: 7, c: 1 } },
+    { s: { r: 6, c: 2 }, e: { r: 7, c: 2 } },
+    { s: { r: 6, c: 3 }, e: { r: 7, c: 3 } },
+    { s: { r: 6, c: 4 }, e: { r: 6, c: 5 } },
+    { s: { r: 6, c: 6 }, e: { r: 7, c: 6 } },
+    { s: { r: 6, c: 7 }, e: { r: 7, c: 7 } },
+    { s: { r: 6, c: 8 }, e: { r: 7, c: 8 } },
+    { s: { r: 6, c: 9 }, e: { r: 7, c: 9 } },
+    { s: { r: 6, c: 10 }, e: { r: 7, c: 10 } },
+    { s: { r: 6, c: 11 }, e: { r: 7, c: 11 } },
+    { s: { r: 6, c: 12 }, e: { r: 7, c: 12 } },
+  ]
+  return ws
+}
+
 export default function ChoreArrangementDetailPage() {
   const { eventId } = useParams()
   const navigate = useNavigate()
@@ -190,6 +271,34 @@ export default function ChoreArrangementDetailPage() {
     saveWorkbookWithBorders(wb, `${event?.name ?? '活動'}_分坡名單.xlsx`, CHORE_SHEET_LABEL_CELLS)
   }
 
+  // 匯出總表：小組長分頁（各自負責的坡務）+ 總領隊分頁（全部坡務彙整）
+  function handleExportRoster() {
+    const allChores = [...(choresBySession['上午'] || []), ...(choresBySession['下午'] || [])]
+    if (allChores.length === 0) { alert('沒有坡務資料可匯出'); return }
+    const safeSheetName = name => String(name || '分頁').replace(/[:\\/?*[\]]/g, '').slice(0, 31)
+
+    const wb = XLSX.utils.book_new()
+    const usedNames = new Set()
+    const addSheet = (title, chores) => {
+      const ws = buildRosterSheet(title, chores, membersBySession, event)
+      let base = safeSheetName(title), name = base, n = 1
+      while (usedNames.has(name)) { name = safeSheetName(`${base}${n++}`) }
+      usedNames.add(name)
+      XLSX.utils.book_append_sheet(wb, ws, name)
+    }
+
+    const leaderNames = [...new Set(allChores.map(c => c.leader_name).filter(Boolean))]
+    for (const leaderName of leaderNames) {
+      addSheet(`小組長 ${leaderName}`, allChores.filter(c => c.leader_name === leaderName))
+    }
+    addSheet('總領隊總表', allChores)
+
+    saveWorkbookWithBorders(wb, `${event?.name ?? '活動'}_坡務總表.xlsx`, {
+      labelCells: ROSTER_LABEL_CELLS,
+      highlightCells: ROSTER_HIGHLIGHT_CELLS,
+    })
+  }
+
   if (loading) return <AdminLayout><div className="text-center py-20 text-gray-400">載入中…</div></AdminLayout>
 
   return (
@@ -221,6 +330,13 @@ export default function ChoreArrangementDetailPage() {
               className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
             >
               📥 匯出分坡名單
+            </button>
+            <button
+              onClick={handleExportRoster}
+              disabled={choresBySession['上午'].length === 0 && choresBySession['下午'].length === 0}
+              className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+            >
+              📊 匯出總表
             </button>
           </div>
         </div>

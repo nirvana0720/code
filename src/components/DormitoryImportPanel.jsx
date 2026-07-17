@@ -1,9 +1,14 @@
-// 安單寮號匯入：上傳「普宜_精舍安單總表.pdf」第 2 頁 → 依姓名比對本活動報名紀錄 → 預覽 → 確認寫入
+// 安單寮號匯入：上傳「普宜_精舍安單總表.pdf」（全部頁數）或「精舍排寮」Excel → 依姓名比對本活動報名紀錄 → 預覽 → 確認寫入
 import { useState } from 'react'
 import { extractPdfLines } from '../lib/pdfTextExtract'
-import { updateDormitoryRooms } from '../lib/mountainDataImport'
+import { updateDormitoryRooms, parseDormitoryExcel } from '../lib/mountainDataImport'
 
-// PDF 第 2 頁每列格式範例：「1 張景瑞 男 普賢寮B1 04-1 大博 2026/7/3 2026/7/5」
+const SOURCES = [
+  { key: 'pdf', label: '安單總表 PDF' },
+  { key: 'excel', label: '精舍排寮 Excel' },
+]
+
+// PDF 每列格式範例：「1 張景瑞 男 普賢寮B1 04-1 大博 2026/7/3 2026/7/5」
 // 只取序號後的姓名、性別，再取性別後第一個 token 當寮房號碼
 function parseDormitoryLine(line) {
   const m = line.match(/^\d+\s+([一-鿿]{2,8})\s+[男女]\s+(\S+)/)
@@ -32,6 +37,7 @@ function buildNameIndex(registrations) {
 }
 
 export default function DormitoryImportPanel({ eventId, registrations, onImported }) {
+  const [source, setSource] = useState('pdf')
   const [parsing, setParsing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -43,6 +49,13 @@ export default function DormitoryImportPanel({ eventId, registrations, onImporte
   const matchedCount  = rows.filter(r => r.status === 'matched').length
   const duplicateCount = rows.filter(r => r.status === 'duplicate').length
 
+  function switchSource(next) {
+    setSource(next)
+    setRows([])
+    setError('')
+    setResultMsg('')
+  }
+
   async function handleFile(e) {
     const file = e.target.files?.[0]
     e.target.value = ''
@@ -51,11 +64,16 @@ export default function DormitoryImportPanel({ eventId, registrations, onImporte
     setError('')
     setResultMsg('')
     try {
-      const pages = await extractPdfLines(file, { pages: [2] })
-      const lines = pages[0]?.lines ?? []
-      const parsed = lines.map(parseDormitoryLine).filter(Boolean)
+      let parsed
+      if (source === 'excel') {
+        parsed = await parseDormitoryExcel(file)
+      } else {
+        const pages = await extractPdfLines(file)
+        const lines = pages.flatMap(p => p.lines)
+        parsed = lines.map(parseDormitoryLine).filter(Boolean)
+      }
       if (parsed.length === 0) {
-        setError('第 2 頁沒有解析出任何資料，請確認 PDF 格式是否正確')
+        setError('沒有解析出任何資料，請確認檔案格式是否正確')
         setRows([])
         setParsing(false)
         return
@@ -73,7 +91,7 @@ export default function DormitoryImportPanel({ eventId, registrations, onImporte
       })
       setRows(built)
     } catch (err) {
-      setError('PDF 解析失敗：' + err.message)
+      setError((source === 'excel' ? 'Excel' : 'PDF') + '解析失敗：' + err.message)
       setRows([])
     }
     setParsing(false)
@@ -122,12 +140,36 @@ export default function DormitoryImportPanel({ eventId, registrations, onImporte
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
         <div>
           <h3 className="font-bold text-gray-800">🏨 安單寮號匯入</h3>
-          <p className="text-xs text-gray-500 mt-0.5">上傳「安單總表」PDF 第 2 頁，比對後寫入 registrations.dormitory_room</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {source === 'pdf' ? '上傳「安單總表」PDF，比對後寫入 registrations.dormitory_room' : '上傳「精舍排寮」Excel，比對後寫入 registrations.dormitory_room'}
+          </p>
         </div>
         <label className="shrink-0 inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg cursor-pointer transition-colors">
-          {parsing ? '解析中…' : '📄 上傳安單 PDF'}
-          <input type="file" accept=".pdf" onChange={handleFile} disabled={parsing} className="hidden" />
+          {parsing ? '解析中…' : source === 'pdf' ? '📄 上傳安單 PDF' : '📊 上傳排寮 Excel'}
+          <input
+            type="file"
+            accept={source === 'pdf' ? '.pdf' : '.xlsx,.xls'}
+            onChange={handleFile}
+            disabled={parsing}
+            className="hidden"
+          />
         </label>
+      </div>
+
+      <div className="flex gap-2 mb-3">
+        {SOURCES.map(s => (
+          <button
+            key={s.key}
+            onClick={() => switchSource(s.key)}
+            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+              source === s.key
+                ? 'bg-amber-50 text-amber-700 border-amber-300'
+                : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
 
       {error && <p className="text-sm text-red-600 mb-3">{error}</p>}

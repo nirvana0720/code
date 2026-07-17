@@ -22,6 +22,59 @@ const SESSIONS = [
 const genderLabel = g => g === 'male' ? '男' : g === 'female' ? '女' : '未知'
 const telHref = phone => `tel:${String(phone).replace(/[\s-]/g, '')}`
 
+// 排坡流程步驟指引：純視覺提示，不做流程鎖定，各步驟按鈕維持現況可自由點擊
+const STEPS = [
+  { num: 1, label: '排車', hint: '建議先完成' },
+  { num: 2, label: '匯入坡務表', hint: '必須先做' },
+  { num: 3, label: '排坡', hint: '自動或手動' },
+  { num: 4, label: '匯出', hint: '名單／總表' },
+]
+const STEP_CIRCLE_CLASS = {
+  1: 'bg-gray-200 text-gray-500',
+  2: 'bg-amber-500 text-white',
+  3: 'bg-gray-200 text-gray-500',
+  4: 'bg-gray-200 text-gray-500',
+}
+
+// 小圓形編號徽章，掛在既有按鈕/標題旁提示對應步驟，樣式比照步驟條圓圈但縮小
+function StepBadge({ num }) {
+  return (
+    <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold shrink-0 ${STEP_CIRCLE_CLASS[num]}`}>
+      {num}
+    </span>
+  )
+}
+
+function StepGuide({ importIncomplete }) {
+  return (
+    <div className="bg-white border rounded-xl px-4 py-3">
+      <div className="flex items-start">
+        {STEPS.map((step, i) => {
+          const attention = step.num === 2 && importIncomplete
+          return (
+            <div key={step.num} className="flex items-start flex-1">
+              <div className="flex flex-col items-center text-center w-24 shrink-0">
+                <div
+                  className={`flex items-center justify-center w-7 h-7 rounded-full text-sm font-semibold ${
+                    attention ? 'bg-amber-500 text-white ring-2 ring-amber-300 animate-pulse' : STEP_CIRCLE_CLASS[step.num]
+                  }`}
+                >
+                  {step.num}
+                </div>
+                <div className={`mt-1 text-xs font-medium ${step.num === 2 ? 'text-amber-700' : 'text-gray-600'}`}>
+                  {step.label}
+                </div>
+                <div className="text-[10px] text-gray-400">{attention ? '尚未完成' : step.hint}</div>
+              </div>
+              {i < STEPS.length - 1 && <div className="flex-1 h-px bg-gray-300 mt-3.5 mx-1" />}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // 依車次分組（未排車的人歸「未排車」），車次依自然排序（1車、2車、10車…）
 function groupMembersByCar(mems) {
   const groups = new Map()
@@ -390,28 +443,40 @@ export default function ChoreArrangementDetailPage() {
             <p className="text-sm text-gray-400">排坡系統</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setImportOpen(true)}
-              className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              📤 匯入坡務表
-            </button>
-            <button
-              onClick={handleExport}
-              disabled={chores.length === 0 && (choresBySession['上午'].length === 0 && choresBySession['下午'].length === 0)}
-              className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
-            >
-              📥 匯出分坡名單
-            </button>
-            <button
-              onClick={handleExportRoster}
-              disabled={choresBySession['上午'].length === 0 && choresBySession['下午'].length === 0}
-              className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
-            >
-              📊 匯出總表
-            </button>
+            <span className="inline-flex items-center gap-1.5">
+              <StepBadge num={2} />
+              <button
+                onClick={() => setImportOpen(true)}
+                className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                📤 匯入坡務表
+              </button>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <StepBadge num={4} />
+              <button
+                onClick={handleExport}
+                disabled={chores.length === 0 && (choresBySession['上午'].length === 0 && choresBySession['下午'].length === 0)}
+                className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+              >
+                📥 匯出分坡名單
+              </button>
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <StepBadge num={4} />
+              <button
+                onClick={handleExportRoster}
+                disabled={choresBySession['上午'].length === 0 && choresBySession['下午'].length === 0}
+                className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-40"
+              >
+                📊 匯出總表
+              </button>
+            </span>
           </div>
         </div>
+
+        {/* 排坡流程步驟指引 */}
+        <StepGuide importIncomplete={chores.length === 0} />
 
         {/* 時段 Tab */}
         <div className="flex gap-2 border-b">
@@ -447,13 +512,16 @@ export default function ChoreArrangementDetailPage() {
 
         {/* 自動排坡列 */}
         <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={handleAutoAssign}
-            disabled={autoAssigning}
-            className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
-          >
-            {autoAssigning ? '排坡中…' : '✨ 自動排坡'}
-          </button>
+          <span className="inline-flex items-center gap-1.5">
+            <StepBadge num={3} />
+            <button
+              onClick={handleAutoAssign}
+              disabled={autoAssigning}
+              className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
+            >
+              {autoAssigning ? '排坡中…' : '✨ 自動排坡'}
+            </button>
+          </span>
           <span className="text-xs text-gray-400">
             依上山車輛順序，儘量讓同車的人排進同一坡務，滿了才換下一個（男女配額分開計算；重排前會先清空此時段目前的分配）
           </span>
@@ -479,7 +547,10 @@ export default function ChoreArrangementDetailPage() {
           {/* 左側：未排入名單，批次勾選面板 */}
           <div className="w-full lg:w-96 lg:shrink-0 bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col" style={{ maxHeight: 640 }}>
             <div className="px-3 py-2.5 border-b bg-gray-50 space-y-2">
-              <div className="font-semibold text-sm text-gray-700">未排入名單（{unassignedLive.length} 人）</div>
+              <div className="flex items-center gap-1.5 font-semibold text-sm text-gray-700">
+                <StepBadge num={3} />
+                未排入名單（{unassignedLive.length} 人）
+              </div>
               <input
                 type="text"
                 value={poolSearch}
@@ -563,6 +634,10 @@ export default function ChoreArrangementDetailPage() {
 
           {/* 右側：坡務卡片 */}
           <div className="flex-1 min-w-0 w-full">
+            <div className="flex items-center gap-1.5 mb-2">
+              <StepBadge num={3} />
+              <h2 className="text-sm font-semibold text-gray-700">坡務卡片</h2>
+            </div>
             {chores.length === 0 ? (
               <div className="text-sm text-gray-400 py-10 text-center border-2 border-dashed rounded-xl">
                 尚未匯入坡務表，請點「📤 匯入坡務表」

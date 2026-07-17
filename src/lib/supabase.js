@@ -361,9 +361,12 @@ export async function setRegistrationIsDriver(registrationId, isDriver) {
 
 // ─── 活動管理（後台）────────────────────────────────────────
 
+// canary 監控假活動固定用這個 event_id（見 canary/sql/create_canary_fixtures.sql），只有這一筆
+const CANARY_EVENT_ID = 'ca000000-0000-0000-0000-000000000001'
+
 /**
  * 取得所有活動
- * excludeCanary: true 時排除 canary 假活動（event_id 以 ca 開頭），只給「活動管理」列表用
+ * excludeCanary: true 時排除 canary 假活動，只給「活動管理」列表用
  */
 export async function getAllEvents({ excludeCanary = false } = {}) {
   let query = supabase
@@ -371,7 +374,7 @@ export async function getAllEvents({ excludeCanary = false } = {}) {
     .select('*')
     .order('date_start', { ascending: false })
 
-  if (excludeCanary) query = query.not('event_id::text', 'like', 'ca%')
+  if (excludeCanary) query = query.neq('event_id', CANARY_EVENT_ID)
 
   const { data, error } = await query
 

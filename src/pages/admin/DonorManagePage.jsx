@@ -14,6 +14,7 @@ import {
   listEventDonorFields,
   saveEventDonorFields,
   getRegistrationsWithStudents,
+  updateEvent,
 } from '../../lib/supabase'
 
 // 預設欄位（跟 migration 的 backfill 用同一組 key/label/順序）
@@ -144,6 +145,7 @@ function checkNoRegistration(row, regLookup) {
 export default function DonorManagePage() {
   const { id } = useParams()
   const [eventName, setEventName] = useState('')
+  const [ticketCopies, setTicketCopies] = useState(1) // 出單機預設列印份數
   const [donors, setDonors]       = useState([])
   const [students, setStudents]   = useState([])
   const [fields, setFields]       = useState([]) // event_donor_fields（有序）
@@ -184,6 +186,7 @@ export default function DonorManagePage() {
     setStudents(studentsRes.students || [])
     const ev = (eventsRes.events || []).find(e => e.event_id === id)
     setEventName(ev?.name ?? '')
+    setTicketCopies(ev?.donor_ticket_default_copies ?? 1)
 
     let currentFields = fieldsRes.fields || []
     // 該活動從沒設定過欄位 → 自動補建 5 個預設欄位，確保任何法會第一次打開都有東西可用
@@ -241,6 +244,7 @@ export default function DonorManagePage() {
     if (cleaned.length === 0) { flash('❌ 至少需要一個欄位'); return }
     setSavingFields(true)
     const { success, error } = await saveEventDonorFields(id, cleaned)
+    await updateEvent(id, { donor_ticket_default_copies: ticketCopies })
     setSavingFields(false)
     if (!success) { flash(`❌ 儲存欄位失敗：${error}`); return }
     await load()
@@ -447,6 +451,17 @@ export default function DonorManagePage() {
                   >✕ 刪除</button>
                 </div>
               ))}
+            </div>
+            <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-100">
+              <label className="text-sm text-gray-600">出單機預設列印份數</label>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={ticketCopies}
+                onChange={e => setTicketCopies(Math.min(10, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                className="w-20 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+              />
             </div>
             <div className="flex items-center gap-3 mt-4">
               <button

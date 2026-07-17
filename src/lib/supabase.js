@@ -363,12 +363,17 @@ export async function setRegistrationIsDriver(registrationId, isDriver) {
 
 /**
  * 取得所有活動
+ * excludeCanary: true 時排除 canary 假活動（event_id 以 ca 開頭），只給「活動管理」列表用
  */
-export async function getAllEvents() {
-  const { data, error } = await supabase
+export async function getAllEvents({ excludeCanary = false } = {}) {
+  let query = supabase
     .from('events')
     .select('*')
     .order('date_start', { ascending: false })
+
+  if (excludeCanary) query = query.not('event_id', 'like', 'ca%')
+
+  const { data, error } = await query
 
   if (error) return { events: [], error: error.message }
   return { events: data || [], error: null }

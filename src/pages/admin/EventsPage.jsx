@@ -62,7 +62,7 @@ export default function EventsPage() {
   async function load() {
     setLoading(true)
     if (isAdmin) {
-      const [{ events }, { templates }, { volunteers: vols }] = await Promise.all([getAllEvents(), getRecurringTemplates(), getVolunteers()])
+      const [{ events }, { templates }, { volunteers: vols }] = await Promise.all([getAllEvents({ excludeCanary: true }), getRecurringTemplates(), getVolunteers()])
       setEvents(events)
       setRecurringTemplates(templates || [])
       setVolunteers(vols || [])
@@ -222,7 +222,7 @@ export default function EventsPage() {
   // ── V7 Export ────────────────────────────────────────────────────────────
   async function openExportModal() {
     setExporting(true)
-    const { events: allEvents } = await getAllEvents()
+    const { events: allEvents } = await getAllEvents({ excludeCanary: true })
     const activeEvents = (allEvents || []).filter(e => e.status !== 'closed')
     setExportCandidates(activeEvents.map(e => ({ event_id: e.event_id, name: e.name, status: e.status, checked: true })))
     setExporting(false)

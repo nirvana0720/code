@@ -1700,8 +1700,13 @@ function OverviewScreen({
                 </div>
 
                 <div className="flex-shrink-0">
-                  {/* 活動鎖定（非義工開放）：只顯示狀態，不提供任何操作 */}
-                  {event.locked && !isVolunteerOnly ? (
+                  {/* 報名請洽精舍：只顯示狀態，不提供任何操作 */}
+                  {event.offline_registration ? (
+                    <span className="px-4 py-2 border-2 border-gray-200 text-gray-400 rounded-xl text-kiosk-sm inline-block text-center">
+                      報名請洽精舍
+                    </span>
+                  ) : event.locked && !isVolunteerOnly ? (
+                    /* 活動鎖定（非義工開放）：只顯示狀態，不提供任何操作 */
                     registered ? (
                       <span className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 inline-block text-center">
                         ✓ 已報名
@@ -1709,6 +1714,17 @@ function OverviewScreen({
                     ) : (
                       <span className="px-4 py-2 border-2 border-gray-200 text-gray-400 rounded-xl text-kiosk-sm inline-block text-center">
                         未報名
+                      </span>
+                    )
+                  ) : event.walkin_mode ? (
+                    /* 自由刷卡參加：不需報名，只顯示提示，不提供報名操作 */
+                    registered ? (
+                      <span className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 inline-block text-center">
+                        ✓ 已報名
+                      </span>
+                    ) : (
+                      <span className="px-4 py-2 border-2 border-green-200 text-green-700 rounded-xl text-kiosk-sm inline-block text-center bg-green-50">
+                        現場刷卡即可參加
                       </span>
                     )
                   ) : (

@@ -1,0 +1,19 @@
+坡務排坡新增「匯出總表」功能 + 匯入補精舍/日期欄位
+
+新增：ChoreArrangementDetailPage.jsx「匯出總表」按鈕，依小組長分頁
+（各自負責的坡務）+ 總領隊分頁（全部坡務彙整），欄位比照福慧坡原始
+Excel（序/精舍/日期/時段/人數/單位/負責法師/坡務內容/集合地點/
+精舍小組長），新增車次（不重複車次逗號分隔）、組員（依車次分組換行
+顯示，例如「1車：王大明、王小明」）兩欄。版面盡量比照原樣式：黃底
+標題、出坡時間/報到時間小表格、合併儲存格表頭。
+
+xlsxBorders.js：saveWorkbookWithBorders 新增 highlightCells（黃底）
+第三種樣式層，向下相容原本的陣列參數用法。
+
+choreImport.js / ChoreImportModal.jsx：匯入坡務表時補抓「精舍」欄位，
+連同日期一起寫入 chores 表（temple、chore_date 兩個新欄位，
+需另外在 Supabase SQL Editor 執行 sql/add_chore_temple_date.sql）。
+
+⚠️ 已匯入過坡務表的活動（例如星燈營），這兩欄會是 NULL，不建議用
+「重新匯入」補資料（importChores 是 INSERT 不是 upsert，會產生
+重複列），需要補資料請另外處理，詳見 SQL 檔內註解。

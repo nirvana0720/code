@@ -7,7 +7,7 @@ const TIMEOUT_MS = 4000
 // donor: 功德主紀錄物件（answers: {field_key: value}），可為 null
 // donorFields: 該活動的功德主動態欄位設定（有序，[{field_key, field_label}]）
 // eventName: 活動全名（例如「普宜精舍金剛經共修法會暨護法會頒證大典」），印在小單副標
-export async function printDonorTicket({ name, donor, donorFields, eventName } = {}) {
+export async function printDonorTicket({ name, donor, donorFields, eventName, copies = 1 } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
@@ -23,6 +23,7 @@ export async function printDonorTicket({ name, donor, donorFields, eventName } =
         name: name ?? '',
         fields,
         eventName: eventName ?? '',
+        copies,
       }),
       signal: controller.signal,
     })

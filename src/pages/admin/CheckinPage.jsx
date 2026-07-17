@@ -61,6 +61,7 @@ export default function CheckinPage() {
   const [donorFields, setDonorFields] = useState([]) // 該活動的功德主動態欄位（有序）
   const [countdown, setCountdown] = useState(IDLE_SECONDS)
   const [todayCount, setTodayCount] = useState(0)
+  const [printCopies, setPrintCopies] = useState(1) // 本次列印份數（只影響這次，不寫回資料庫）
 
   const [cameraOpen, setCameraOpen] = useState(false)
   const [stats, setStats] = useState({ total: 0, checkedIn: 0, walkinCount: 0 })
@@ -83,7 +84,10 @@ export default function CheckinPage() {
   useEffect(() => {
     getAllEvents().then(({ events }) => {
       const ev = events.find(e => e.event_id === id)
-      if (ev) setEvent(ev)
+      if (ev) {
+        setEvent(ev)
+        setPrintCopies(ev.donor_ticket_default_copies || 1)
+      }
     })
     listEventDonorFields(id).then(({ fields }) => setDonorFields(fields || []))
     // 多場次：載入場次清單（單場次活動取回空陣列也無妨）
@@ -250,7 +254,7 @@ export default function CheckinPage() {
           checkedInAt: res.checkedInAt,
           regId: res.registration.registration_id,
         })
-        printDonorTicket({ name: res.name, donor: donorRec, donorFields, eventName: event?.name })
+        printDonorTicket({ name: res.name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
         startCountdown()
         return
       }
@@ -272,7 +276,7 @@ export default function CheckinPage() {
         refreshStats()
         setStatus('success')
         setResult({ name: res.name, regId: res.registration.registration_id })
-        printDonorTicket({ name: res.name, donor: donorRec, donorFields, eventName: event?.name })
+        printDonorTicket({ name: res.name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
         startCountdown()
       } else {
         setStatus('error')
@@ -352,7 +356,7 @@ export default function CheckinPage() {
     if (registration.checked_in_at) {
       setStatus('already')
       setResult({ name, checkedInAt: registration.checked_in_at, registrationId: registration.registration_id })
-      printDonorTicket({ name, donor: donorRec, donorFields, eventName: event?.name })
+      printDonorTicket({ name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
       startCountdown()
       return
     }
@@ -363,7 +367,7 @@ export default function CheckinPage() {
       refreshStats()
       setStatus('success')
       setResult({ name, registrationId: registration.registration_id })
-      printDonorTicket({ name, donor: donorRec, donorFields, eventName: event?.name })
+      printDonorTicket({ name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
       startCountdown()
     } else {
       setStatus('error')
@@ -560,6 +564,17 @@ export default function CheckinPage() {
         </Link>
         <span className="text-gray-300">|</span>
         <h2 className="text-lg font-bold text-gray-800">{event?.name || '現場報到'}</h2>
+        <label className="flex items-center gap-1 text-xs text-gray-500">
+          本次份數
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={printCopies}
+            onChange={e => setPrintCopies(Math.min(10, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+            className="w-14 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300"
+          />
+        </label>
         <span className="ml-auto text-sm text-gray-500 flex items-center gap-2 flex-wrap justify-end">
           <span className="flex items-center gap-1">
             {isMulti && currentSessionId ? '本場次 ' : ''}已報到
@@ -644,7 +659,7 @@ export default function CheckinPage() {
             <p className="text-sm text-gray-400 mt-4">{countdown} 秒後自動重置</p>
             <div className="flex items-center justify-center gap-4 mt-2">
               <button
-                onClick={() => printDonorTicket({ name: result.name, donor, donorFields, eventName: event?.name })}
+                onClick={() => printDonorTicket({ name: result.name, donor, donorFields, eventName: event?.name, copies: printCopies })}
                 className="text-xs text-gray-400 hover:text-gray-600 underline"
               >
                 🖨 重新列印
@@ -667,7 +682,7 @@ export default function CheckinPage() {
             <DonorCard donor={donor} donorFields={donorFields} />
             <div className="flex gap-3 justify-center mt-5">
               <button
-                onClick={() => printDonorTicket({ name: result.name, donor, donorFields, eventName: event?.name })}
+                onClick={() => printDonorTicket({ name: result.name, donor, donorFields, eventName: event?.name, copies: printCopies })}
                 className="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-lg transition-colors"
               >
                 🖨 重新列印

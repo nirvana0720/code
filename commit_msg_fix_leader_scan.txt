@@ -1,0 +1,11 @@
+修復 /leader 掃卡入口頁誤判「找不到領隊資料」
+
+findLeaderByStudentId 原本直接查 registrations/car_leaders/
+car_assignments/head_leader 四張表，anon 對 registrations、
+car_assignments 已無 SELECT 權限（6 月健檢移除），導致任何
+領隊刷卡一律誤判成「不是本次活動的領隊」。
+
+改用新 RPC find_leader_by_student_id_public（SECURITY DEFINER），
+同時加上活動已結束不回傳的過期鎖定判斷，比照 lock_expired_token_pages.sql。
+
+SQL: sql/fix_leader_scan_rpc.sql（需另外在 Supabase SQL Editor 執行）

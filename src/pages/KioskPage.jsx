@@ -1729,13 +1729,23 @@ function OverviewScreen({
                     )
                   ) : (
                     <>
-                      {!registered && (
+                      {!registered && event.kiosk_open === false && (
+                        <span className="px-4 py-2 border-2 border-gray-200 text-gray-400 rounded-xl text-kiosk-sm inline-block text-center">
+                          敬請期待
+                        </span>
+                      )}
+                      {!registered && event.kiosk_open !== false && event.status === 'active' && (
                         <button
                           onClick={() => onSelectEvent({ event, fields, sessions })}
                           className="px-4 py-2 bg-blue-600 text-white rounded-xl text-kiosk-sm font-bold shadow active:scale-95 transition-transform"
                         >
                           立即報名
                         </button>
+                      )}
+                      {!registered && event.kiosk_open !== false && event.status !== 'active' && (
+                        <span className="px-4 py-2 border-2 border-gray-200 text-gray-400 rounded-xl text-kiosk-sm inline-block text-center">
+                          尚未開放報名
+                        </span>
                       )}
                       {registered && !confirming && (
                         <button

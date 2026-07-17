@@ -371,7 +371,7 @@ export async function getAllEvents({ excludeCanary = false } = {}) {
     .select('*')
     .order('date_start', { ascending: false })
 
-  if (excludeCanary) query = query.not('event_id', 'like', 'ca%')
+  if (excludeCanary) query = query.not('event_id::text', 'like', 'ca%')
 
   const { data, error } = await query
 

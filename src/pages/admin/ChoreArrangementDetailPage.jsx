@@ -2,14 +2,13 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import * as XLSX from '@e965/xlsx'
 import AdminLayout from '../../components/AdminLayout'
-import SearchableSelect from '../../components/SearchableSelect'
 import { getAllEvents } from '../../lib/supabase'
 import {
   getChoresByEventSession,
   getChoreMembersByEventSession,
   getUpCarMembersWithGender,
   autoAssignChores,
-  manualAssignMember,
+  batchAssignMembers,
   removeMember,
 } from '../../lib/choreAssignment'
 import ChoreImportModal from '../../components/ChoreImportModal'
@@ -122,7 +121,19 @@ export default function ChoreArrangementDetailPage() {
   const [expandedIds, setExpandedIds] = useState(new Set())
   const [copyMsg, setCopyMsg] = useState('')
 
+  const [selectedRegIds, setSelectedRegIds] = useState(new Set())
+  const [targetChoreId, setTargetChoreId] = useState(null)
+  const [poolSearch, setPoolSearch] = useState('')
+  const [poolCarFilter, setPoolCarFilter] = useState('')
+  const [poolGenderFilter, setPoolGenderFilter] = useState('all')
+
   useEffect(() => { load() }, [eventId])
+
+  // 切換時段時，先前的勾選與指派目標已不對應這個時段的坡務，一併清空
+  useEffect(() => {
+    setSelectedRegIds(new Set())
+    setTargetChoreId(null)
+  }, [sessionTab])
 
   async function load() {
     setLoading(true)
@@ -172,6 +183,43 @@ export default function ChoreArrangementDetailPage() {
 
   const summary = lastSummaryBySession[sessionTab]
 
+  const carOptions = useMemo(() => [...new Set(upCars.map(c => c.car_name).filter(Boolean))], [upCars])
+
+  const filteredPool = useMemo(() => {
+    const kw = poolSearch.trim()
+    return unassignedLive.filter(m => {
+      if (kw && !m.name?.includes(kw) && !m.car_name?.includes(kw)) return false
+      if (poolCarFilter && m.car_name !== poolCarFilter) return false
+      if (poolGenderFilter !== 'all' && m.gender !== poolGenderFilter) return false
+      return true
+    })
+  }, [unassignedLive, poolSearch, poolCarFilter, poolGenderFilter])
+
+  const allFilteredSelected = filteredPool.length > 0 && filteredPool.every(m => selectedRegIds.has(m.registration_id))
+
+  const targetChore = chores.find(c => c.chore_id === targetChoreId)
+  const targetChoreName = targetChore ? (targetChore.unit || targetChore.work_content || '（未命名坡務）') : ''
+
+  function toggleRegSelect(registrationId) {
+    setSelectedRegIds(prev => {
+      const next = new Set(prev)
+      if (next.has(registrationId)) next.delete(registrationId)
+      else next.add(registrationId)
+      return next
+    })
+  }
+
+  function toggleSelectAllFiltered(checked) {
+    setSelectedRegIds(prev => {
+      const next = new Set(prev)
+      for (const m of filteredPool) {
+        if (checked) next.add(m.registration_id)
+        else next.delete(m.registration_id)
+      }
+      return next
+    })
+  }
+
   function toggleExpand(choreId) {
     setExpandedIds(prev => {
       const next = new Set(prev)
@@ -192,17 +240,40 @@ export default function ChoreArrangementDetailPage() {
     await load()
   }
 
-  async function handleManualAssign(choreId, registrationId) {
-    if (!registrationId) return
-    const { success, error } = await manualAssignMember(choreId, registrationId)
-    if (!success) { alert('加入失敗：' + error); return }
-    await load()
+  async function handleBatchAssign() {
+    if (selectedRegIds.size === 0 || !targetChoreId) return
+    const registrationIds = [...selectedRegIds]
+    const { success, rows, error } = await batchAssignMembers(targetChoreId, registrationIds)
+    if (!success) { alert('指派失敗：' + error); return }
+
+    const regMap = Object.fromEntries(allUpMembers.map(m => [m.registration_id, m]))
+    const newMembers = rows.map(row => {
+      const src = regMap[row.registration_id] || {}
+      return {
+        id: row.id,
+        chore_id: row.chore_id,
+        registration_id: row.registration_id,
+        name: src.name,
+        gender: src.gender,
+        phone: src.phone || '',
+        car_name: src.car_name,
+      }
+    })
+    const assignedIds = new Set(registrationIds)
+    setMembersBySession(prev => ({
+      ...prev,
+      [sessionTab]: [...(prev[sessionTab] || []).filter(m => !assignedIds.has(m.registration_id)), ...newMembers],
+    }))
+    setSelectedRegIds(new Set())
   }
 
   async function handleRemove(memberId) {
     const { success, error } = await removeMember(memberId)
     if (!success) { alert('移除失敗：' + error); return }
-    await load()
+    setMembersBySession(prev => ({
+      ...prev,
+      [sessionTab]: (prev[sessionTab] || []).filter(m => m.id !== memberId),
+    }))
   }
 
   function copyLink(token) {
@@ -401,132 +472,206 @@ export default function ChoreArrangementDetailPage() {
           </div>
         )}
 
-        {/* 即時未排入名單：不只自動排坡後才顯示，手動加人/移除後也會跟著更新 */}
-        {unassignedLive.length > 0 && (
-          <div className="bg-red-50 border border-red-300 rounded-lg px-3 py-2 text-sm">
-            <div className="font-semibold text-red-700 text-xs mb-1">⚠️ 未排入（{unassignedLive.length} 人），請手動處理：</div>
-            <div className="flex flex-wrap gap-1.5">
-              {unassignedLive.map(m => (
-                <span key={m.registration_id} className="text-xs bg-white border border-red-200 text-red-700 rounded-full px-2 py-0.5">
-                  {m.name}（{m.car_name}・{m.reason}）
-                </span>
-              ))}
+        {/* 批次勾選面板 + 坡務卡片 */}
+        <div className="flex flex-col lg:flex-row gap-4 items-start">
+
+          {/* 左側：未排入名單，批次勾選面板 */}
+          <div className="w-full lg:w-96 lg:shrink-0 bg-white border rounded-xl shadow-sm overflow-hidden flex flex-col" style={{ maxHeight: 640 }}>
+            <div className="px-3 py-2.5 border-b bg-gray-50 space-y-2">
+              <div className="font-semibold text-sm text-gray-700">未排入名單（{unassignedLive.length} 人）</div>
+              <input
+                type="text"
+                value={poolSearch}
+                onChange={e => setPoolSearch(e.target.value)}
+                placeholder="搜尋姓名或車次"
+                className="w-full text-sm border rounded-lg px-2 py-1.5"
+              />
+              <div className="flex gap-2">
+                <select
+                  value={poolCarFilter}
+                  onChange={e => setPoolCarFilter(e.target.value)}
+                  className="flex-1 min-w-0 text-xs border rounded-lg px-1.5 py-1"
+                >
+                  <option value="">全部車次</option>
+                  {carOptions.map(car => <option key={car} value={car}>{car}</option>)}
+                </select>
+                <div className="flex border rounded-lg overflow-hidden text-xs shrink-0">
+                  {[['all', '全部'], ['male', '男'], ['female', '女']].map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setPoolGenderFilter(val)}
+                      className={`px-2 py-1 transition-colors ${poolGenderFilter === val ? 'bg-amber-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  onChange={e => toggleSelectAllFiltered(e.target.checked)}
+                />
+                全選（目前篩選結果 {filteredPool.length} 人）
+              </label>
+            </div>
+
+            <div className="flex-1 overflow-y-auto divide-y">
+              {filteredPool.length === 0 ? (
+                <div className="px-3 py-6 text-xs text-gray-400 text-center">沒有符合條件的人員</div>
+              ) : (
+                filteredPool.map(m => (
+                  <label key={m.registration_id} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-amber-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedRegIds.has(m.registration_id)}
+                      onChange={() => toggleRegSelect(m.registration_id)}
+                    />
+                    <span className="flex-1 min-w-0 truncate">{m.name}</span>
+                    <span className="text-xs text-gray-400 shrink-0">{genderLabel(m.gender)}・{m.car_name}</span>
+                  </label>
+                ))
+              )}
+            </div>
+
+            <div className="px-3 py-2.5 border-t bg-gray-50 space-y-1.5">
+              <div className="text-xs text-gray-600">
+                已勾選 <span className="font-semibold text-amber-700">{selectedRegIds.size}</span> 人 → 指派到：
+                <span className="font-medium text-gray-800">{targetChoreName || '（請選擇坡務）'}</span>
+              </div>
+              <select
+                value={targetChoreId || ''}
+                onChange={e => setTargetChoreId(e.target.value || null)}
+                className="w-full text-xs border rounded-lg px-2 py-1.5"
+              >
+                <option value="">選擇目標坡務…</option>
+                {chores.map(c => (
+                  <option key={c.chore_id} value={c.chore_id}>{c.unit || c.work_content || '（未命名坡務）'}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleBatchAssign}
+                disabled={selectedRegIds.size === 0 || !targetChoreId}
+                className="w-full px-3 py-1.5 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 transition-colors font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                指派
+              </button>
             </div>
           </div>
-        )}
 
-        {/* 坡務卡片 */}
-        {chores.length === 0 ? (
-          <div className="text-sm text-gray-400 py-10 text-center border-2 border-dashed rounded-xl">
-            尚未匯入坡務表，請點「📤 匯入坡務表」
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {chores.map(chore => {
-              const mems = membersByChore[chore.chore_id] ?? []
-              const maleCount   = mems.filter(m => m.gender === 'male').length
-              const femaleCount = mems.filter(m => m.gender === 'female').length
-              const otherCount  = mems.length - maleCount - femaleCount
-              const maleOver   = maleCount > (chore.quota_male ?? 0)
-              const femaleOver = femaleCount > (chore.quota_female ?? 0)
-              const expanded = expandedIds.has(chore.chore_id)
-              return (
-                <div key={chore.chore_id} className="bg-white border rounded-xl shadow-sm overflow-hidden">
-                  <div className="px-4 py-3 bg-amber-50 border-b border-amber-200">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-800">{chore.unit || '（未填單位）'}</span>
-                      <span className="text-sm text-gray-600">{chore.work_content}</span>
-                      <span className="ml-auto text-xs">
-                        <span className={maleOver ? 'text-red-600 font-bold' : 'text-gray-500'}>
-                          男 {maleCount}/{chore.quota_male ?? 0}
-                        </span>
-                        <span className="mx-1.5 text-gray-300">|</span>
-                        <span className={femaleOver ? 'text-red-600 font-bold' : 'text-gray-500'}>
-                          女 {femaleCount}/{chore.quota_female ?? 0}
-                        </span>
-                        {otherCount > 0 && <span className="ml-1.5 text-gray-400">（另 {otherCount} 人無性別資訊）</span>}
-                      </span>
-                      {chore.access_token && (
-                        <button
-                          onClick={() => copyLink(chore.access_token)}
-                          className="text-xs text-blue-600 hover:text-blue-800 hover:underline px-2 py-1 rounded hover:bg-blue-50 transition-colors shrink-0"
-                        >
-                          🔗 複製小組長連結
-                        </button>
-                      )}
-                    </div>
-                    <div className="mt-1.5 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-0.5">
-                      {chore.location && <span>📍 {chore.location}</span>}
-                      {(chore.supervising_monk || chore.supervising_monk_phone) && (
-                        <span>
-                          🛕 負責法師：{chore.supervising_monk}
-                          {chore.supervising_monk_phone && (
-                            <> ・<a href={telHref(chore.supervising_monk_phone)} className="text-blue-600 hover:underline">{chore.supervising_monk_phone}</a></>
-                          )}
-                        </span>
-                      )}
-                      {(chore.leader_name || chore.leader_phone) && (
-                        <span>
-                          👤 小組長：{chore.leader_name}
-                          {chore.leader_phone && (
-                            <>（<a href={telHref(chore.leader_phone)} className="text-blue-600 hover:underline">{chore.leader_phone}</a>）</>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="px-4 py-2.5 flex items-center gap-3 flex-wrap border-b bg-gray-50">
-                    <button
-                      onClick={() => toggleExpand(chore.chore_id)}
-                      className="text-xs text-gray-500 hover:text-gray-700"
+          {/* 右側：坡務卡片 */}
+          <div className="flex-1 min-w-0 w-full">
+            {chores.length === 0 ? (
+              <div className="text-sm text-gray-400 py-10 text-center border-2 border-dashed rounded-xl">
+                尚未匯入坡務表，請點「📤 匯入坡務表」
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {chores.map(chore => {
+                  const mems = membersByChore[chore.chore_id] ?? []
+                  const maleCount   = mems.filter(m => m.gender === 'male').length
+                  const femaleCount = mems.filter(m => m.gender === 'female').length
+                  const otherCount  = mems.length - maleCount - femaleCount
+                  const maleOver   = maleCount > (chore.quota_male ?? 0)
+                  const femaleOver = femaleCount > (chore.quota_female ?? 0)
+                  const expanded = expandedIds.has(chore.chore_id)
+                  const isTarget = targetChoreId === chore.chore_id
+                  return (
+                    <div
+                      key={chore.chore_id}
+                      onClick={() => setTargetChoreId(chore.chore_id)}
+                      className={`bg-white border rounded-xl shadow-sm overflow-hidden cursor-pointer transition-shadow ${
+                        isTarget ? 'ring-2 ring-amber-500' : 'hover:shadow-md'
+                      }`}
                     >
-                      {expanded ? '▲ 收合名單' : `▼ 展開名單（${mems.length} 人）`}
-                    </button>
-                    <div className="ml-auto w-full sm:w-64">
-                      <SearchableSelect
-                        value=""
-                        onChange={rid => handleManualAssign(chore.chore_id, rid)}
-                        placeholder="＋ 加入學員"
-                        options={availableToAssign.map(m => ({
-                          value: m.registration_id,
-                          label: m.name,
-                          sublabel: `${genderLabel(m.gender)}・${m.car_name}`,
-                          searchText: `${m.name} ${m.car_name}`,
-                        }))}
-                      />
-                    </div>
-                  </div>
-
-                  {expanded && (
-                    <div className="divide-y">
-                      {mems.length === 0 ? (
-                        <div className="px-4 py-3 text-xs text-gray-400">（尚無人員分配）</div>
-                      ) : (
-                        mems.map(m => (
-                          <div key={m.id} className="flex items-center gap-2 px-4 py-2 text-sm">
-                            <span className="flex-1 min-w-0 font-medium">{m.name}</span>
-                            {m.phone && (
-                              <a href={telHref(m.phone)} className="text-xs text-blue-600 hover:underline shrink-0">{m.phone}</a>
-                            )}
-                            <span className="text-xs text-gray-400">{genderLabel(m.gender)}</span>
-                            <span className="text-xs text-gray-400">{m.car_name}</span>
+                      <div className="px-4 py-3 bg-amber-50 border-b border-amber-200">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {isTarget && (
+                            <span className="text-xs bg-amber-500 text-white rounded-full px-2 py-0.5 shrink-0">指派目標</span>
+                          )}
+                          <span className="font-semibold text-gray-800">{chore.unit || '（未填單位）'}</span>
+                          <span className="text-sm text-gray-600">{chore.work_content}</span>
+                          <span className="ml-auto text-xs">
+                            <span className={maleOver ? 'text-red-600 font-bold' : 'text-gray-500'}>
+                              男 {maleCount}/{chore.quota_male ?? 0}
+                            </span>
+                            <span className="mx-1.5 text-gray-300">|</span>
+                            <span className={femaleOver ? 'text-red-600 font-bold' : 'text-gray-500'}>
+                              女 {femaleCount}/{chore.quota_female ?? 0}
+                            </span>
+                            {otherCount > 0 && <span className="ml-1.5 text-gray-400">（另 {otherCount} 人無性別資訊）</span>}
+                          </span>
+                          {chore.access_token && (
                             <button
-                              onClick={() => handleRemove(m.id)}
-                              className="text-red-400 hover:text-red-600 text-xs px-2"
+                              onClick={e => { e.stopPropagation(); copyLink(chore.access_token) }}
+                              className="text-xs text-blue-600 hover:text-blue-800 hover:underline px-2 py-1 rounded hover:bg-blue-50 transition-colors shrink-0"
                             >
-                              移除
+                              🔗 複製小組長連結
                             </button>
-                          </div>
-                        ))
+                          )}
+                        </div>
+                        <div className="mt-1.5 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-0.5">
+                          {chore.location && <span>📍 {chore.location}</span>}
+                          {(chore.supervising_monk || chore.supervising_monk_phone) && (
+                            <span>
+                              🛕 負責法師：{chore.supervising_monk}
+                              {chore.supervising_monk_phone && (
+                                <> ・<a href={telHref(chore.supervising_monk_phone)} onClick={e => e.stopPropagation()} className="text-blue-600 hover:underline">{chore.supervising_monk_phone}</a></>
+                              )}
+                            </span>
+                          )}
+                          {(chore.leader_name || chore.leader_phone) && (
+                            <span>
+                              👤 小組長：{chore.leader_name}
+                              {chore.leader_phone && (
+                                <>（<a href={telHref(chore.leader_phone)} onClick={e => e.stopPropagation()} className="text-blue-600 hover:underline">{chore.leader_phone}</a>）</>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="px-4 py-2.5 flex items-center gap-3 flex-wrap border-b bg-gray-50">
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleExpand(chore.chore_id) }}
+                          className="text-xs text-gray-500 hover:text-gray-700"
+                        >
+                          {expanded ? '▲ 收合名單' : `▼ 展開名單（${mems.length} 人）`}
+                        </button>
+                      </div>
+
+                      {expanded && (
+                        <div className="divide-y">
+                          {mems.length === 0 ? (
+                            <div className="px-4 py-3 text-xs text-gray-400">（尚無人員分配）</div>
+                          ) : (
+                            mems.map(m => (
+                              <div key={m.id} className="flex items-center gap-2 px-4 py-2 text-sm">
+                                <span className="flex-1 min-w-0 font-medium">{m.name}</span>
+                                {m.phone && (
+                                  <a href={telHref(m.phone)} onClick={e => e.stopPropagation()} className="text-xs text-blue-600 hover:underline shrink-0">{m.phone}</a>
+                                )}
+                                <span className="text-xs text-gray-400">{genderLabel(m.gender)}</span>
+                                <span className="text-xs text-gray-400">{m.car_name}</span>
+                                <button
+                                  onClick={e => { e.stopPropagation(); handleRemove(m.id) }}
+                                  className="text-red-400 hover:text-red-600 text-xs px-2"
+                                >
+                                  移除
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              )
-            })}
+                  )
+                })}
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         {copyMsg && (
           <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-sm px-4 py-2 rounded-lg shadow-lg whitespace-nowrap z-50">

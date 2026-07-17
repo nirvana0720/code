@@ -230,6 +230,39 @@ export async function manualAssignMember(choreId, registrationId) {
 }
 
 /**
+ * 批次把多人一次加入某坡務；每個人若在同一 session 已在別的坡務，先移除舊的再加入新的
+ */
+export async function batchAssignMembers(choreId, registrationIds) {
+  if (!registrationIds || registrationIds.length === 0) return { success: false, rows: [], error: '未選擇任何人員' }
+
+  const { data: chore, error: choreErr } = await supabase
+    .from('chores')
+    .select('chore_id, event_id, session')
+    .eq('chore_id', choreId)
+    .single()
+  if (choreErr) return { success: false, rows: [], error: choreErr.message }
+
+  const { chores: sessionChores, error: scErr } = await getChoresByEventSession(chore.event_id, chore.session)
+  if (scErr) return { success: false, rows: [], error: scErr }
+  const sessionChoreIds = sessionChores.map(c => c.chore_id)
+
+  const { error: delErr } = await supabase
+    .from('chore_members')
+    .delete()
+    .in('chore_id', sessionChoreIds)
+    .in('registration_id', registrationIds)
+  if (delErr) return { success: false, rows: [], error: delErr.message }
+
+  const { data: rows, error: insErr } = await supabase
+    .from('chore_members')
+    .insert(registrationIds.map(id => ({ chore_id: choreId, registration_id: id })))
+    .select('id, chore_id, registration_id')
+  if (insErr) return { success: false, rows: [], error: insErr.message }
+
+  return { success: true, rows: rows || [], error: null }
+}
+
+/**
  * 手動移除某人的坡務分配
  */
 export async function removeMember(choreMemberId) {

@@ -22,7 +22,7 @@ export default function ChoreArrangementPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    getAllEvents().then(({ events }) => {
+    getAllEvents({ excludeCanary: true }).then(({ events }) => {
       setEvents((events || []).filter(ev => ev.is_chore_event && ev.status === 'active'))
       setLoading(false)
     })

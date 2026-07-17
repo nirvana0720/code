@@ -179,7 +179,7 @@ export default function DonorManagePage() {
     const [donorsRes, studentsRes, eventsRes, fieldsRes] = await Promise.all([
       listEventDonors(id),
       getAllStudents(''),
-      getAllEvents(),
+      getAllEvents({ excludeCanary: true }),
       listEventDonorFields(id),
     ])
     setDonors(donorsRes.donors || [])

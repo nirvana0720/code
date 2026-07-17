@@ -202,7 +202,7 @@ export default function EventDetailPage() {
   const load = useCallback(async () => {
     setLoading(true)
     const [{ events }, { fields: f }, { registrations: r }, { changes: c }, { volunteers: v }, { volunteerIds: va }, { templates: tmpl }, { sessions: s }, { fields: sf }, { checkins: sck }] = await Promise.all([
-      getAllEvents(),
+      getAllEvents({ excludeCanary: true }),
       getEventFields(id),
       getRegistrationsWithStudents(id),
       getEventChanges(id),

@@ -82,7 +82,7 @@ export default function CheckinPage() {
 
   // 取得活動完整資訊 + 多場次場次清單
   useEffect(() => {
-    getAllEvents().then(({ events }) => {
+    getAllEvents({ excludeCanary: true }).then(({ events }) => {
       const ev = events.find(e => e.event_id === id)
       if (ev) {
         setEvent(ev)

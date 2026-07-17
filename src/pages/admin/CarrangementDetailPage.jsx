@@ -187,7 +187,7 @@ export default function CarrangementDetailPage() {
       { headLeaders: smallCarLeaderList },
       { monks: monkList },
     ] = await Promise.all([
-      getAllEvents(),
+      getAllEvents({ excludeCanary: true }),
       getEventRegistrationsDetail(eventId),
       getRelationshipGroups(),
       getCarArrangement(eventId, 'up'),

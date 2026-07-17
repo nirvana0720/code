@@ -138,7 +138,7 @@ export default function ChoreArrangementDetailPage() {
   async function load() {
     setLoading(true)
     const [{ events }, up, down, upMembers, downMembers, allMembersRes] = await Promise.all([
-      getAllEvents(),
+      getAllEvents({ excludeCanary: true }),
       getChoresByEventSession(eventId, '上午'),
       getChoresByEventSession(eventId, '下午'),
       getChoreMembersByEventSession(eventId, '上午'),

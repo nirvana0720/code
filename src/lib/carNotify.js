@@ -8,10 +8,15 @@ const DIRECTION_LABEL = { up: '去程', down: '回程' }
  * @param {string} carName
  * @param {'up'|'down'} direction
  * @param {string} noticeText 配合事項全文（可為空字串）
+ * @param {string} [eventName] 法會/活動名稱（可留空，留空則不顯示活動資訊那行）
+ * @param {string} [eventDateLabel] 活動日期文字，例如 2026/07/17 或 2026/07/17 ～ 2026/07/18
  */
-export function buildCarMessage(carName, direction, noticeText) {
+export function buildCarMessage(carName, direction, noticeText, eventName, eventDateLabel) {
   const dirLabel = DIRECTION_LABEL[direction] ?? direction
-  const base = `【車次通知】您已排入：${carName}（${dirLabel}）`
+  const eventLine = eventName
+    ? `【車次通知】${eventDateLabel ? `${eventDateLabel} ` : ''}${eventName}\n`
+    : '【車次通知】'
+  const base = `${eventLine}您已排入：${carName}（${dirLabel}）`
   const notice = (noticeText ?? '').trim()
   return notice ? `${base}\n\n${notice}` : base
 }

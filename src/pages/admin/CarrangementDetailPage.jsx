@@ -27,6 +27,7 @@ import {
 import { DIRECTIONS, chNum, genId, dirLabel, getName, getClasses, getGuestNote, findGuestMatch, findGuestHost, fieldKeysFor, isSmallDriver, isSmallPassenger, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, sortedMembersForDisplay } from '../../lib/carrangeHelpers'
 import autoArrange from '../../lib/autoArrange'
 import { getChoreLocationsByEvent } from '../../lib/choreAssignment'
+import { formatEventDate } from '../../lib/eventDetailHelpers'
 import PersonRow from '../../components/PersonRow'
 import StatCard from '../../components/StatCard'
 import CarNotificationModal from '../../components/CarNotificationModal'
@@ -1851,6 +1852,8 @@ export default function CarrangementDetailPage() {
           registrations={regs}
           choreLocations={choreLocations}
           isChoreEvent={!!event?.is_chore_event}
+          eventName={event?.name ?? ''}
+          eventDateLabel={formatEventDate(event)}
           onClose={() => setNotifyOpen(false)}
         />
       )}

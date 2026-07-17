@@ -5,7 +5,7 @@ import { buildCarMessage, buildMemberExtra, sendCarNotifications } from '../lib/
 
 const DIRECTION_LABEL = { up: '去程', down: '回程' }
 
-export default function CarNotificationModal({ eventId, direction, cars, defaultNoticeText, registrations, choreLocations, isChoreEvent, onClose }) {
+export default function CarNotificationModal({ eventId, direction, cars, defaultNoticeText, registrations, choreLocations, isChoreEvent, eventName, eventDateLabel, onClose }) {
   const [texts, setTexts] = useState(() =>
     Object.fromEntries(cars.map(c => [c.car_id, c.notice_text ?? defaultNoticeText ?? '']))
   )
@@ -42,7 +42,7 @@ export default function CarNotificationModal({ eventId, direction, cars, default
       const payloadCars = cars.map(c => ({
         car_id: c.car_id,
         car_name: c.car_name,
-        message_text: buildCarMessage(c.car_name, direction, texts[c.car_id]),
+        message_text: buildCarMessage(c.car_name, direction, texts[c.car_id], eventName, eventDateLabel),
       }))
       const memberExtras = {}
       for (const r of (registrations ?? [])) {

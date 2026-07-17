@@ -46,12 +46,12 @@ export function buildMemberExtra(dormitoryRoom, choreSessions, { includeDormitor
 
 /**
  * 呼叫 Edge Function 發送車次通知
- * @param {{ eventId: string, direction: 'up'|'down', cars: Array<{ car_id: string, car_name: string, message_text: string }>, memberExtras?: Record<string, string> }} params
+ * @param {{ eventId: string, direction: 'up'|'down', cars: Array<{ car_id: string, car_name: string, message_text: string }>, memberExtras?: Record<string, string>, onlyRegistrationIds?: Record<string, string[]> }} params
  */
-export async function sendCarNotifications({ eventId, direction, cars, memberExtras }) {
-  const { data, error } = await supabase.functions.invoke('send-car-notification', {
-    body: { event_id: eventId, direction, cars, member_extras: memberExtras ?? {} },
-  })
+export async function sendCarNotifications({ eventId, direction, cars, memberExtras, onlyRegistrationIds }) {
+  const body = { event_id: eventId, direction, cars, member_extras: memberExtras ?? {} }
+  if (onlyRegistrationIds) body.only_registration_ids = onlyRegistrationIds
+  const { data, error } = await supabase.functions.invoke('send-car-notification', { body })
   if (error) return { success: false, results: [], error: error.message }
   return { success: true, results: data?.results ?? [], error: null }
 }

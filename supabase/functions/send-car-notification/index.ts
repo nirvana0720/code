@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
   const role = (user.app_metadata as { role?: string } | null)?.role ?? 'volunteer'
   if (role !== 'admin') return json({ error: '未授權：僅限管理員發送通知' }, 403)
 
-  let body: { event_id?: string; direction?: string; cars?: Array<{ car_id: string; car_name: string; message_text: string }>; member_extras?: Record<string, string> }
+  let body: { event_id?: string; direction?: string; cars?: Array<{ car_id: string; car_name: string; message_text: string }>; member_extras?: Record<string, string>; only_registration_ids?: Record<string, string[]> }
   try {
     body = await req.json()
   } catch {
@@ -72,18 +72,26 @@ Deno.serve(async (req) => {
   const results = []
 
   for (const car of cars) {
-    const carResult = { car_id: car.car_id, car_name: car.car_name, sent: 0, skipped: 0, failed: 0 }
+    const carResult = { car_id: car.car_id, car_name: car.car_name, sent: 0, skipped: 0, failed: 0, skipped_members: [] as Array<{ registration_id: string; name: string }>, failed_members: [] as Array<{ registration_id: string; name: string }> }
 
-    const { data: members, error: memberErr } = await db
+    let query = db
       .from('car_members')
       .select(`
         registration_id,
         registrations!inner (
+          registration_id,
           student_id,
-          students!student_id ( line_user_id )
+          students!student_id ( name, line_user_id )
         )
       `)
       .eq('car_id', car.car_id)
+
+    const onlyIds = body.only_registration_ids?.[car.car_id]
+    if (onlyIds && onlyIds.length > 0) {
+      query = query.in('registration_id', onlyIds)
+    }
+
+    const { data: members, error: memberErr } = await query
 
     if (memberErr) {
       console.error('[send-car-notification] query car_members failed', car.car_id, memberErr)
@@ -92,15 +100,20 @@ Deno.serve(async (req) => {
     }
 
     for (const m of (members ?? [])) {
+      const name = (m as any).registrations?.students?.name ?? ''
       const lineUserId = (m as any).registrations?.students?.line_user_id
       if (!lineUserId) {
         carResult.skipped++
+        carResult.skipped_members.push({ registration_id: m.registration_id, name })
         continue
       }
       const extra = body.member_extras?.[m.registration_id] ?? ''
       const ok = await pushLineMessage(lineUserId, (car.message_text ?? '') + extra)
       if (ok) carResult.sent++
-      else carResult.failed++
+      else {
+        carResult.failed++
+        carResult.failed_members.push({ registration_id: m.registration_id, name })
+      }
     }
 
     results.push(carResult)

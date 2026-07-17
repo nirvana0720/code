@@ -10,10 +10,14 @@ export default function CarNotificationModal({ eventId, direction, cars, default
     Object.fromEntries(cars.map(c => [c.car_id, c.notice_text ?? defaultNoticeText ?? '']))
   )
   const [sending, setSending] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const [error, setError] = useState('')
-  const [results, setResults] = useState(null) // [{ car_id, car_name, sent, skipped, failed }]
+  const [results, setResults] = useState(null) // [{ car_id, car_name, sent, skipped, failed, skipped_members, failed_members }]
   const [includeDormitory, setIncludeDormitory] = useState(false)
   const [includeChore, setIncludeChore] = useState(false)
+  // 記住上次發送組好的訊息內容，重新發送失敗名單時不用重新輸入
+  const [sentCars, setSentCars] = useState(null)
+  const [sentMemberExtras, setSentMemberExtras] = useState(null)
 
   function setCarText(carId, value) {
     setTexts(prev => ({ ...prev, [carId]: value }))
@@ -56,10 +60,46 @@ export default function CarNotificationModal({ eventId, direction, cars, default
         return
       }
       setResults(res)
+      setSentCars(payloadCars)
+      setSentMemberExtras(memberExtras)
     } catch (err) {
       setError('發送失敗：' + (err?.message ?? String(err)))
     }
     setSending(false)
+  }
+
+  // 只重發上次結果裡「發送失敗」的人（未綁定 LINE 的人重發也沒用，不列入），
+  // 重用原本組好的 message_text / member_extras，發送完只更新對應車輛的結果，不動其他車輛
+  async function handleRetryFailed() {
+    const failedCars = results.filter(r => r.failed_members?.length > 0)
+    if (failedCars.length === 0) return
+    const onlyRegistrationIds = Object.fromEntries(
+      failedCars.map(r => [r.car_id, r.failed_members.map(m => m.registration_id)])
+    )
+    const retryCarIds = new Set(failedCars.map(r => r.car_id))
+    const retryCars = (sentCars ?? []).filter(c => retryCarIds.has(c.car_id))
+
+    setRetrying(true)
+    setError('')
+    try {
+      const { success, results: res, error: sendErr } = await sendCarNotifications({
+        eventId,
+        direction,
+        cars: retryCars,
+        memberExtras: sentMemberExtras ?? {},
+        onlyRegistrationIds,
+      })
+      if (!success) {
+        setError('重新發送失敗：' + sendErr)
+        setRetrying(false)
+        return
+      }
+      const resultMap = Object.fromEntries(res.map(r => [r.car_id, r]))
+      setResults(prev => prev.map(r => resultMap[r.car_id] ?? r))
+    } catch (err) {
+      setError('重新發送失敗：' + (err?.message ?? String(err)))
+    }
+    setRetrying(false)
   }
 
   return (
@@ -85,8 +125,30 @@ export default function CarNotificationModal({ eventId, direction, cars, default
                     ✅ 成功 {r.sent} 位　⬜ 未綁定跳過 {r.skipped} 位
                     {r.failed > 0 && <span className="text-red-600">　❌ 失敗 {r.failed} 位</span>}
                   </p>
+                  {(r.failed_members?.length > 0 || r.skipped_members?.length > 0) && (
+                    <details className="mt-1.5 text-xs text-gray-500">
+                      <summary className="cursor-pointer select-none hover:text-gray-700">查看名單</summary>
+                      <div className="mt-1 space-y-0.5 pl-2">
+                        {r.skipped_members?.length > 0 && (
+                          <p>⬜ 未綁定 LINE：{r.skipped_members.map(m => m.name || m.registration_id).join('、')}</p>
+                        )}
+                        {r.failed_members?.length > 0 && (
+                          <p className="text-red-600">❌ 發送失敗：{r.failed_members.map(m => m.name || m.registration_id).join('、')}</p>
+                        )}
+                      </div>
+                    </details>
+                  )}
                 </div>
               ))}
+              {results.some(r => r.failed_members?.length > 0) && (
+                <button
+                  onClick={handleRetryFailed}
+                  disabled={retrying}
+                  className="w-full px-4 py-2 text-sm bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {retrying ? '重新發送中…' : '🔁 重新發送失敗名單'}
+                </button>
+              )}
             </div>
           ) : (
             <>

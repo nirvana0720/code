@@ -220,7 +220,7 @@ export default function ActivitiesPage() {
             {import.meta.env.VITE_TEMPLE_NAME}
           </h1>
           <p style={{ color: '#B0A898', fontSize: '0.85rem', letterSpacing: '0.2em', marginTop: '4px' }}>
-            中台禪寺宜蘭分院
+            {import.meta.env.VITE_TEMPLE_SUBTITLE || '中台禪寺宜蘭分院'}
           </p>
           <p style={{ color: '#C9A96E', fontSize: '0.9rem', marginTop: '16px', letterSpacing: '0.05em' }}>
             年度活動一覽

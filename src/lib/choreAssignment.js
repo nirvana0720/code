@@ -71,6 +71,47 @@ export async function getUpCarMembersWithGender(eventId) {
 }
 
 /**
+ * 取得該活動「所有報名者」（不限是否有排上山大車），供排坡「未排入名單」使用——
+ * 沒有排大車（例如選「其他交通」自行前往）的人 car_name 顯示為「自行前往」，一樣可以被批次指派坡務。
+ * 跟 getUpCarMembersWithGender 分開一支：自動排坡（依車輛分組）仍只用後者，不吃這批「自行前往」的人，
+ * 避免自動排坡邏輯被打亂——這批人固定要手動指派。
+ */
+export async function getEventMembersWithGender(eventId) {
+  const { data: regs, error: regErr } = await supabase
+    .from('registrations')
+    .select('registration_id, student_id, answers, registered_at, students!student_id ( name, phone, student_classes ( group_name ) )')
+    .eq('event_id', eventId)
+    .order('registered_at', { ascending: true })
+  if (regErr) return { members: [], error: regErr.message }
+
+  const { data: cars, error: carErr } = await supabase
+    .from('car_assignments')
+    .select('car_id, car_name, car_members ( registration_id )')
+    .eq('event_id', eventId)
+    .eq('direction', 'up')
+  if (carErr) return { members: [], error: carErr.message }
+
+  const carByRegId = {}
+  for (const c of (cars || [])) {
+    for (const m of (c.car_members ?? [])) {
+      carByRegId[m.registration_id] = { car_id: c.car_id, car_name: c.car_name }
+    }
+  }
+
+  const members = (regs || []).map(r => ({
+    registration_id: r.registration_id,
+    student_id: r.student_id,
+    name: r.students?.name ?? r.answers?.guest_name ?? '訪客',
+    phone: r.students?.phone || '',
+    gender: deriveGenderFromClasses(r.students?.student_classes),
+    car_id: carByRegId[r.registration_id]?.car_id ?? null,
+    car_name: carByRegId[r.registration_id]?.car_name ?? '自行前往',
+  }))
+
+  return { members, error: null }
+}
+
+/**
  * 取得某活動某時段所有已分配的坡務成員（含姓名/性別/上山車次），供展開名單與「已排除」判斷用
  */
 export async function getChoreMembersByEventSession(eventId, session) {

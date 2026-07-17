@@ -6,7 +6,7 @@ import { getAllEvents } from '../../lib/supabase'
 import {
   getChoresByEventSession,
   getChoreMembersByEventSession,
-  getUpCarMembersWithGender,
+  getEventMembersWithGender,
   autoAssignChores,
   batchAssignMembers,
   removeMember,
@@ -137,18 +137,18 @@ export default function ChoreArrangementDetailPage() {
 
   async function load() {
     setLoading(true)
-    const [{ events }, up, down, upMembers, downMembers, cars] = await Promise.all([
+    const [{ events }, up, down, upMembers, downMembers, allMembersRes] = await Promise.all([
       getAllEvents(),
       getChoresByEventSession(eventId, '上午'),
       getChoresByEventSession(eventId, '下午'),
       getChoreMembersByEventSession(eventId, '上午'),
       getChoreMembersByEventSession(eventId, '下午'),
-      getUpCarMembersWithGender(eventId),
+      getEventMembersWithGender(eventId),
     ])
     setEvent(events.find(e => e.event_id === eventId) ?? null)
     setChoresBySession({ 上午: up.chores, 下午: down.chores })
     setMembersBySession({ 上午: upMembers.members, 下午: downMembers.members })
-    setUpCars(cars.cars ?? [])
+    setUpCars(allMembersRes.members ?? [])
     setLoading(false)
   }
 
@@ -165,7 +165,8 @@ export default function ChoreArrangementDetailPage() {
   }, [members])
 
   const assignedRegIdsInSession = useMemo(() => new Set(members.map(m => m.registration_id)), [members])
-  const allUpMembers = useMemo(() => upCars.flatMap(c => c.members.map(m => ({ ...m, car_name: c.car_name }))), [upCars])
+  // upCars 現在是 getEventMembersWithGender 回傳的扁平名單（每人已帶 car_name，沒排大車的人是「自行前往」），不用再 flatMap
+  const allUpMembers = upCars
   const availableToAssign = useMemo(
     () => allUpMembers.filter(m => !assignedRegIdsInSession.has(m.registration_id)),
     [allUpMembers, assignedRegIdsInSession]
@@ -183,7 +184,7 @@ export default function ChoreArrangementDetailPage() {
 
   const summary = lastSummaryBySession[sessionTab]
 
-  const carOptions = useMemo(() => [...new Set(upCars.map(c => c.car_name).filter(Boolean))], [upCars])
+  const carOptions = useMemo(() => [...new Set(upCars.map(m => m.car_name).filter(Boolean))], [upCars])
 
   const filteredPool = useMemo(() => {
     const kw = poolSearch.trim()

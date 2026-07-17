@@ -1,17 +1,19 @@
 // 「發送乘車通知」預覽/編輯彈窗
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { buildCarMessage, sendCarNotifications } from '../lib/carNotify'
+import { buildCarMessage, buildMemberExtra, sendCarNotifications } from '../lib/carNotify'
 
 const DIRECTION_LABEL = { up: '去程', down: '回程' }
 
-export default function CarNotificationModal({ eventId, direction, cars, defaultNoticeText, onClose }) {
+export default function CarNotificationModal({ eventId, direction, cars, defaultNoticeText, registrations, choreLocations, isChoreEvent, onClose }) {
   const [texts, setTexts] = useState(() =>
     Object.fromEntries(cars.map(c => [c.car_id, c.notice_text ?? defaultNoticeText ?? '']))
   )
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [results, setResults] = useState(null) // [{ car_id, car_name, sent, skipped, failed }]
+  const [includeDormitory, setIncludeDormitory] = useState(false)
+  const [includeChore, setIncludeChore] = useState(false)
 
   function setCarText(carId, value) {
     setTexts(prev => ({ ...prev, [carId]: value }))
@@ -42,7 +44,12 @@ export default function CarNotificationModal({ eventId, direction, cars, default
         car_name: c.car_name,
         message_text: buildCarMessage(c.car_name, direction, texts[c.car_id]),
       }))
-      const { success, results: res, error: sendErr } = await sendCarNotifications({ eventId, direction, cars: payloadCars })
+      const memberExtras = {}
+      for (const r of (registrations ?? [])) {
+        const extra = buildMemberExtra(r.dormitory_room, choreLocations?.[r.registration_id], { includeDormitory, includeChore })
+        if (extra) memberExtras[r.registration_id] = extra
+      }
+      const { success, results: res, error: sendErr } = await sendCarNotifications({ eventId, direction, cars: payloadCars, memberExtras })
       if (!success) {
         setError('發送失敗：' + sendErr)
         setSending(false)
@@ -82,7 +89,29 @@ export default function CarNotificationModal({ eventId, direction, cars, default
               ))}
             </div>
           ) : (
-            cars.map(c => (
+            <>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border border-gray-200 rounded-lg px-4 py-3 bg-gray-50">
+                <label className="flex items-center gap-1.5 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={includeDormitory}
+                    onChange={e => setIncludeDormitory(e.target.checked)}
+                  />
+                  包含寮號
+                </label>
+                {isChoreEvent && (
+                  <label className="flex items-center gap-1.5 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={includeChore}
+                      onChange={e => setIncludeChore(e.target.checked)}
+                    />
+                    包含坡務
+                  </label>
+                )}
+                <span className="text-xs text-gray-400">沒有寮號／沒排坡務的人，那一行會自動省略</span>
+              </div>
+              {cars.map(c => (
               <div key={c.car_id} className="border border-gray-200 rounded-lg px-4 py-3">
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <span className="font-semibold text-gray-800">{c.car_name}</span>
@@ -101,7 +130,8 @@ export default function CarNotificationModal({ eventId, direction, cars, default
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 />
               </div>
-            ))
+              ))}
+            </>
           )}
         </div>
 

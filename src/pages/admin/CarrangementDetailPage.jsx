@@ -631,8 +631,9 @@ export default function CarrangementDetailPage() {
     // 福慧出坡活動：分車名單加「上午/下午坡務位置」欄，給車輛領隊知道等一下要去哪裡集合
     const showChoreCols = !!event?.is_chore_event
     const choreColHeaders = showChoreCols ? ['上午坡務位置', '下午坡務位置'] : []
+    const fmtChore = s => s ? `${s.unit || s.work_content || ''}${s.location ? `（${s.location}）` : ''}` : ''
     const choreColsFor = regId => showChoreCols
-      ? [choreLocations[regId]?.['上午'] ?? '', choreLocations[regId]?.['下午'] ?? '']
+      ? [fmtChore(choreLocations[regId]?.['上午']), fmtChore(choreLocations[regId]?.['下午'])]
       : []
 
     // ── 排序工具 ──────────────────────────────────────
@@ -1847,6 +1848,9 @@ export default function CarrangementDetailPage() {
             .filter(c => c.tempId && !String(c.tempId).startsWith('tmp-'))
             .map(c => ({ car_id: c.tempId, car_name: c.car_name, notice_text: c.notice_text }))}
           defaultNoticeText={event?.default_notice_text ?? ''}
+          registrations={regs}
+          choreLocations={choreLocations}
+          isChoreEvent={!!event?.is_chore_event}
           onClose={() => setNotifyOpen(false)}
         />
       )}

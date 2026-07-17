@@ -17,12 +17,35 @@ export function buildCarMessage(carName, direction, noticeText) {
 }
 
 /**
- * 呼叫 Edge Function 發送車次通知
- * @param {{ eventId: string, direction: 'up'|'down', cars: Array<{ car_id: string, car_name: string, message_text: string }> }} params
+ * 組出單一學員要接在車次訊息後面的個人加掛文字（寮號／坡務）
+ * @param {string|null|undefined} dormitoryRoom
+ * @param {{ 上午?: { chore_id: string, unit: string, work_content: string, location: string, sort_order: number }, 下午?: {...} }|undefined} choreSessions
+ * @param {{ includeDormitory: boolean, includeChore: boolean }} opts
  */
-export async function sendCarNotifications({ eventId, direction, cars }) {
+export function buildMemberExtra(dormitoryRoom, choreSessions, { includeDormitory, includeChore }) {
+  const lines = []
+  if (includeDormitory && dormitoryRoom) {
+    lines.push(`🛏 寮號：${dormitoryRoom}`)
+  }
+  if (includeChore) {
+    for (const session of ['上午', '下午']) {
+      const s = choreSessions?.[session]
+      if (!s) continue
+      const name = s.unit || s.work_content
+      const loc = s.location ? `（${s.location}）` : ''
+      lines.push(`🧹 坡務：${session} ${name}${loc}`)
+    }
+  }
+  return lines.length ? `\n${lines.join('\n')}` : ''
+}
+
+/**
+ * 呼叫 Edge Function 發送車次通知
+ * @param {{ eventId: string, direction: 'up'|'down', cars: Array<{ car_id: string, car_name: string, message_text: string }>, memberExtras?: Record<string, string> }} params
+ */
+export async function sendCarNotifications({ eventId, direction, cars, memberExtras }) {
   const { data, error } = await supabase.functions.invoke('send-car-notification', {
-    body: { event_id: eventId, direction, cars },
+    body: { event_id: eventId, direction, cars, member_extras: memberExtras ?? {} },
   })
   if (error) return { success: false, results: [], error: error.message }
   return { success: true, results: data?.results ?? [], error: null }

@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
   const role = (user.app_metadata as { role?: string } | null)?.role ?? 'volunteer'
   if (role !== 'admin') return json({ error: '未授權：僅限管理員發送通知' }, 403)
 
-  let body: { event_id?: string; direction?: string; cars?: Array<{ car_id: string; car_name: string; message_text: string }> }
+  let body: { event_id?: string; direction?: string; cars?: Array<{ car_id: string; car_name: string; message_text: string }>; member_extras?: Record<string, string> }
   try {
     body = await req.json()
   } catch {
@@ -97,7 +97,8 @@ Deno.serve(async (req) => {
         carResult.skipped++
         continue
       }
-      const ok = await pushLineMessage(lineUserId, car.message_text ?? '')
+      const extra = body.member_extras?.[m.registration_id] ?? ''
+      const ok = await pushLineMessage(lineUserId, (car.message_text ?? '') + extra)
       if (ok) carResult.sent++
       else carResult.failed++
     }

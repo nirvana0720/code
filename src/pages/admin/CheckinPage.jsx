@@ -159,6 +159,12 @@ export default function CheckinPage() {
         const val = inputRef.current.trim()
         inputRef.current = ''
         if (val) handleScan(val)
+      } else if (e.key === 'Backspace') {
+        // 部分掃描機／舊瀏覽器：Backspace 若不攔截，畫面沒有輸入框聚焦時
+        // 瀏覽器會把它當成「上一頁」，導致刷卡途中被導離報到頁（IE、舊版瀏覽器常見）。
+        // 攔截後順便當成「刪掉緩衝區最後一個字元」，掃描機送錯字元時還能自我修正。
+        e.preventDefault()
+        inputRef.current = inputRef.current.slice(0, -1)
       } else if (e.key.length === 1) {
         inputRef.current += e.key
       }

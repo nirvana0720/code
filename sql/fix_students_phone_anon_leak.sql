@@ -1,0 +1,70 @@
+-- ============================================================
+-- 收緊 students 表 phone / line_user_id 欄位的 anon 讀取權限
+-- 日期：2026-07-19
+-- 背景：
+--   students 表建表時給了 anon 全表 SELECT USING (true) 政策
+--   （"anon can select students"），並 GRANT SELECT ON students TO anon，
+--   目的是讓前台平板（不需登入）能刷 QR 報名。
+--
+--   但這個政策是「整張表」層級，後來新增的 phone、line_user_id 欄位
+--   （2026-07-12，供 LINE 綁定通知使用）也一併被開放了。任何人只要有
+--   Supabase 專案的 anon key（這把 key 本來就會出現在網頁原始碼裡，
+--   不是秘密），不需要登入、不需要 token，直接打 REST API
+--   （GET .../rest/v1/students?select=name,phone,line_user_id）
+--   就能把全部學員的電話跟 LINE 綁定狀態一次撈光。
+--
+-- ⚠️ 這次改法一開始想用「只鎖兩個欄位」的欄位級 REVOKE
+--   （REVOKE SELECT (phone, line_user_id) ON students FROM anon），
+--   目的是想比以往（event_donors、chores/chore_members 整表
+--   DROP POLICY + REVOKE）影響範圍更小、更不容易改壞其他功能。
+--   但實測發現這樣行不通：PostgreSQL 的權限規則是「只要角色在
+--   table 層級已經有 GRANT SELECT（不分欄位），這個 table 層級
+--   授權就會蓋過任何欄位層級的 REVOKE」，欄位級 REVOKE 對「已經
+--   整表授權」的角色完全沒有作用，等於白做工、洞還是開著。
+--   查證方式：在 SQL Editor 用 SET ROLE anon 實測，改欄位級 REVOKE
+--   後查 phone 仍然查得到，才發現這個問題。
+--
+--   正確做法必須是：
+--     1. REVOKE SELECT ON students FROM anon;（先整表收回）
+--     2. GRANT SELECT (安全欄位清單) ON students TO anon;（只還安全欄位）
+--   欄位清單用「白名單」而非「黑名單」，之後如果又加新的敏感欄位，
+--   預設就是 anon 讀不到，不會重蹈這次的覆轍（新欄位自動繼承整表授權）。
+--
+-- 已排查並實測確認不受影響的地方：
+--   1. get_student_by_qr(code)：SECURITY DEFINER RPC，前台刷 QR 報名走這支，
+--      RETURNS TABLE 沒有 phone / line_user_id 欄位。已用 SET ROLE anon
+--      實測呼叫，正常回傳學員資料。
+--   2. get_car_by_token / get_leader_cars / get_all_cars_progress_by_token
+--      （領隊報到頁 /car-checkin/:token）：都是 SECURITY DEFINER，
+--      雖然「有」查詢並回傳 phone（給領隊點擊撥打用，正常設計），
+--      但 SECURITY DEFINER 函式是以「建立者」的權限執行，不是以呼叫者
+--      （anon）的權限執行，所以這次收回 anon 的表級權限不影響這些 RPC。
+--      已用 SET ROLE anon 實測呼叫 get_car_by_token，正常回傳資料。
+--   3. get_chore_by_token（坡務報到頁 /chore-checkin/:token）：
+--      同上，SECURITY DEFINER，不受影響（原理相同，未逐一實測但邏輯一致）。
+--   4. supabase/functions/line-webhook、send-car-notification 這兩支
+--      Edge Function：都是用 SUPABASE_SERVICE_ROLE_KEY 連線，
+--      service_role 不受一般 anon 權限限制，不受影響。
+--   5. 後台管理頁（學員管理、功德主管理、班級關係、坡務/交通後台）：
+--      都是 authenticated 角色，走的是另一條
+--      "auth full access on students" 政策（USING (true) WITH CHECK (true)），
+--      這次只動 anon，不動 authenticated，不受影響。
+--   6. KioskPage.jsx 裡出現的「電話」欄位是親友代報時填的 guest_phone，
+--      寫進 registrations.answers（JSONB），跟 students.phone 是兩回事，
+--      不受影響。
+--
+-- 執行方式：貼到 Supabase Dashboard → SQL Editor → Run
+-- ============================================================
+
+REVOKE SELECT ON students FROM anon;
+GRANT SELECT (student_id, qr_code, name, active, created_at) ON students TO anon;
+
+-- ── 還原指令（萬一改完發現有遺漏，先跑這行恢復原狀，再回報問題）──
+-- GRANT SELECT ON students TO anon;
+
+-- ── 驗證（已於 2026-07-19 在正式環境用以下方式實測過，這裡留給日後參考）──
+-- SET ROLE anon;
+-- SELECT phone FROM students LIMIT 1;              -- 應該報錯 permission denied
+-- SELECT student_id, name FROM students LIMIT 1;    -- 應該正常
+-- SELECT * FROM get_student_by_qr('某個真實qr_code');  -- 應該正常回傳
+-- RESET ROLE;

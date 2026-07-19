@@ -15,6 +15,12 @@
 
 ---
 
+## 2026-07-19
+
+- **安全修正：學員電話／LINE 綁定狀態全表外洩** ⚠️ 需另外處理：`students` 表原本給 anon（前台、免登入）整表 SELECT 權限，後來新增的 `phone`、`line_user_id` 欄位也一併被開放，任何人只要有專案的 anon key（會出現在網頁原始碼裡，不是秘密），不需登入、不需 token，即可用 REST API 一次撈出全部學員的電話與 LINE 綁定狀態。已改為白名單方式，只留 `student_id`、`qr_code`、`name`、`active`、`created_at` 給 anon 讀取，`phone`／`line_user_id` 需登入或透過既有的 token 頁面（RPC）才能讀取。已在正式環境實測：前台刷 QR 報名、領隊/坡務報到頁皆正常運作。**已 Sync fork 的分院請務必到 Supabase SQL Editor 執行 `sql/fix_students_phone_anon_leak.sql`**（新建置的環境已包含在 `full_setup_all_in_one.sql` 內，無需另外處理）。
+
+---
+
 ## 使用說明
 
 - 一般性的文字調整、說明文件更新、不影響資料庫的小幅修正，僅記錄於本檔案，不會另行通知。

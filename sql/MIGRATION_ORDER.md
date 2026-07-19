@@ -89,13 +89,61 @@
 | `weekly_gonxiu_cron.sql` | 每週功修自動建立 |
 | `clean_guest_phone_cron.sql` | 定期清理訪客電話 |
 
-## 安全修復
+## 第七階段：2026-06 起累積修正（schema.sql／原 1–49 清單之後，2026-07-18 補列）
+
+> 這批是 6/07 之後陸續發生的，之前一直沒有回填進本文件——`schema.sql` 停在 5/23，
+> 這段期間另外跑了將近 30 個 migration 才是資料庫的真實狀態。若要在新環境重建，
+> 第一～六階段跑完後，接著依序執行以下檔案。全部檔案皆用 `IF NOT EXISTS` /
+> `CREATE OR REPLACE FUNCTION` / `DROP POLICY IF EXISTS` 寫法，可重複執行不會出錯。
 
 | 順序 | 檔案 | 說明 |
 |------|------|------|
-| 最新 | `fix_car_token_security.sql` | 車次 Token 安全修復（RLS + RPC） |
-| 最新 | `add_donor_dynamic_fields.sql` | 功德主管理改動態欄位（event_donor_fields 新表 + event_donors.answers + backfill） |
+| 50 | `../fix_rls_clean.sql`（在上層 `puyi-signup/` 目錄，不在 `sql/` 內） | 2026-06-05：registrations 移除 anon UPDATE/DELETE；event_donors 完全封鎖 anon |
+| 51 | `fix_recurring_fields_volunteers.sql` | 修復定期活動建立時漏複製動態欄位／義工存取 |
+| 52 | `fix_rls_registrations_anon.sql` | registrations anon SELECT 收緊，改用 RPC |
+| 53 | `fix_volunteer_event_access.sql` | 修復義工可自行擴權漏洞 |
+| 54 | `kiosk_submit_registration.sql` | Kiosk 學員自助報名寫入用 RPC，2026-06-11 建立，2026-07-18 已從正式環境取回定義並補存成檔案 |
+| 55 | `grant_student_classes.sql` | GRANT service_role 讀取 student_classes（比對未報名名單用） |
+| 56 | `fix_friend_registration_rls.sql` | 修復代報親友報名 RLS（新增 kiosk_submit_friend_registration RPC） |
+| 57 | `fix_get_student_by_qr_active.sql` | get_student_by_qr 移除 active 過濾，未在籍學員也能報名 |
+| 58 | `fix_cancel_registration_rls.sql` | 前台取消報名改用 RPC |
+| 59 | `fix_update_checkin_rls.sql` | updateRegistration／checkInOtherTransport 改用 RPC |
+| 60 | `add_dormitory_phone_lineid.sql` | 安單寮號＋LINE 綁定＋學員電話三大功能欄位 |
+| 61 | `add_show_dormitory_to_public.sql` | 寮號對外公開開關 |
+| 62 | `add_dormitory_room_to_rpcs.sql` | 既有 RPC 補上 dormitory_room 欄位 |
+| 63 | `add_line_notify_fields.sql` | LINE 車次通知相關欄位 |
+| 64 | `grant_students_update_service_role.sql` | GRANT service_role 更新 students（LINE webhook 寫 line_user_id 用） |
+| 65 | `add_chore_arrangement.sql` | 福慧出坡排坡系統主體（chores／chore_members 等表） |
+| 66 | `add_chore_monk_phone.sql` | 坡務負責法師電話欄位 |
+| 67 | `add_chore_checkin_rpc.sql` | 小組長免登入報到頁 RPC |
+| 68 | `fix_car_token_security.sql` | 車次 Token 安全修復（RLS + RPC，2026-06-07 建立、2026-07-13 隨排坡系統再更新，內容以此時間點為準） |
+| 69 | `add_chore_session_times.sql` | 排坡出坡／報到時間欄位 |
+| 70 | `lock_expired_token_pages.sql` | 過期活動 token 頁面鎖定（含 get_head_leader_by_token／is_token_expired 新 RPC） |
+| 71 | `fix_chores_anon_policy.sql` | 收緊 chores／chore_members anon 全表讀取，改 RPC |
+| 72 | `enhance_chore_locations_rpc.sql` | get_chore_locations_by_event 回傳格式加強 |
+| 73 | `add_all_cars_progress_by_token_rpc.sql` | 修復總領隊／小車看板 anon 讀不到資料 |
+| 74 | `fix_head_leader_checkin_token.sql` | 修復總領隊／小車看板報到失敗 |
+| 75 | `add_donor_dynamic_fields.sql` | 功德主管理改動態欄位（event_donor_fields 新表＋event_donors.answers＋backfill） |
+| 76 | `fix_leader_scan_rpc.sql` | 修復 /leader 掃卡入口頁誤判 bug |
+| 77 | `add_chore_temple_date.sql` | chores 表補 temple／chore_date 欄位（坡務總表匯出用） |
+| 78 | `add_donor_ticket_copies.sql` | 出單機列印張數欄位 |
+| 79 | `fix_students_phone_anon_leak.sql` | 安全修正：students 表 anon 讀取權限改白名單（整表 REVOKE + 只 GRANT 安全欄位），堵住 phone／line_user_id 全表外洩，不影響刷 QR 報名與領隊/坡務報到頁（已實測） |
+
+### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
+
+`debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、
+`test_head_leader_board.sql`、`test_head_leader_board_cleanup.sql`、`temp_grant_for_chore_roster_test.sql`
+——這些是驗證假資料或除錯查詢用，不是 schema migration，新環境不用跑。
 
 ## ⚠️ 注意事項
 
-- 2026-06-05 安全修正：`registrations` 移除 anon UPDATE/DELETE，`event_donors` 完全封鎖 anon，`students` 改用 RPC 函數。這些修正已直接套用於 Supabase，**不在以上 SQL 檔案中**，換環境時需另外執行 `fix_rls_clean.sql`（位於上層 `puyi-signup/` 目錄）。
+- ~~`kiosk_submit_registration` RPC 目前沒有存檔~~ **已於 2026-07-18 補上**：從普宜精舍正式
+  Supabase 用 `SELECT pg_get_functiondef('kiosk_submit_registration'::regproc);` 取回函式定義，
+  存成 `sql/kiosk_submit_registration.sql`（含明確 GRANT EXECUTE，見第 54 項）。
+- 2026-06-05 安全修正：`registrations` 移除 anon UPDATE/DELETE，`event_donors` 完全封鎖 anon。
+  已列入第七階段第 50 項（`fix_rls_clean.sql`，位於上層 `puyi-signup/` 目錄，不在 `sql/` 內）。
+  `fix_rls_critical.sql`（同目錄）是草稿版，多一段未採用的 car_assignments 方案，不需執行。
+- 本文件每次有新 migration 都要記得回填，上次漏掉 6/07～7/17 這一大段，就是這次精舍反映
+  匯入失敗、追查發現「他版本比較舊」才挖出來的——`schema.sql` 本身沒有同步更新的問題也一併記在這裡：
+  `schema.sql` 只到 5/23，之後的表格／欄位/RPC 異動都只存在於個別 migration 檔，沒有回寫主檔，
+  新環境務必照順序把 sql/ 全部檔案跑過一輪，不能只跑 `schema.sql` 就當作建好資料庫。

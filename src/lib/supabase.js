@@ -49,6 +49,10 @@ export async function signOut() {
 
 // ─── 活動查詢（前台）────────────────────────────────────────
 
+// canary 監控假活動固定用這個 event_id（見 canary/sql/create_canary_fixtures.sql），只有這一筆
+// 前台／後台任何一支查 events 表的函式，只要結果會被使用者看到，都要排除這筆
+const CANARY_EVENT_ID = 'ca000000-0000-0000-0000-000000000001'
+
 /**
  * 取得所有 active 活動，每場附帶動態欄位
  * @returns {{ events: Array<{event, fields}>, error: string|null }}
@@ -59,6 +63,7 @@ export async function getActiveEvents() {
     .select('*')
     .eq('status', 'active')
     .neq('kiosk_open', false)
+    .neq('event_id', CANARY_EVENT_ID) // 排除 canary 監控假活動，前台不應顯示
     .gte('date_end', new Date().toISOString().slice(0, 10))
     .order('date_start', { ascending: true })
 
@@ -360,9 +365,6 @@ export async function setRegistrationIsDriver(registrationId, isDriver) {
 }
 
 // ─── 活動管理（後台）────────────────────────────────────────
-
-// canary 監控假活動固定用這個 event_id（見 canary/sql/create_canary_fixtures.sql），只有這一筆
-const CANARY_EVENT_ID = 'ca000000-0000-0000-0000-000000000001'
 
 /**
  * 取得所有活動
@@ -2387,6 +2389,7 @@ export async function getPublicActivities() {
     .from('events')
     .select('event_id, name, date_start, date_end, location, location_tag, status, locked, volunteer_open, offline_registration, cover_image_url, cover_image_position, description, related_links, show_on_activities')
     .eq('show_on_activities', true)
+    .neq('event_id', CANARY_EVENT_ID) // 排除 canary 監控假活動，防呆（canary 目前預設不會勾 show_on_activities，但保險起見一併排除）
     .or(`date_end.is.null,date_end.gte.${today}`)
     .order('date_start', { ascending: true })
   if (error) return { data: null, error: error.message }

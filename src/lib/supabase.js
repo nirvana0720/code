@@ -1191,6 +1191,41 @@ export async function importStudents(rows, opts = {}) {
 }
 
 /**
+ * 單筆學員完整編輯：更新姓名／電話，並用傳入的班級清單完整取代該學員的班級紀錄
+ * （後台「編輯學員」視窗專用，範圍只限這一位學員，不影響其他人，也不需要選「覆蓋/合併」）
+ * @param {string} studentId
+ * @param {{ name: string, phone: string, classes: Array<{class_name, group_name}> }} data
+ * @returns {{ success: boolean, error: string|null }}
+ */
+export async function updateStudentFull(studentId, { name, phone, classes }) {
+  const { error: studentErr } = await supabase
+    .from('students')
+    .update({ name, phone: phone || null })
+    .eq('student_id', studentId)
+  if (studentErr) return { success: false, error: studentErr.message }
+
+  const { error: delErr } = await supabase
+    .from('student_classes')
+    .delete()
+    .eq('student_id', studentId)
+  if (delErr) return { success: false, error: delErr.message }
+
+  const validClasses = (classes || []).filter(c => c.class_name?.trim())
+  if (validClasses.length > 0) {
+    const { error: insErr } = await supabase
+      .from('student_classes')
+      .insert(validClasses.map(c => ({
+        student_id: studentId,
+        class_name: c.class_name.trim(),
+        group_name: c.group_name?.trim() || null,
+      })))
+    if (insErr) return { success: false, error: insErr.message }
+  }
+
+  return { success: true, error: null }
+}
+
+/**
  * 班級覆蓋匯入：以本檔學員清單完整取代指定班級的成員
  * @param {string} className
  * @param {Array<{student_id, name, group_name}>} students
@@ -1998,7 +2033,7 @@ export async function getAllStudents(search = '') {
   const { data, error } = await fetchAllRows((from, to) => {
     let q = supabase
       .from('students')
-      .select('student_id, name, active, created_at, line_user_id, student_classes ( class_name, group_name )')
+      .select('student_id, name, active, created_at, phone, line_user_id, student_classes ( class_name, group_name )')
       .order('student_id', { ascending: true })
       .range(from, to)
     if (search.trim()) q = q.ilike('name', `%${search.trim()}%`)

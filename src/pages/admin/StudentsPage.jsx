@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import * as XLSX from '@e965/xlsx'
 import { QRCodeSVG } from 'qrcode.react'
 import AdminLayout from '../../components/AdminLayout'
-import { getAllStudents, importStudents, setStudentActive, refreshClassRoster, deactivateStudentsByIds } from '../../lib/supabase'
+import { getAllStudents, importStudents, setStudentActive, refreshClassRoster, deactivateStudentsByIds, updateStudentFull } from '../../lib/supabase'
 import { getBindingUrl } from '../../lib/lineBinding'
 
 // ── 下載模板 ─────────────────────────────────────────────────
@@ -105,21 +105,21 @@ async function exportStudents() {
   const active = all.filter(s => s.active !== false)
   active.sort((a, b) => String(a.student_id).localeCompare(String(b.student_id)))
 
-  const rows = [['學員編號', '姓名', '班級', '組別']]
+  const rows = [['學員編號', '姓名', '班級', '組別', '電話']]
   for (const s of active) {
     if (s.student_classes && s.student_classes.length > 0) {
       for (const c of s.student_classes) {
-        rows.push([s.student_id, s.name, c.class_name || '', c.group_name || ''])
+        rows.push([s.student_id, s.name, c.class_name || '', c.group_name || '', s.phone || ''])
       }
     } else {
-      rows.push([s.student_id, s.name, '', ''])
+      rows.push([s.student_id, s.name, '', '', s.phone || ''])
     }
   }
 
   const today = new Date()
   const ymd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`
   const ws = XLSX.utils.aoa_to_sheet(rows)
-  ws['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 10 }]
+  ws['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 14 }]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, '學員主檔')
   XLSX.writeFile(wb, `學員主檔_匯出_${ymd}.xlsx`)
@@ -172,6 +172,12 @@ export default function StudentsPage() {
   // 單筆衝突詢問 modal
   const [conflictModal, setConflictModal] = useState(false)
   const [pendingAddRow, setPendingAddRow] = useState(null)
+
+  // 編輯學員狀態（點學員姓名開啟，可改姓名/電話/班級）
+  const [editModal, setEditModal] = useState(false)
+  const [editForm, setEditForm] = useState(null)
+  const [editError, setEditError] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
 
   const load = useCallback(async (q = '') => {
     setLoading(true)
@@ -439,6 +445,61 @@ export default function StudentsPage() {
     await doAddStudent(row, 'replace')
   }
 
+  // ── 編輯學員（點姓名開啟）──────────────────────────────────
+  function openEditModal(student) {
+    const classes = (student.student_classes || []).map(c => ({
+      class_name: c.class_name || '',
+      group_name: c.group_name || '',
+    }))
+    setEditForm({
+      student_id: student.student_id,
+      name: student.name || '',
+      phone: student.phone || '',
+      classes: classes.length > 0 ? classes : [{ class_name: '', group_name: '' }],
+    })
+    setEditError('')
+    setEditModal(true)
+  }
+
+  function closeEditModal() {
+    setEditModal(false)
+    setEditForm(null)
+    setEditError('')
+  }
+
+  function updateEditClassRow(idx, patch) {
+    setEditForm(f => ({
+      ...f,
+      classes: f.classes.map((c, i) => (i === idx ? { ...c, ...patch } : c)),
+    }))
+  }
+
+  function addEditClassRow() {
+    setEditForm(f => ({ ...f, classes: [...f.classes, { class_name: '', group_name: '' }] }))
+  }
+
+  function removeEditClassRow(idx) {
+    setEditForm(f => ({ ...f, classes: f.classes.filter((_, i) => i !== idx) }))
+  }
+
+  async function handleEditSave(e) {
+    e.preventDefault()
+    if (!editForm.name.trim()) return setEditError('姓名為必填')
+
+    setEditSaving(true)
+    const { success, error } = await updateStudentFull(editForm.student_id, {
+      name: editForm.name.trim(),
+      phone: editForm.phone.trim(),
+      classes: editForm.classes
+        .filter(c => c.class_name.trim())
+        .map(c => ({ class_name: c.class_name.trim(), group_name: c.group_name.trim() })),
+    })
+    setEditSaving(false)
+    if (!success) return setEditError(`儲存失敗：${error}`)
+    closeEditModal()
+    await load(search)
+  }
+
   // 計算匯入預覽中有幾位學員原本已有班級
   const importedIds = new Set(importRows.map(r => r.student_id))
   const conflictCount = students.filter(
@@ -599,6 +660,106 @@ export default function StudentsPage() {
                 </form>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 編輯學員 Modal ── */}
+      {editModal && editForm && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[85vh] overflow-y-auto">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">編輯學員</h3>
+            <p className="text-xs text-gray-400 font-mono mb-5">學員編號：{editForm.student_id}</p>
+            <form onSubmit={handleEditSave} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  姓名 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">電話</label>
+                <input
+                  type="text"
+                  value={editForm.phone}
+                  onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                  placeholder="可留空"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">班級／組別</label>
+                  <button
+                    type="button"
+                    onClick={addEditClassRow}
+                    className="text-xs text-amber-700 hover:underline"
+                  >
+                    ＋ 新增一個班級
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {editForm.classes.map((c, idx) => (
+                    <div key={idx} className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={c.class_name}
+                        onChange={e => updateEditClassRow(idx, { class_name: e.target.value })}
+                        placeholder="班級（例：初級日間班）"
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      <input
+                        type="text"
+                        value={c.group_name}
+                        onChange={e => updateEditClassRow(idx, { group_name: e.target.value })}
+                        placeholder="組別（可留空）"
+                        className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                      />
+                      {editForm.classes.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeEditClassRow(idx)}
+                          className="text-gray-300 hover:text-red-500 text-lg leading-none px-1"
+                          title="刪除這個班級"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">班級留空即代表這位學員不屬於這個班級了</p>
+              </div>
+
+              {editError && (
+                <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {editError}
+                </p>
+              )}
+
+              <div className="flex gap-3 mt-1">
+                <button
+                  type="button"
+                  onClick={closeEditModal}
+                  className="flex-1 border border-gray-300 text-gray-600 hover:bg-gray-50 font-medium py-2.5 rounded-xl transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={editSaving}
+                  className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {editSaving ? '儲存中…' : '儲存'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -939,6 +1100,12 @@ export default function StudentsPage() {
                       <span className="text-sm text-gray-700">合併（保留原本資料，並新增匯入的資料）</span>
                     </label>
                   </div>
+                  {classMode === 'replace' && importRows.some(r => !r.class_name) && (
+                    <p className="text-xs text-red-500 mt-2">
+                      ⚠️ 這份檔案有學員沒有填班級，若選「覆蓋」，這些學員原本的班級會被清空。
+                      只是想更新少量學員的電話或姓名，建議改選「合併」，比較安全。
+                    </p>
+                  )}
                 </div>
 
                 {/* B：完整名單退場 */}
@@ -1066,7 +1233,7 @@ export default function StudentsPage() {
 
       {/* 匯入格式說明 */}
       <p className="text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2 mb-4">
-        支援 Excel（.xlsx / .xls）及 CSV。需包含欄位：<span className="font-medium text-gray-500">學員編號、姓名、班級、組別</span>。同學員多個班別請用多列。
+        支援 Excel（.xlsx / .xls）及 CSV。需包含欄位：<span className="font-medium text-gray-500">學員編號、姓名</span>；班級、組別、電話為選填。同學員多個班別請用多列。只是要更新少量學員的電話，可以只做一份含「學員編號、姓名、電話」三欄的小檔案，班級處理方式記得選「合併」。
       </p>
 
       {/* 搜尋 + 顯示未在籍開關 */}
@@ -1102,6 +1269,7 @@ export default function StudentsPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">學員編號</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">姓名</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">班別</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">電話</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">狀態</th>
               </tr>
             </thead>
@@ -1117,14 +1285,20 @@ export default function StudentsPage() {
                       {s.student_id}
                     </td>
                     <td className={`px-4 py-3 font-medium ${inactive ? 'text-gray-400' : 'text-gray-800'}`}>
-                      <span className="inline-flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(s)}
+                        className="inline-flex items-center gap-1.5 hover:underline decoration-amber-400 decoration-2 underline-offset-2 text-left"
+                        title="點一下編輯這位學員"
+                      >
                         {s.name}
+                        <span className="text-gray-300 text-xs">✏️</span>
                         {s.line_user_id ? (
                           <span className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5 shrink-0">LINE 已綁定 ✅</span>
                         ) : (
                           <span className="text-xs bg-gray-100 text-gray-400 border border-gray-200 rounded-full px-1.5 shrink-0">未綁定 ⬜</span>
                         )}
-                      </span>
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-gray-600">
                       {s.student_classes && s.student_classes.length > 0
@@ -1142,6 +1316,9 @@ export default function StudentsPage() {
                           ))
                         : <span className="text-gray-300">—</span>
                       }
+                    </td>
+                    <td className={`px-4 py-3 ${inactive ? 'text-gray-300' : 'text-gray-600'}`}>
+                      {s.phone || <span className="text-gray-300">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">

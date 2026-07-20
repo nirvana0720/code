@@ -71,6 +71,7 @@ const EMPTY_FIELD = () => ({
   field_type: 'radio',
   options: [],
   show_if_period: [],
+  show_if_session_ids: [],
   required: true,
   dashboard_role: null,
   option_meta: null,
@@ -89,10 +90,21 @@ function ensureKeys(fields) {
     field_type:     f.field_type || 'radio',
     options:        Array.isArray(f.options) ? f.options : [],
     show_if_period: Array.isArray(f.show_if_period) ? f.show_if_period : [],
+    show_if_session_ids: Array.isArray(f.show_if_session_ids) ? f.show_if_session_ids : [],
     required:       f.required ?? true,
     dashboard_role: f.dashboard_role || null,
     option_meta:    f.option_meta || null,
   }))
+}
+
+function sessionOptionLabel(s) {
+  const dateStr = s.date ? (() => {
+    const [, mm, dd] = s.date.split('-')
+    return `${parseInt(mm)}/${parseInt(dd)}`
+  })() : ''
+  const periodLabel = PERIOD_OPTIONS.find(p => p.value === s.time_period)?.label || s.time_period || ''
+  const parts = [dateStr, periodLabel].filter(Boolean).join(' ')
+  return s.dharma_name ? `${parts}・${s.dharma_name}` : parts
 }
 
 export default function SessionFieldsEditor({
@@ -103,6 +115,7 @@ export default function SessionFieldsEditor({
   description = '學員勾選任一場次時，下方會出現的子問題（例：午齋、停車…）。可指定只在特定時段顯示。',
   emptyHint = '尚無子欄位，點下方「＋ 新增子欄位」開始設定',
   statusSlot = null,         // 父元件想顯示 saving 狀態時塞進這個位置（右上角）
+  sessions = [],              // 該活動實際場次陣列（含 session_id/date/time_period/dharma_name），有值才顯示「只在特定場次」區塊
 }) {
   const fields = useMemo(() => ensureKeys(value), [value])
   const commit = onCommit || onChange
@@ -175,6 +188,13 @@ export default function SessionFieldsEditor({
     const next = cur.includes(period) ? cur.filter(p => p !== period) : [...cur, period]
     commitField(key, { show_if_period: next })
   }
+  function toggleSessionId(key, sessionId) {
+    const f = fields.find(x => x._key === key)
+    if (!f) return
+    const cur = f.show_if_session_ids || []
+    const next = cur.includes(sessionId) ? cur.filter(id => id !== sessionId) : [...cur, sessionId]
+    commitField(key, { show_if_session_ids: next })
+  }
 
   return (
     <div className="mt-4 bg-emerald-50 rounded-xl border border-emerald-200 p-5">
@@ -195,6 +215,8 @@ export default function SessionFieldsEditor({
           {fields.map((f, idx) => {
             const periods = f.show_if_period || []
             const allPeriods = periods.length === 0
+            const sessionIds = f.show_if_session_ids || []
+            const overriddenBySession = sessionIds.length > 0
             const showParkingMeta =
               f.dashboard_role === 'parking_kind' && f.field_type === 'radio'
             return (
@@ -239,7 +261,7 @@ export default function SessionFieldsEditor({
                       ))}
                     </select>
                   </div>
-                  <div className="sm:col-span-3">
+                  <div className={'sm:col-span-3' + (overriddenBySession ? ' opacity-40' : '')}>
                     <label className="block text-[10px] font-medium text-gray-500 mb-0.5">
                       顯示時段 <span className="text-gray-400">（不勾＝全部）</span>
                     </label>
@@ -250,7 +272,9 @@ export default function SessionFieldsEditor({
                           <button
                             key={p.value}
                             type="button"
+                            disabled={overriddenBySession}
                             onClick={() => togglePeriod(f._key, p.value)}
+                            title={overriddenBySession ? '已被下方「只在特定場次顯示」覆蓋，暫不生效' : undefined}
                             className={'text-xs px-2 py-1 rounded border transition-colors ' + (
                               on
                                 ? 'bg-emerald-100 border-emerald-400 text-emerald-800'
@@ -264,6 +288,9 @@ export default function SessionFieldsEditor({
                         )
                       })}
                     </div>
+                    {overriddenBySession && (
+                      <p className="text-[10px] text-amber-600 mt-0.5">已被場次指定覆蓋</p>
+                    )}
                   </div>
                   <div className="sm:col-span-1 flex sm:flex-col items-center sm:items-end gap-1 pt-4 sm:pt-1">
                     <label className="flex items-center gap-1 text-xs text-gray-600 cursor-pointer">
@@ -285,6 +312,30 @@ export default function SessionFieldsEditor({
                     </div>
                   </div>
                 </div>
+
+                {sessions.length > 0 && (
+                  <div className="pt-2 border-t border-emerald-100">
+                    <label className="block text-[10px] font-medium text-gray-500 mb-1">
+                      只在特定場次顯示 <span className="text-gray-400">（不選＝依上面時段規則）</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {sessions.map(s => (
+                        <label
+                          key={s.session_id}
+                          className="flex items-center gap-1 text-xs bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={sessionIds.includes(s.session_id)}
+                            onChange={() => toggleSessionId(f._key, s.session_id)}
+                            className="accent-emerald-600"
+                          />
+                          {sessionOptionLabel(s)}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {f.field_type === 'radio' && (
                   <div className="pl-2 border-l-2 border-emerald-200">

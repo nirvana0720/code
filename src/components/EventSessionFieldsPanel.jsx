@@ -8,25 +8,29 @@
 //
 // 行為跟先前版本一致：blur / 切類型 / 移位 / 刪欄位 / 切時段 / 切看板角色都會即時存。
 import { useState, useEffect, useRef } from 'react'
-import { getEventSessionFields, saveEventSessionFields } from '../lib/supabase'
+import { getEventSessionFields, saveEventSessionFields, getEventSessions } from '../lib/supabase'
 import SessionFieldsEditor, { cleanSessionFieldsForSave, validateSessionFields } from './SessionFieldsEditor'
 
 export default function EventSessionFieldsPanel({ eventId }) {
-  const [fields,  setFields]  = useState([])
-  const [loading, setLoading] = useState(true)
-  const [saving,  setSaving]  = useState(false)
-  const [msg,     setMsg]     = useState('')
+  const [fields,   setFields]   = useState([])
+  const [sessions, setSessions] = useState([])
+  const [loading,  setLoading]  = useState(true)
+  const [saving,   setSaving]   = useState(false)
+  const [msg,      setMsg]      = useState('')
   const lastSavedRef = useRef(null) // 用來避免重複送（serialize 比對）
 
   useEffect(() => {
     if (!eventId) return
     setLoading(true)
-    getEventSessionFields(eventId).then(({ fields: data, error }) => {
-      if (error) { setMsg('❌ 載入失敗：' + error); setLoading(false); return }
-      setFields(data || [])
-      lastSavedRef.current = JSON.stringify(data || [])
-      setLoading(false)
-    })
+    Promise.all([getEventSessionFields(eventId), getEventSessions(eventId)]).then(
+      ([{ fields: data, error }, { sessions: sessData }]) => {
+        if (error) { setMsg('❌ 載入失敗：' + error); setLoading(false); return }
+        setFields(data || [])
+        setSessions(sessData || [])
+        lastSavedRef.current = JSON.stringify(data || [])
+        setLoading(false)
+      }
+    )
   }, [eventId])
 
   async function doSave(list) {
@@ -81,6 +85,7 @@ export default function EventSessionFieldsPanel({ eventId }) {
       description="學員勾選任一場次時，下方會出現的子問題（例：午齋、停車…）。可指定只在特定時段顯示。新增、修改、刪除皆自動儲存。"
       emptyHint="尚無子欄位，點下方「＋ 新增子欄位」開始設定（不設定的話前台會以「午齋／停車」預設運作）"
       statusSlot={statusSlot}
+      sessions={sessions}
     />
   )
 }

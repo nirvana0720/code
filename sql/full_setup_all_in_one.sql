@@ -1,7 +1,7 @@
 -- ============================================================
 -- 普宜精舍報名系統 — 完整資料庫建置（合併版）
 -- 產生日期：2026-07-19
--- 說明：把 sql/MIGRATION_ORDER.md 第一階段～第七階段共 81 個檔案，
+-- 說明：把 sql/MIGRATION_ORDER.md 第一階段～第七階段共 82 個檔案，
 --       依正確順序合併成這一份檔案，新環境只需要貼這一份到 Supabase SQL Editor
 --       執行一次即可，不用一個一個檔案手動貼。
 -- 用法：Supabase Dashboard → SQL Editor → New query → 貼上全部內容 → Run
@@ -5556,3 +5556,15 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS donor_ticket_default_copies INTEGER 
 --   已於 2026-07-19 在正式環境實測驗證，詳見該檔案內註解）
 REVOKE SELECT ON students FROM anon;
 GRANT SELECT (student_id, qr_code, name, active, created_at) ON students TO anon;
+
+-- ------------------------------------------------------------
+-- [82/82] add_session_field_target_sessions.sql
+-- ------------------------------------------------------------
+-- 2026-07-20 場次共用子欄位：新增「只在特定場次顯示」
+-- 背景：show_if_period 只能鎖時段（上午/下午/晚上），同時段有多場次時
+--   無法只鎖單一場次（例：梁皇寶懺十卷裡第一卷跟第九卷都是「上午」，
+--   想讓午齋問題只在第九卷出現，原本做不到）。
+-- 新增 show_if_session_ids：有值時只在指定場次顯示（忽略 show_if_period）；
+--   空陣列（預設）維持原本 show_if_period 邏輯，舊資料/舊活動不受影響。
+-- 可重複執行（IF NOT EXISTS）。
+ALTER TABLE event_session_fields ADD COLUMN IF NOT EXISTS show_if_session_ids UUID[] DEFAULT '{}'::uuid[];

@@ -18,6 +18,15 @@
 ## 2026-07-19
 
 - **安全修正：學員電話／LINE 綁定狀態全表外洩** ⚠️ 需另外處理：`students` 表原本給 anon（前台、免登入）整表 SELECT 權限，後來新增的 `phone`、`line_user_id` 欄位也一併被開放，任何人只要有專案的 anon key（會出現在網頁原始碼裡，不是秘密），不需登入、不需 token，即可用 REST API 一次撈出全部學員的電話與 LINE 綁定狀態。已改為白名單方式，只留 `student_id`、`qr_code`、`name`、`active`、`created_at` 給 anon 讀取，`phone`／`line_user_id` 需登入或透過既有的 token 頁面（RPC）才能讀取。已在正式環境實測：前台刷 QR 報名、領隊/坡務報到頁皆正常運作。**已 Sync fork 的分院請務必到 Supabase SQL Editor 執行 `sql/fix_students_phone_anon_leak.sql`**（新建置的環境已包含在 `full_setup_all_in_one.sql` 內，無需另外處理）。
+- **修復：前台刷卡頁仍會出現 canary 監控假活動**：7/17 那次「canary 假活動全面隱藏」漏掉了 `getActiveEvents()`（前台刷卡頁真正在用的查詢函式）跟 `getPublicActivities()`（公開活動介紹頁），已補上排除。無需資料庫異動。
+- **修復：學員電話欄位在管理介面看不到**：電話匯入功能原本就能用，但學員列表查詢（`getAllStudents`）沒有帶出 `phone` 欄位，匯出名單也沒有電話欄，導致第一次用的人容易誤以為系統不支援電話。已補上：學員列表新增「電話」欄、匯出名單新增電話欄、匯入格式說明補充電話為選填欄位，並在「覆蓋 vs 合併」班級處理方式旁加上提醒（檔案沒填班級卻選「覆蓋」會清空該學員原本的班級，只是要改電話建議選「合併」）。無需資料庫異動。
+- **新增：學員管理頁點姓名可直接編輯**：不用再透過 Excel 匯出/改檔/匯入才能改一兩位學員的資料。點學員姓名開啟編輯視窗，姓名、電話、班級／組別（可多筆）都能直接改，存檔只影響這一位學員，不會有「覆蓋/合併」的選擇困擾。無需資料庫異動。
+
+---
+
+## 2026-07-20
+
+- **新增：場次共用子欄位可鎖定「只在特定場次顯示」** ⚠️ 需另外處理：原本子欄位只能用 `show_if_period`（上午/下午/晚上）控制顯示，同時段有多場次時無法只鎖定其中一場（例：梁皇寶懺十卷裡第一卷跟第九卷都是「上午」，無法讓午齋問題只在第九卷出現）。新增 `event_session_fields.show_if_session_ids` 欄位，有指定場次時只在那幾場顯示（忽略 `show_if_period`）；空陣列（預設）維持原本時段規則，不影響既有資料與舊活動。**已 Sync fork 的分院請到 Supabase SQL Editor 執行 `sql/add_session_field_target_sessions.sql`**（新建置的環境已包含在 `full_setup_all_in_one.sql` 內，無需另外處理）。
 
 ---
 

@@ -2403,6 +2403,7 @@ export async function saveEventSessionFields(eventId, fields) {
     field_type: f.field_type || 'radio',
     options: f.options || [],
     show_if_period: f.show_if_period || [],
+    show_if_session_ids: f.show_if_session_ids || [],
     sort_order: i + 1,
     required: f.required ?? true,
     dashboard_role: f.dashboard_role || null,

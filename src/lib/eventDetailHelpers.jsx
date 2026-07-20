@@ -81,7 +81,7 @@ export function resolveSessionAns(field, ssAns) {
 // 單一場次 CSV 匯出（動態欄位：依 event_session_fields × show_if_period）
 export function exportSessionCSV(sessionRegs, session, event, sessionFields = []) {
   const sessionLabel = formatSessionTabLabel(session)
-  const fieldsHere = sessionFieldsForPeriod(sessionFields, session.time_period)
+  const fieldsHere = sessionFieldsForPeriod(sessionFields, session)
   const header = ['學員編號', '姓名', ...fieldsHere.map(f => f.field_label), '更新時間']
 
   const rows = sessionRegs.map(r => {

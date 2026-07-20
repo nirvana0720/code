@@ -12,6 +12,7 @@ import {
   sessionFieldsForPeriod,
   formatSessionAnswer,
   computeMultiSessionStats,
+  isFieldApplicableToSession,
 } from '../lib/registrationHelpers'
 
 export default function EventRegistrationsTab({ event, setEvent, id, sessions, sessionTab, setSessionTab, registrations, sessionFilteredRegistrations, lastExported, totalChangeSince, newRegIds, modifiedRegIds, cancelledChangesSince, sessionFields, showSessionStatsDetail, setShowSessionStatsDetail, fields, listSearch, setListSearch, searchedRegistrations, sortedRegistrations, isAdmin, hasGuests, selectedGuestIds, allGuestsSelected, toggleSelectAllGuests, toggleGuestSelect, showCheckin, setShowCheckin, showRegTime, setShowRegTime, pinnedFieldKeys, isVolunteerField, isUpField, isDownField, hiddenFieldKeys, toggleFieldGroup, toggleFieldKey, sortKey, sortDir, handleSort, setBatchPrintOpen, setStudentModal, setGuestModal, changes, setDiffModal, effectiveCheckinAt, handleUncheckIn, setEditingReg, handleDeleteRegistration, showCancelled, setShowCancelled, cancelledChanges, setQrModal }) {
@@ -112,6 +113,8 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                 kind: 'option',
                 option: opt,
                 applicablePeriods: periods,
+                applicableSessionIds: Array.isArray(f.show_if_session_ids) ? f.show_if_session_ids : [],
+                sourceField: f,
                 parkingKind: kindRaw,   // 'motorcycle' | 'car' | 'none' | null
               })
             }
@@ -122,6 +125,8 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
               fieldKey: f.field_key,
               kind: 'boolean',
               applicablePeriods: periods,
+              applicableSessionIds: Array.isArray(f.show_if_session_ids) ? f.show_if_session_ids : [],
+              sourceField: f,
             })
           } else if (f.field_type === 'text') {
             cols.push({
@@ -130,12 +135,13 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
               fieldKey: f.field_key,
               kind: 'text',
               applicablePeriods: periods,
+              applicableSessionIds: Array.isArray(f.show_if_session_ids) ? f.show_if_session_ids : [],
+              sourceField: f,
             })
           }
         }
 
-        const isColApplicable = (s, col) =>
-          col.applicablePeriods.length === 0 || col.applicablePeriods.includes(s.time_period)
+        const isColApplicable = (s, col) => isFieldApplicableToSession(col.sourceField, s)
 
         const cellValueFor = (s, col, b) => {
           if (!isColApplicable(s, col)) return null
@@ -746,7 +752,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                 {event?.multi_session && sessionTab !== 'all' && (() => {
                   const curS = sessions.find(s => s.session_id === sessionTab)
                   if (!curS) return null
-                  const fieldsHere = sessionFieldsForPeriod(sessionFields, curS.time_period)
+                  const fieldsHere = sessionFieldsForPeriod(sessionFields, curS)
                   return <>
                     {fieldsHere.map(f => (
                       <th key={f.field_key} className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">
@@ -853,7 +859,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                     {event?.multi_session && sessionTab !== 'all' && (() => {
                       const curS = sessions.find(s => s.session_id === sessionTab)
                       if (!curS) return null
-                      const fieldsHere = sessionFieldsForPeriod(sessionFields, curS.time_period)
+                      const fieldsHere = sessionFieldsForPeriod(sessionFields, curS)
                       const ssAns = r.answers?.sessions?.find(ss => ss.session_id === sessionTab) ?? {}
                       return <>
                         {fieldsHere.map(f => (

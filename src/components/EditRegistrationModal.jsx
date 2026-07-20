@@ -111,7 +111,7 @@ export default function EditRegistrationModal({
             {answers.sessions.map((ssAns, idx) => {
               const s = sessions.find(x => x.session_id === ssAns.session_id)
               if (!s) return null
-              const fieldsHere = sessionFieldsForPeriod(sessionFields, s.time_period)
+              const fieldsHere = sessionFieldsForPeriod(sessionFields, s)
               return (
                 <div key={ssAns.session_id} className="border border-gray-200 rounded-xl p-3 bg-gray-50/40">
                   <p className="text-sm font-semibold text-gray-700 mb-2">

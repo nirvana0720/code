@@ -116,19 +116,28 @@ export function isDriverFromAnswers(answers) {
 // 「午齋（morning）+ 停車（all）」兩筆；helper 只需照表動態跑即可。
 
 /**
- * 從 event_session_fields 找出某時段該顯示的子欄位
+ * 判斷子欄位是否適用於某場次
+ * - show_if_session_ids 有值 → 只在指定場次顯示，忽略 show_if_period
+ * - 否則 → 沿用 show_if_period 邏輯（空 = 全部時段）
+ */
+export function isFieldApplicableToSession(field, session) {
+  const ids = Array.isArray(field.show_if_session_ids) ? field.show_if_session_ids : []
+  if (ids.length > 0) return ids.includes(session.session_id)
+  const periods = Array.isArray(field.show_if_period) ? field.show_if_period : []
+  return periods.length === 0 || periods.includes(session.time_period)
+}
+
+/**
+ * 從 event_session_fields 找出某場次該顯示的子欄位
  *
  * @param {Array} allFields - event_session_fields 陣列
- * @param {string} timePeriod - 'morning' | 'afternoon' | 'evening'
- * @returns 已依 sort_order 排序的欄位陣列（show_if_period 空 = 全部時段）
+ * @param {Object} session - 場次物件（需含 session_id、time_period）
+ * @returns 已依 sort_order 排序的欄位陣列
  */
-export function sessionFieldsForPeriod(allFields, timePeriod) {
+export function sessionFieldsForPeriod(allFields, session) {
   if (!Array.isArray(allFields)) return []
   return allFields
-    .filter(f => {
-      const periods = Array.isArray(f.show_if_period) ? f.show_if_period : []
-      return periods.length === 0 || periods.includes(timePeriod)
-    })
+    .filter(f => isFieldApplicableToSession(f, session))
     .slice()
     .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 }
@@ -166,7 +175,7 @@ export function computeMultiSessionStats(regs, sessions, sessionFields = []) {
   // 預建 bySession（保證 sessions 順序穩定）
   const bySession = new Map()
   for (const s of sessions) {
-    const fieldsHere = sessionFieldsForPeriod(fields, s.time_period)
+    const fieldsHere = sessionFieldsForPeriod(fields, s)
     const stats = {}
     for (const f of fieldsHere) stats[f.field_key] = {}
     bySession.set(s.session_id, { count: 0, stats })
@@ -183,7 +192,7 @@ export function computeMultiSessionStats(regs, sessions, sessionFields = []) {
 
       const s = sessions.find(x => x.session_id === ss.session_id)
       if (!s) continue
-      const fieldsHere = sessionFieldsForPeriod(fields, s.time_period)
+      const fieldsHere = sessionFieldsForPeriod(fields, s)
       for (const f of fieldsHere) {
         const val = ss[f.field_key]
         const stat = bucket.stats[f.field_key]

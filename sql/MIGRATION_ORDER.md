@@ -128,6 +128,7 @@
 | 77 | `add_chore_temple_date.sql` | chores 表補 temple／chore_date 欄位（坡務總表匯出用） |
 | 78 | `add_donor_ticket_copies.sql` | 出單機列印張數欄位 |
 | 79 | `fix_students_phone_anon_leak.sql` | 安全修正：students 表 anon 讀取權限改白名單（整表 REVOKE + 只 GRANT 安全欄位），堵住 phone／line_user_id 全表外洩，不影響刷 QR 報名與領隊/坡務報到頁（已實測） |
+| 80 | `add_session_field_target_sessions.sql` | 場次共用子欄位新增 show_if_session_ids（可鎖定只在特定場次顯示，忽略 show_if_period），不影響既有資料 |
 
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 

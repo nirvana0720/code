@@ -245,7 +245,10 @@ const FALLBACK_SESSION_FIELDS = [
 ]
 
 // 該子欄位是否會在這場顯示
+// show_if_session_ids 有值 → 只在指定場次顯示，忽略 show_if_period
 function isFieldVisibleForSession(field, session) {
+  const ids = Array.isArray(field.show_if_session_ids) ? field.show_if_session_ids : []
+  if (ids.length > 0) return ids.includes(session.session_id)
   const periods = field.show_if_period || []
   if (periods.length === 0) return true
   return periods.includes(session.time_period)

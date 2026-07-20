@@ -429,8 +429,8 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
     {/* 多場次場次設定 */}
     {form.multi_session && event?.event_id && (
       <>
-        <EventSessionFieldsPanel eventId={event.event_id} />
         <EventSessionsPanel eventId={event.event_id} onSaved={fresh => { setSessions(fresh || []); if (fresh?.length > 0) setSessionTab(fresh[0].session_id) }} />
+        <EventSessionFieldsPanel eventId={event.event_id} />
       </>
     )}
 

@@ -34,9 +34,10 @@ export default function EventSessionFieldsPanel({ eventId }) {
     const v = validateSessionFields(cleaned)
     if (!v.ok) { setMsg(v.msg); return }
 
-    // 避免重複送同一份
+    // 避免重複送同一份（內容跟上次成功存的一樣，代表目前狀態已經是合法的，
+    // 順便清掉可能殘留的舊警告訊息，避免「明明填好了卻還卡著錯誤字樣」）
     const sig = JSON.stringify(cleaned)
-    if (sig === lastSavedRef.current) return
+    if (sig === lastSavedRef.current) { setMsg(''); return }
 
     setSaving(true)
     setMsg('')

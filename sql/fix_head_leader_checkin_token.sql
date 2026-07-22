@@ -1,6 +1,10 @@
 -- ============================================================
 -- 修復：總領隊看板／小車領隊看板點「報到」會失敗的連帶問題
 -- 日期：2026-07-15
+--
+-- ⚠️ 2026-07-22 已作廢：checkin_car_member／checkin_all_car／checkin_car_monk
+-- 這 3 支函式已原封不動搬到 rpc_car.sql（唯一主檔）。這支檔案只留存歷史紀錄，
+-- 不要再從這裡重跑 CREATE FUNCTION。
 -- 背景：
 --   接續 add_all_cars_progress_by_token_rpc.sql 修復「看得到資料」的問題後，
 --   發現總領隊/小車領隊看板點選報到時會呼叫 checkin_car_member / checkin_all_car /

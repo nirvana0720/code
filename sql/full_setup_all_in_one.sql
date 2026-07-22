@@ -1,11 +1,17 @@
 -- ============================================================
 -- 普宜精舍報名系統 — 完整資料庫建置（合併版）
--- 產生日期：2026-07-19
+-- 產生日期：2026-07-19（2026-07-22 補上第八階段 4 支 RPC 主檔，見檔案最後）
 -- 說明：把 sql/MIGRATION_ORDER.md 第一階段～第七階段共 82 個檔案，
 --       依正確順序合併成這一份檔案，新環境只需要貼這一份到 Supabase SQL Editor
 --       執行一次即可，不用一個一個檔案手動貼。
 -- 用法：Supabase Dashboard → SQL Editor → New query → 貼上全部內容 → Run
 -- 注意：檔案較大，執行可能需要 10~30 秒，請耐心等待，不要中途關閉分頁。
+--
+-- ⚠️ 2026-07-22 補充：檔案最後追加了第八階段（rpc_car.sql／rpc_chore.sql／
+-- rpc_kiosk_student.sql／rpc_events.sql）4 支 RPC 主檔，用 CREATE OR REPLACE
+-- 蓋掉前面第七階段幾個舊檔案（第 62／67／68／70／72／74 項等）留下的中間版本，
+-- 補上合併後的正確欄位與從未真正上線的活動結束鎖定安全修正。新環境依序執行
+-- 這一整份檔案即可拿到最終正確版本，不用另外處理。
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -671,377 +677,6 @@ ON CONFLICT DO NOTHING;
 COMMENT ON TABLE registration_session_checkins IS '多場次活動每場一筆報到紀錄（複合 UNIQUE = 同人同場不重複）';
 
 
--- ════════════════════════════════════════════════════════════
--- 5. 稽核日誌
--- ════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS audit_log (
-  log_id  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id TEXT,
-  action  TEXT,
-  target  TEXT,
-  ip      TEXT,
-  at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-
--- ════════════════════════════════════════════════════════════
--- 6. 法會功德主管理
--- ════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS event_donors (
-  donor_id    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id    UUID        NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
-  student_id  TEXT,
-  name        TEXT        NOT NULL,
-  donor_item  TEXT,
-  seat        TEXT,
-  corsage     TEXT,
-  offering    TEXT,
-  donor_note  TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-COMMENT ON COLUMN event_donors.student_id IS 'NULL = 訪客型功德主；刻意不加 FK 避免 PostgREST 歧義';
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_event_donors_student ON event_donors(event_id, student_id) WHERE student_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_event_donors_guest   ON event_donors(event_id, name)       WHERE student_id IS NULL;
-CREATE INDEX        IF NOT EXISTS idx_event_donors_event   ON event_donors(event_id);
-CREATE INDEX        IF NOT EXISTS idx_event_donors_student ON event_donors(student_id) WHERE student_id IS NOT NULL;
-
-CREATE OR REPLACE FUNCTION touch_event_donors_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_event_donors_touch ON event_donors;
-CREATE TRIGGER trg_event_donors_touch
-  BEFORE UPDATE ON event_donors
-  FOR EACH ROW EXECUTE FUNCTION touch_event_donors_updated_at();
-
-
--- ════════════════════════════════════════════════════════════
--- 7. 排車系統
--- ════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS car_assignments (
-  car_id       UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id     UUID        NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
-  car_name     TEXT        NOT NULL,
-  seats        INT         NOT NULL DEFAULT 20,
-  car_type     TEXT        NOT NULL DEFAULT 'large' CHECK (car_type IN ('large', 'small')),
-  direction    TEXT        NOT NULL DEFAULT 'down'  CHECK (direction IN ('up', 'down')),
-  note         TEXT,
-  access_token TEXT        NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex'),
-  sort_order   INT         NOT NULL DEFAULT 0,
-  pre_depart   BOOLEAN     NOT NULL DEFAULT false,
-  late_return  BOOLEAN     NOT NULL DEFAULT false,
-  created_at   TIMESTAMPTZ DEFAULT NOW()
-);
-
-COMMENT ON COLUMN car_assignments.direction   IS 'up=上山、down=下山';
-COMMENT ON COLUMN car_assignments.pre_depart  IS '整車提前出發（上山）：從應到人數排除';
-COMMENT ON COLUMN car_assignments.late_return IS '整車延後回程（下山）：從應到人數排除';
-
-CREATE INDEX IF NOT EXISTS idx_car_assignments_event           ON car_assignments(event_id);
-CREATE INDEX IF NOT EXISTS idx_car_assignments_event_direction ON car_assignments(event_id, direction);
-
-CREATE TABLE IF NOT EXISTS car_members (
-  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  car_id          UUID        NOT NULL REFERENCES car_assignments(car_id) ON DELETE CASCADE,
-  registration_id UUID        NOT NULL REFERENCES registrations(registration_id) ON DELETE CASCADE,
-  checked_in_at   TIMESTAMPTZ,
-  UNIQUE (car_id, registration_id)
-);
-
-COMMENT ON COLUMN car_members.checked_in_at IS '領隊報到頁方向級別報到時間（上山/下山各自獨立）';
-
-CREATE INDEX IF NOT EXISTS idx_car_members_car ON car_members(car_id);
-
-CREATE TABLE IF NOT EXISTS car_leaders (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  car_id          UUID NOT NULL REFERENCES car_assignments(car_id) ON DELETE CASCADE,
-  registration_id UUID NOT NULL REFERENCES registrations(registration_id) ON DELETE CASCADE,
-  UNIQUE (car_id, registration_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_car_leaders_car ON car_leaders(car_id);
-
-CREATE TABLE IF NOT EXISTS head_leader (
-  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  event_id        UUID        NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
-  registration_id UUID        REFERENCES registrations(registration_id) ON DELETE SET NULL,
-  type            TEXT        NOT NULL DEFAULT 'all',
-  access_token    TEXT        NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex'),
-  UNIQUE (event_id, type, registration_id)
-);
-
-COMMENT ON COLUMN head_leader.type IS 'all=總領隊、small_car=小車領隊（可多人）';
-
-
--- ════════════════════════════════════════════════════════════
--- 8. 法師管理
--- ════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS temple_monks (
-  id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  name       TEXT        NOT NULL,
-  notes      TEXT,
-  active     BOOLEAN     NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS car_monks (
-  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  car_id        UUID        NOT NULL REFERENCES car_assignments(car_id) ON DELETE CASCADE,
-  monk_id       UUID        NOT NULL REFERENCES temple_monks(id) ON DELETE CASCADE,
-  checked_in_at TIMESTAMPTZ,
-  UNIQUE(car_id, monk_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_car_monks_car_id  ON car_monks(car_id);
-CREATE INDEX IF NOT EXISTS idx_car_monks_monk_id ON car_monks(monk_id);
-
-
--- ════════════════════════════════════════════════════════════
--- 9. 關係連結（同車同行）
--- ════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS relationship_groups (
-  group_id   UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  name       TEXT        NOT NULL,
-  note       TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS relationship_members (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  group_id   UUID NOT NULL REFERENCES relationship_groups(group_id) ON DELETE CASCADE,
-  student_id TEXT NOT NULL REFERENCES students(student_id) ON DELETE CASCADE,
-  UNIQUE (group_id, student_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_rel_members_group   ON relationship_members(group_id);
-CREATE INDEX IF NOT EXISTS idx_rel_members_student ON relationship_members(student_id);
-
-
--- ════════════════════════════════════════════════════════════
--- 10. 義工帳號管理
--- ════════════════════════════════════════════════════════════
-
-CREATE TABLE IF NOT EXISTS volunteer_profiles (
-  id           UUID        PRIMARY KEY,
-  email        TEXT        NOT NULL DEFAULT '',
-  display_name TEXT        NOT NULL DEFAULT '',
-  updated_at   TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS volunteer_event_access (
-  volunteer_id UUID NOT NULL,
-  event_id     UUID NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
-  PRIMARY KEY (volunteer_id, event_id)
-);
-
-
--- ════════════════════════════════════════════════════════════
--- 11. Row Level Security（RLS）啟用
--- ════════════════════════════════════════════════════════════
-
-ALTER TABLE students                      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE student_classes               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE events                        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE event_fields                  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE event_templates               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE event_sessions                ENABLE ROW LEVEL SECURITY;
-ALTER TABLE event_session_fields          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE registrations                 ENABLE ROW LEVEL SECURITY;
-ALTER TABLE registration_changes          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE registration_session_checkins ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audit_log                     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE event_donors                  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE car_assignments               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE car_members                   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE car_leaders                   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE head_leader                   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE temple_monks                  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE car_monks                     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE relationship_groups           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE relationship_members          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE volunteer_profiles            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE volunteer_event_access        ENABLE ROW LEVEL SECURITY;
-
-
--- ════════════════════════════════════════════════════════════
--- 12. RLS Policies
--- ════════════════════════════════════════════════════════════
-
-CREATE POLICY "anon can select students"            ON students        FOR SELECT TO anon          USING (true);
-CREATE POLICY "auth full access on students"        ON students        FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select student_classes"     ON student_classes FOR SELECT TO anon          USING (true);
-CREATE POLICY "auth full access on student_classes" ON student_classes FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select active events"       ON events          FOR SELECT TO anon          USING (status = 'active');
-CREATE POLICY "auth full access on events"          ON events          FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select event_fields"        ON event_fields    FOR SELECT TO anon          USING (true);
-CREATE POLICY "auth full access on event_fields"    ON event_fields    FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on event_templates" ON event_templates FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select event_sessions"      ON event_sessions  FOR SELECT TO anon          USING (true);
-CREATE POLICY "auth full access on event_sessions"  ON event_sessions  FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select esf"                 ON event_session_fields FOR SELECT TO anon          USING (true);
-CREATE POLICY "auth full access on esf"             ON event_session_fields FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select registrations"       ON registrations   FOR SELECT TO anon USING (true);
-CREATE POLICY "anon can insert registrations"       ON registrations   FOR INSERT TO anon WITH CHECK (true);
-CREATE POLICY "anon can update registrations"       ON registrations   FOR UPDATE TO anon USING (true);
-CREATE POLICY "anon can delete registrations"       ON registrations   FOR DELETE TO anon USING (true);
-CREATE POLICY "auth full access on registrations"   ON registrations   FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can insert changes"             ON registration_changes FOR INSERT TO anon          WITH CHECK (true);
-CREATE POLICY "auth full access on changes"         ON registration_changes FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on rsc"             ON registration_session_checkins FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on audit_log"       ON audit_log       FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select event_donors"        ON event_donors    FOR SELECT TO anon USING (true);
-CREATE POLICY "anon can insert event_donors"        ON event_donors    FOR INSERT TO anon WITH CHECK (true);
-CREATE POLICY "anon can update event_donors"        ON event_donors    FOR UPDATE TO anon USING (true);
-CREATE POLICY "anon can delete event_donors"        ON event_donors    FOR DELETE TO anon USING (true);
-CREATE POLICY "auth full access on event_donors"    ON event_donors    FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can read car_assignments"       ON car_assignments FOR SELECT TO anon USING (true);
-CREATE POLICY "auth full access on car_assignments" ON car_assignments FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can read car_members"           ON car_members     FOR SELECT TO anon USING (true);
-CREATE POLICY "anon can update car_members"         ON car_members     FOR UPDATE TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on car_members"     ON car_members     FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can read car_leaders"           ON car_leaders     FOR SELECT TO anon USING (true);
-CREATE POLICY "auth full access on car_leaders"     ON car_leaders     FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "anon can select head_leader"         ON head_leader     FOR SELECT TO anon USING (true);
-CREATE POLICY "auth full access on head_leader"     ON head_leader     FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "temple_monks_anon_read"              ON temple_monks    FOR SELECT TO anon          USING (true);
-CREATE POLICY "temple_monks_auth_all"               ON temple_monks    FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "car_monks_anon_select"               ON car_monks       FOR SELECT TO anon USING (true);
-CREATE POLICY "car_monks_anon_update"               ON car_monks       FOR UPDATE TO anon USING (true) WITH CHECK (true);
-CREATE POLICY "car_monks_auth_all"                  ON car_monks       FOR ALL    TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on rel_groups"      ON relationship_groups  FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on rel_members"     ON relationship_members FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on vol_profiles"    ON volunteer_profiles     FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth full access on vol_access"      ON volunteer_event_access FOR ALL TO authenticated USING (true) WITH CHECK (true);
-
-
--- ════════════════════════════════════════════════════════════
--- 13. GRANT 權限
--- ════════════════════════════════════════════════════════════
-
-GRANT SELECT                         ON students                      TO anon;
-GRANT SELECT                         ON student_classes               TO anon;
-GRANT SELECT                         ON events                        TO anon;
-GRANT SELECT                         ON event_fields                  TO anon;
-GRANT SELECT                         ON event_sessions                TO anon;
-GRANT SELECT                         ON event_session_fields          TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON registrations                 TO anon;
-GRANT INSERT                         ON registration_changes          TO anon;
-GRANT SELECT                         ON car_assignments               TO anon;
-GRANT SELECT, UPDATE                 ON car_members                   TO anon;
-GRANT SELECT                         ON car_leaders                   TO anon;
-GRANT SELECT                         ON head_leader                   TO anon;
-GRANT SELECT                         ON temple_monks                  TO anon;
-GRANT SELECT, UPDATE                 ON car_monks                     TO anon;
-GRANT SELECT, INSERT, UPDATE, DELETE ON event_donors                  TO anon;
-
-GRANT ALL ON students                      TO authenticated;
-GRANT ALL ON student_classes               TO authenticated;
-GRANT ALL ON events                        TO authenticated;
-GRANT ALL ON event_fields                  TO authenticated;
-GRANT ALL ON event_templates               TO authenticated;
-GRANT ALL ON event_sessions                TO authenticated;
-GRANT ALL ON event_session_fields          TO authenticated;
-GRANT ALL ON registrations                 TO authenticated;
-GRANT ALL ON registration_changes          TO authenticated;
-GRANT ALL ON registration_session_checkins TO authenticated;
-GRANT ALL ON audit_log                     TO authenticated;
-GRANT ALL ON event_donors                  TO authenticated;
-GRANT ALL ON car_assignments               TO authenticated;
-GRANT ALL ON car_members                   TO authenticated;
-GRANT ALL ON car_leaders                   TO authenticated;
-GRANT ALL ON head_leader                   TO authenticated;
-GRANT ALL ON temple_monks                  TO authenticated;
-GRANT ALL ON car_monks                     TO authenticated;
-GRANT ALL ON relationship_groups           TO authenticated;
-GRANT ALL ON relationship_members          TO authenticated;
-GRANT ALL ON volunteer_profiles            TO authenticated;
-GRANT ALL ON volunteer_event_access        TO authenticated;
-
-GRANT ALL ON event_sessions                TO service_role;
-GRANT ALL ON registration_session_checkins TO service_role;
-GRANT ALL ON event_session_fields          TO service_role;
-
-GRANT USAGE, SELECT ON SEQUENCE student_classes_id_seq TO authenticated;
-
-
--- ════════════════════════════════════════════════════════════
--- 14. 預設模板（回山 + 精舍）
--- ════════════════════════════════════════════════════════════
-
-INSERT INTO event_templates (name, sort_order, session_fields, fields) VALUES
-
-('回山模板', 1, '[]'::jsonb, '[
-  {"field_key":"identity","field_label":"身分別","field_type":"radio","options":["義工","信眾"],"show_if":null,"required":true,"placeholder":null,"dashboard_role":"identity","option_meta":null},
-  {"field_key":"arrive_time","field_label":"預計到達山上時間","field_type":"datetime","options":[],"show_if":{"identity":"義工"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"transport_up","field_label":"上山交通方式","field_type":"radio","options":["搭精舍車（大車）","搭學員的車","自行開車","其他"],"show_if":null,"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"carpool_up","field_label":"上山共乘者（司機學員姓名）","field_type":"text","options":[],"show_if":{"transport_up":"搭學員的車"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"plate_up","field_label":"上山車牌號碼","field_type":"plate","options":[],"show_if":{"transport_up":"自行開車"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"leave_time","field_label":"預計離開山上時間","field_type":"datetime","options":[],"show_if":{"identity":"義工"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"transport_down","field_label":"下山交通方式","field_type":"radio","options":["搭精舍車（大車）","搭學員的車","自行開車","其他"],"show_if":null,"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"carpool_down","field_label":"下山共乘者（司機學員姓名）","field_type":"text","options":[],"show_if":{"transport_down":"搭學員的車"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"plate_down","field_label":"下山車牌號碼","field_type":"plate","options":[],"show_if":{"transport_down":"自行開車"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"volunteer_group","field_label":"發心組別","field_type":"radio","options":["交通組","行堂組","茶水間","大寮","客寮","機動組","環保組","大會安排","其他"],"show_if":{"identity":"義工"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"stay_overnight","field_label":"是否掛單","field_type":"boolean","options":[],"show_if":null,"required":false,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"stay_start","field_label":"掛單開始日期","field_type":"date","options":[],"show_if":{"stay_overnight":true},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"stay_end","field_label":"掛單結束日期","field_type":"date","options":[],"show_if":{"stay_overnight":true},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null},
-  {"field_key":"note_to_temple","field_label":"備註","field_type":"text","options":[],"show_if":null,"required":false,"placeholder":"欲同車者或其他需求","dashboard_role":null,"option_meta":null}
-]'::jsonb),
-
-('精舍模板', 2, '[]'::jsonb, '[
-  {"field_key":"identity","field_label":"身份別","field_type":"radio","options":["信眾","義工"],"show_if":null,"required":true,"placeholder":null,"dashboard_role":"identity","option_meta":null},
-  {"field_key":"need_lunch","field_label":"是否需要午齋","field_type":"boolean","options":[],"show_if":null,"required":true,"placeholder":null,"dashboard_role":"lunch_total","option_meta":null},
-  {"field_key":"parking_type","field_label":"停車方式","field_type":"radio","options":["不需要","機車","轎車"],"show_if":null,"required":true,"placeholder":null,"dashboard_role":"parking_kind","option_meta":{"不需要":"none","機車":"motorcycle","轎車":"car"}},
-  {"field_key":"volunteer_group","field_label":"組別","field_type":"radio","options":["心燈","照客","行堂","大寮","機動","環保","交通","司儀","梵唄","音響","攝影"],"show_if":{"identity":"義工"},"required":true,"placeholder":null,"dashboard_role":null,"option_meta":null}
-]'::jsonb)
-
-ON CONFLICT DO NOTHING;
-
-
--- ════════════════════════════════════════════════════════════
--- 15. 師父帳號角色設定（執行完 schema 後再做）
--- ════════════════════════════════════════════════════════════
---
--- ① 先到 Supabase → Authentication → Users → 「Add user」
---    建立師父的 email + 密碼帳號（勾 Auto Confirm）
---
--- ② 執行以下 SQL，把 email 改成師父帳號：
---
--- UPDATE auth.users
--- SET raw_user_meta_data = jsonb_set(
---   COALESCE(raw_user_meta_data, '{}'::jsonb), '{role}', '"admin"'
--- )
--- WHERE email = 'your-email@example.com';
---
--- ③ 若需要義工共用帳號，同樣先 Add user，再執行：
---
--- UPDATE auth.users
--- SET raw_user_meta_data = jsonb_set(
---   COALESCE(raw_user_meta_data, '{}'::jsonb), '{role}', '"volunteer"'
--- )
--- WHERE email = 'volunteer@your.branch';
-
-
--- ════════════════════════════════════════════════════════════
--- 完成！執行後用以下查詢確認所有資料表已建立（應看到 22 張）：
---
--- SELECT table_name
--- FROM information_schema.tables
--- WHERE table_schema = 'public'
--- ORDER BY table_name;
--- ════════════════════════════════════════════════════════════
-
 -- ------------------------------------------------------------
 -- [2/81] admin_setup.sql
 -- ------------------------------------------------------------
@@ -1195,6 +830,13 @@ CREATE INDEX IF NOT EXISTS idx_car_monks_monk_id ON car_monks(monk_id);
 ALTER TABLE temple_monks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE car_monks    ENABLE ROW LEVEL SECURITY;
 
+-- 先刪舊 Policy，再重建（schema.sql 的「8. 法師管理」已經建過一次，避免 42710 衝突）
+DROP POLICY IF EXISTS "temple_monks_auth_all"  ON temple_monks;
+DROP POLICY IF EXISTS "temple_monks_anon_read" ON temple_monks;
+DROP POLICY IF EXISTS "car_monks_auth_all"     ON car_monks;
+DROP POLICY IF EXISTS "car_monks_anon_select"  ON car_monks;
+DROP POLICY IF EXISTS "car_monks_anon_update"  ON car_monks;
+
 -- temple_monks：登入者完整存取，anon 唯讀
 CREATE POLICY "temple_monks_auth_all"  ON temple_monks FOR ALL       TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "temple_monks_anon_read" ON temple_monks FOR SELECT    TO anon           USING (true);
@@ -1291,6 +933,10 @@ CREATE INDEX IF NOT EXISTS idx_reg_changes_unnotified
 -- RLS
 ALTER TABLE registration_changes ENABLE ROW LEVEL SECURITY;
 
+-- 先刪舊 Policy，再重建（schema.sql 已經建過一次，避免 42710 衝突）
+DROP POLICY IF EXISTS "anon can insert changes" ON registration_changes;
+DROP POLICY IF EXISTS "authenticated full access on changes" ON registration_changes;
+
 -- anon（前台學員刷卡）：只能新增
 CREATE POLICY "anon can insert changes"
   ON registration_changes FOR INSERT TO anon WITH CHECK (true);
@@ -1337,7 +983,8 @@ GRANT DELETE ON registrations TO authenticated;
 -- 允許前台匿名使用者（anon）刪除報名紀錄（學員自助取消）
 GRANT DELETE ON registrations TO anon;
 
--- anon DELETE 的 RLS 政策（允許刪除任何報名紀錄）
+-- anon DELETE 的 RLS 政策（允許刪除任何報名紀錄，schema.sql 已經建過一次，先刪再建避免 42710）
+DROP POLICY IF EXISTS "anon can delete registrations" ON registrations;
 CREATE POLICY "anon can delete registrations"
   ON registrations FOR DELETE TO anon
   USING (true);
@@ -1362,6 +1009,11 @@ ALTER TABLE registrations ALTER COLUMN student_id DROP NOT NULL;
 -- 執行前提：car_arrangement_setup.sql 已執行
 -- ═══════════════════════════════════════════════════════════
 
+-- 先刪舊 Policy，再重建（schema.sql 已經建過一次，避免 42710 衝突）
+DROP POLICY IF EXISTS "anon can read car_assignments" ON car_assignments;
+DROP POLICY IF EXISTS "anon can read car_members"     ON car_members;
+DROP POLICY IF EXISTS "anon can read car_leaders"     ON car_leaders;
+
 -- 1. car_assignments：anon 可讀（token 驗證在應用層）
 CREATE POLICY "anon can read car_assignments"
   ON car_assignments FOR SELECT TO anon USING (true);
@@ -1374,7 +1026,7 @@ CREATE POLICY "anon can read car_members"
 CREATE POLICY "anon can read car_leaders"
   ON car_leaders FOR SELECT TO anon USING (true);
 
--- 4. head_leader：anon 可讀
+-- 4. head_leader：anon 可讀（下面 create policy 已用 IF NOT EXISTS 條件式保護，這裡不用）
 CREATE POLICY "anon can read head_leader"
   ON head_leader FOR SELECT TO anon USING (true);
 
@@ -3027,6 +2679,12 @@ ALTER TABLE events
 
 COMMENT ON COLUMN events.show_transport_to_public IS
   '對外公開排車資訊：true 時學員在 KioskPage 刷卡可看到自己的車次（大車/小車、上下山方向）';
+
+-- ── 全新環境補丁：pg_cron extension 提前啟用 ──────────────────────
+-- 原始 migration 順序中，啟用指令（原本在 [51/81] 附近）晚於這裡第一次用到
+-- cron.schedule 的位置，正式環境是先在 Supabase Dashboard 手動啟用過才沒發現。
+-- 全新環境從頭跑會在這裡先報「schema "cron" does not exist」，故提前到此處。
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 -- ------------------------------------------------------------
 -- [47/81] recurring_batch2.sql
@@ -5557,14 +5215,621 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS donor_ticket_default_copies INTEGER 
 REVOKE SELECT ON students FROM anon;
 GRANT SELECT (student_id, qr_code, name, active, created_at) ON students TO anon;
 
+-- ============================================================
+-- 第八階段：RPC 主檔整理（2026-07-22，函式健檢後的搬家）
+-- 用 CREATE OR REPLACE 蓋掉前面第七階段留下的中間版本，補上合併後的正確欄位
+-- 與從未真正上線的安全修正。詳見 sql/MIGRATION_ORDER.md 第八階段說明。
+-- ============================================================
+
 -- ------------------------------------------------------------
--- [82/82] add_session_field_target_sessions.sql
+-- [82/86] rpc_car.sql
 -- ------------------------------------------------------------
--- 2026-07-20 場次共用子欄位：新增「只在特定場次顯示」
--- 背景：show_if_period 只能鎖時段（上午/下午/晚上），同時段有多場次時
---   無法只鎖單一場次（例：梁皇寶懺十卷裡第一卷跟第九卷都是「上午」，
---   想讓午齋問題只在第九卷出現，原本做不到）。
--- 新增 show_if_session_ids：有值時只在指定場次顯示（忽略 show_if_period）；
---   空陣列（預設）維持原本 show_if_period 邏輯，舊資料/舊活動不受影響。
--- 可重複執行（IF NOT EXISTS）。
-ALTER TABLE event_session_fields ADD COLUMN IF NOT EXISTS show_if_session_ids UUID[] DEFAULT '{}'::uuid[];
+-- 職責：車輛／隨車法師／領隊 token 相關 RPC 主檔（本檔為這批函式唯一主檔）。
+-- get_car_by_token／get_leader_cars／checkin_car_member／checkin_all_car／
+-- checkin_car_monk／get_head_leader_by_token／is_token_expired（共 7 支）。
+-- 已合併補齊 dormitory_room＋phone 欄位分歧，並補上「活動結束後鎖住」安全修正
+-- （原本寫在 lock_expired_token_pages.sql 但從未真正部署到正式環境）。
+
+CREATE OR REPLACE FUNCTION get_car_by_token(p_token TEXT)
+RETURNS JSON
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result JSON;
+BEGIN
+  SELECT row_to_json(t) INTO result
+  FROM (
+    SELECT
+      ca.car_id, ca.car_name, ca.seats, ca.event_id, ca.sort_order,
+      ca.direction, ca.pre_depart, ca.late_return,
+      row_to_json(e.*) AS events,
+      (
+        SELECT json_agg(cm_row)
+        FROM (
+          SELECT
+            cm.registration_id, cm.checked_in_at,
+            row_to_json(r.*) AS registrations
+          FROM car_members cm
+          LEFT JOIN LATERAL (
+            SELECT
+              reg.registration_id, reg.answers, reg.checked_in_at,
+              reg.student_id, reg.dormitory_room,
+              row_to_json(s.*) AS students
+            FROM registrations reg
+            LEFT JOIN LATERAL (
+              SELECT st.name, st.student_id, st.phone,
+                (SELECT json_agg(sc.*) FROM student_classes sc WHERE sc.student_id = st.student_id) AS student_classes
+              FROM students st WHERE st.student_id = reg.student_id
+            ) s ON true
+            WHERE reg.registration_id = cm.registration_id
+          ) r ON true
+          WHERE cm.car_id = ca.car_id
+        ) cm_row
+      ) AS car_members,
+      (
+        SELECT json_agg(json_build_object('registration_id', cl.registration_id))
+        FROM car_leaders cl WHERE cl.car_id = ca.car_id
+      ) AS car_leaders,
+      (
+        SELECT json_agg(json_build_object(
+          'id', ck.id, 'monk_id', ck.monk_id, 'checked_in_at', ck.checked_in_at,
+          'temple_monks', json_build_object('name', tm.name)
+        ))
+        FROM car_monks ck
+        LEFT JOIN temple_monks tm ON tm.id = ck.monk_id
+        WHERE ck.car_id = ca.car_id
+      ) AS car_monks
+    FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.access_token = p_token
+      AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end)
+    LIMIT 1
+  ) t;
+
+  RETURN result;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_car_by_token(TEXT) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION get_leader_cars(p_token TEXT, p_car_ids UUID[])
+RETURNS JSON
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_event_id UUID;
+  result JSON;
+BEGIN
+  SELECT event_id INTO v_event_id
+  FROM car_assignments WHERE access_token = p_token LIMIT 1;
+
+  IF v_event_id IS NULL THEN
+    RETURN '[]'::JSON;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM events e
+    WHERE e.event_id = v_event_id
+      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+  ) THEN
+    RETURN '[]'::JSON;
+  END IF;
+
+  SELECT json_agg(row_to_json(t)) INTO result
+  FROM (
+    SELECT
+      ca.car_id, ca.car_name, ca.seats, ca.event_id, ca.sort_order,
+      ca.direction, ca.pre_depart, ca.late_return, ca.access_token,
+      row_to_json(e.*) AS events,
+      (
+        SELECT json_agg(cm_row)
+        FROM (
+          SELECT
+            cm.registration_id, cm.checked_in_at,
+            row_to_json(r.*) AS registrations
+          FROM car_members cm
+          LEFT JOIN LATERAL (
+            SELECT
+              reg.registration_id, reg.answers, reg.checked_in_at,
+              reg.student_id, reg.dormitory_room,
+              row_to_json(s.*) AS students
+            FROM registrations reg
+            LEFT JOIN LATERAL (
+              SELECT st.name, st.student_id, st.phone,
+                (SELECT json_agg(sc.*) FROM student_classes sc WHERE sc.student_id = st.student_id) AS student_classes
+              FROM students st WHERE st.student_id = reg.student_id
+            ) s ON true
+            WHERE reg.registration_id = cm.registration_id
+          ) r ON true
+          WHERE cm.car_id = ca.car_id
+        ) cm_row
+      ) AS car_members,
+      (
+        SELECT json_agg(json_build_object('registration_id', cl.registration_id))
+        FROM car_leaders cl WHERE cl.car_id = ca.car_id
+      ) AS car_leaders,
+      (
+        SELECT json_agg(json_build_object(
+          'id', ck.id, 'monk_id', ck.monk_id, 'checked_in_at', ck.checked_in_at,
+          'temple_monks', json_build_object('name', tm.name)
+        ))
+        FROM car_monks ck
+        LEFT JOIN temple_monks tm ON tm.id = ck.monk_id
+        WHERE ck.car_id = ca.car_id
+      ) AS car_monks
+    FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.car_id = ANY(p_car_ids)
+      AND ca.event_id = v_event_id
+  ) t;
+
+  RETURN COALESCE(result, '[]'::JSON);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_leader_cars(TEXT, UUID[]) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION checkin_car_member(
+  p_token TEXT,
+  p_car_id UUID,
+  p_registration_id UUID,
+  p_check_in BOOLEAN
+)
+RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_event_id UUID;
+  v_car_type TEXT;
+BEGIN
+  SELECT event_id, car_type INTO v_event_id, v_car_type
+  FROM car_assignments WHERE car_id = p_car_id;
+
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Invalid car_id %', p_car_id;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM car_assignments WHERE car_id = p_car_id AND access_token = p_token
+  ) AND NOT EXISTS (
+    SELECT 1 FROM head_leader
+    WHERE access_token = p_token AND event_id = v_event_id
+      AND (type <> 'small_car' OR v_car_type = 'small')
+  ) THEN
+    RAISE EXCEPTION 'Invalid token for car_id %', p_car_id;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM events e WHERE e.event_id = v_event_id
+      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+  ) THEN
+    RAISE EXCEPTION '活動已結束，無法報到';
+  END IF;
+
+  UPDATE car_members
+  SET checked_in_at = CASE WHEN p_check_in THEN NOW() ELSE NULL END
+  WHERE car_id = p_car_id AND registration_id = p_registration_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION checkin_car_member(TEXT, UUID, UUID, BOOLEAN) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION checkin_all_car(p_token TEXT, p_car_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_event_id UUID;
+  v_car_type TEXT;
+BEGIN
+  SELECT event_id, car_type INTO v_event_id, v_car_type
+  FROM car_assignments WHERE car_id = p_car_id;
+
+  IF v_event_id IS NULL THEN
+    RAISE EXCEPTION 'Invalid car_id %', p_car_id;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM car_assignments WHERE car_id = p_car_id AND access_token = p_token
+  ) AND NOT EXISTS (
+    SELECT 1 FROM head_leader
+    WHERE access_token = p_token AND event_id = v_event_id
+      AND (type <> 'small_car' OR v_car_type = 'small')
+  ) THEN
+    RAISE EXCEPTION 'Invalid token for car_id %', p_car_id;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM events e WHERE e.event_id = v_event_id
+      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+  ) THEN
+    RAISE EXCEPTION '活動已結束，無法報到';
+  END IF;
+
+  UPDATE car_members
+  SET checked_in_at = NOW()
+  WHERE car_id = p_car_id AND checked_in_at IS NULL;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION checkin_all_car(TEXT, UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION checkin_car_monk(
+  p_token TEXT,
+  p_car_monk_id UUID,
+  p_check_in BOOLEAN
+)
+RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_car_id   UUID;
+  v_event_id UUID;
+  v_car_type TEXT;
+BEGIN
+  SELECT ck.car_id, ca.event_id, ca.car_type INTO v_car_id, v_event_id, v_car_type
+  FROM car_monks ck
+  JOIN car_assignments ca ON ca.car_id = ck.car_id
+  WHERE ck.id = p_car_monk_id;
+
+  IF v_car_id IS NULL THEN
+    RAISE EXCEPTION 'Invalid car_monk_id %', p_car_monk_id;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM car_assignments WHERE car_id = v_car_id AND access_token = p_token
+  ) AND NOT EXISTS (
+    SELECT 1 FROM head_leader
+    WHERE access_token = p_token AND event_id = v_event_id
+      AND (type <> 'small_car' OR v_car_type = 'small')
+  ) THEN
+    RAISE EXCEPTION 'Invalid token for car_monk_id %', p_car_monk_id;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM events e WHERE e.event_id = v_event_id
+      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+  ) THEN
+    RAISE EXCEPTION '活動已結束，無法報到';
+  END IF;
+
+  UPDATE car_monks
+  SET checked_in_at = CASE WHEN p_check_in THEN NOW() ELSE NULL END
+  WHERE id = p_car_monk_id;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION checkin_car_monk(TEXT, UUID, BOOLEAN) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION get_head_leader_by_token(p_token TEXT)
+RETURNS JSON
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result JSON;
+BEGIN
+  SELECT row_to_json(t) INTO result
+  FROM (
+    SELECT
+      hl.id, hl.registration_id, hl.event_id, hl.type,
+      row_to_json(e.*) AS events,
+      (
+        SELECT row_to_json(r_row) FROM (
+          SELECT
+            reg.answers, reg.student_id,
+            row_to_json(s.*) AS students
+          FROM registrations reg
+          LEFT JOIN LATERAL (
+            SELECT st.name FROM students st WHERE st.student_id = reg.student_id
+          ) s ON true
+          WHERE reg.registration_id = hl.registration_id
+        ) r_row
+      ) AS registrations
+    FROM head_leader hl
+    LEFT JOIN events e ON e.event_id = hl.event_id
+    WHERE hl.access_token = p_token
+      AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end)
+    LIMIT 1
+  ) t;
+
+  RETURN result;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_head_leader_by_token(TEXT) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION is_token_expired(p_token TEXT)
+RETURNS BOOLEAN
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_date_end DATE;
+BEGIN
+  SELECT e.date_end INTO v_date_end
+  FROM car_assignments ca JOIN events e ON e.event_id = ca.event_id
+  WHERE ca.access_token = p_token
+  LIMIT 1;
+
+  IF v_date_end IS NULL THEN
+    SELECT e.date_end INTO v_date_end
+    FROM head_leader hl JOIN events e ON e.event_id = hl.event_id
+    WHERE hl.access_token = p_token
+    LIMIT 1;
+  END IF;
+
+  IF v_date_end IS NULL THEN
+    SELECT e.date_end INTO v_date_end
+    FROM chores c JOIN events e ON e.event_id = c.event_id
+    WHERE c.access_token = p_token
+    LIMIT 1;
+  END IF;
+
+  IF v_date_end IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  RETURN (NOW() AT TIME ZONE 'Asia/Taipei')::date > v_date_end;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION is_token_expired(TEXT) TO anon, authenticated;
+
+-- ------------------------------------------------------------
+-- [83/86] rpc_chore.sql
+-- ------------------------------------------------------------
+-- 職責：坡務（義工工作）相關 RPC 主檔（本檔為這批函式唯一主檔）。
+-- get_chore_locations_by_event／get_chore_by_token（含活動結束鎖定）。
+
+CREATE OR REPLACE FUNCTION get_chore_locations_by_event(p_event_id UUID)
+RETURNS JSON
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result JSON;
+BEGIN
+  SELECT COALESCE(json_object_agg(t.registration_id, t.sessions), '{}'::json) INTO result
+  FROM (
+    SELECT
+      cm.registration_id,
+      json_object_agg(c.session, json_build_object(
+        'chore_id', c.chore_id,
+        'unit', c.unit,
+        'work_content', c.work_content,
+        'location', c.location,
+        'sort_order', c.sort_order
+      )) AS sessions
+    FROM chore_members cm
+    JOIN chores c ON c.chore_id = cm.chore_id
+    WHERE c.event_id = p_event_id
+    GROUP BY cm.registration_id
+  ) t;
+
+  RETURN result;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_chore_locations_by_event(UUID) TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION get_chore_by_token(p_token TEXT)
+RETURNS JSON
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  result JSON;
+BEGIN
+  SELECT row_to_json(t) INTO result
+  FROM (
+    SELECT
+      c.chore_id, c.event_id, c.session, c.unit, c.work_content, c.location,
+      c.supervising_monk, c.supervising_monk_phone, c.leader_name, c.leader_phone,
+      c.quota_male, c.quota_female,
+      row_to_json(e.*) AS events,
+      (
+        SELECT json_agg(mem_row)
+        FROM (
+          SELECT
+            cmem.id, cmem.registration_id,
+            r.student_id,
+            COALESCE(s.name, r.answers->>'guest_name', '訪客') AS name,
+            s.phone AS phone,
+            (
+              SELECT sc.group_name FROM student_classes sc
+              WHERE sc.student_id = r.student_id AND (sc.group_name LIKE '%男%' OR sc.group_name LIKE '%女%')
+              LIMIT 1
+            ) AS group_name,
+            (
+              SELECT ca.car_name FROM car_members cmm
+              JOIN car_assignments ca ON ca.car_id = cmm.car_id
+              WHERE cmm.registration_id = r.registration_id
+                AND ca.event_id = c.event_id AND ca.direction = 'up'
+              LIMIT 1
+            ) AS car_name
+          FROM chore_members cmem
+          JOIN registrations r ON r.registration_id = cmem.registration_id
+          LEFT JOIN students s ON s.student_id = r.student_id
+          WHERE cmem.chore_id = c.chore_id
+        ) mem_row
+      ) AS members
+    FROM chores c
+    LEFT JOIN events e ON e.event_id = c.event_id
+    WHERE c.access_token = p_token
+      AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end)
+    LIMIT 1
+  ) t;
+
+  RETURN result;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_chore_by_token(TEXT) TO anon, authenticated;
+
+-- ------------------------------------------------------------
+-- [84/86] rpc_kiosk_student.sql
+-- ------------------------------------------------------------
+-- 職責：kiosk_get_registrations_for_student 主檔（本檔為這支函式唯一主檔）。
+-- 含 dormitory_room 欄位，回傳欄位組成有變更，用 DROP + CREATE。
+
+DROP FUNCTION IF EXISTS kiosk_get_registrations_for_student(TEXT, UUID[]);
+
+CREATE FUNCTION kiosk_get_registrations_for_student(
+  p_student_id TEXT,
+  p_event_ids  UUID[]
+)
+RETURNS TABLE (
+  registration_id UUID,
+  event_id        UUID,
+  student_id      TEXT,
+  host_student_id TEXT,
+  answers         JSONB,
+  is_driver       BOOLEAN,
+  registered_at   TIMESTAMPTZ,
+  updated_at      TIMESTAMPTZ,
+  dormitory_room  TEXT
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    r.registration_id,
+    r.event_id,
+    r.student_id,
+    r.host_student_id,
+    (r.answers - 'guest_phone') AS answers,
+    r.is_driver,
+    r.registered_at,
+    r.updated_at,
+    r.dormitory_room
+  FROM registrations r
+  WHERE r.event_id = ANY(p_event_ids)
+    AND (
+      r.student_id      = p_student_id
+      OR r.host_student_id = p_student_id
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION kiosk_get_registrations_for_student(TEXT, UUID[]) TO anon, authenticated;
+
+-- ------------------------------------------------------------
+-- [85/86] rpc_events.sql
+-- ------------------------------------------------------------
+-- 職責：週期性活動（recurring events）相關 RPC 主檔（本檔為這批函式唯一主檔）。
+-- create_recurring_events_in_range，含複製動態欄位／義工存取設定的完整版本。
+-- 注意：這支函式只由 recurring_batch2.sql 的 pg_cron 排程呼叫，沒有前端直接
+-- 呼叫，因此沒有 GRANT TO anon/authenticated（也不需要）。
+
+CREATE OR REPLACE FUNCTION create_recurring_events_in_range(
+  p_template_id uuid,
+  p_date_start  date,
+  p_date_end    date
+)
+RETURNS int
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  tmpl         recurring_templates%ROWTYPE;
+  cur_date     date;
+  event_name   text;
+  new_event_id uuid;
+  created_cnt  int := 0;
+  field_rec    jsonb;
+  vol_id       text;
+  sort_idx     int;
+BEGIN
+  SELECT * INTO tmpl FROM recurring_templates WHERE template_id = p_template_id;
+  IF NOT FOUND THEN RETURN 0; END IF;
+
+  cur_date := p_date_start;
+
+  WHILE cur_date <= p_date_end LOOP
+    IF (tmpl.frequency = 'weekly'  AND EXTRACT(DOW FROM cur_date)::int = tmpl.day_of_week)
+    OR (tmpl.frequency = 'monthly' AND EXTRACT(DAY FROM cur_date)::int = tmpl.day_of_month)
+    THEN
+      IF tmpl.prepend_date THEN
+        event_name := to_char(cur_date, 'YYYY/MM/DD') || ' ' || tmpl.name;
+      ELSE
+        event_name := tmpl.name;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM events
+        WHERE template_id = p_template_id
+          AND date_start  = cur_date
+      ) THEN
+        INSERT INTO events (
+          name, date_start, date_end,
+          location, location_tag, event_type, status,
+          walkin_mode, kiosk_open, offline_registration, show_on_activities,
+          is_recurring, template_id
+        ) VALUES (
+          event_name, cur_date, cur_date,
+          tmpl.location, tmpl.location_tag, tmpl.event_type, 'active',
+          tmpl.walkin_mode, tmpl.kiosk_open, tmpl.offline_registration, tmpl.show_on_activities,
+          true, p_template_id
+        )
+        RETURNING event_id INTO new_event_id;
+
+        IF tmpl.fields IS NOT NULL AND jsonb_array_length(tmpl.fields) > 0 THEN
+          sort_idx := 1;
+          FOR field_rec IN SELECT * FROM jsonb_array_elements(tmpl.fields) LOOP
+            INSERT INTO event_fields (
+              event_id, field_key, field_label, field_type,
+              options, show_if, sort_order, required,
+              placeholder, dashboard_role, option_meta
+            ) VALUES (
+              new_event_id,
+              field_rec->>'field_key',
+              field_rec->>'field_label',
+              field_rec->>'field_type',
+              COALESCE(field_rec->'options', '[]'::jsonb),
+              field_rec->'show_if',
+              sort_idx,
+              COALESCE((field_rec->>'required')::boolean, true),
+              field_rec->>'placeholder',
+              field_rec->>'dashboard_role',
+              field_rec->'option_meta'
+            );
+            sort_idx := sort_idx + 1;
+          END LOOP;
+        END IF;
+
+        IF tmpl.volunteer_ids IS NOT NULL AND jsonb_array_length(tmpl.volunteer_ids) > 0 THEN
+          FOR vol_id IN SELECT jsonb_array_elements_text(tmpl.volunteer_ids) LOOP
+            INSERT INTO volunteer_event_access (volunteer_id, event_id)
+            VALUES (vol_id::uuid, new_event_id)
+            ON CONFLICT DO NOTHING;
+          END LOOP;
+        END IF;
+
+        created_cnt := created_cnt + 1;
+      END IF;
+    END IF;
+
+    cur_date := cur_date + 1;
+  END LOOP;
+
+  RETURN created_cnt;
+END;
+$$;
+
+-- ------------------------------------------------------------
+-- [86/86] 第八階段收尾：確認第八階段函式已生效
+-- ------------------------------------------------------------
+-- SELECT proname FROM pg_proc WHERE proname IN (
+--   'get_car_by_token','get_leader_cars','checkin_car_member','checkin_all_car',
+--   'checkin_car_monk','get_head_leader_by_token','is_token_expired',
+--   'get_chore_locations_by_event','get_chore_by_token',
+--   'kiosk_get_registrations_for_student','create_recurring_events_in_range'
+-- );

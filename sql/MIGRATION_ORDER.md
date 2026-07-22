@@ -130,6 +130,23 @@
 | 79 | `fix_students_phone_anon_leak.sql` | 安全修正：students 表 anon 讀取權限改白名單（整表 REVOKE + 只 GRANT 安全欄位），堵住 phone／line_user_id 全表外洩，不影響刷 QR 報名與領隊/坡務報到頁（已實測） |
 | 80 | `add_session_field_target_sessions.sql` | 場次共用子欄位新增 show_if_session_ids（可鎖定只在特定場次顯示，忽略 show_if_period），不影響既有資料 |
 
+## 第八階段：RPC 主檔整理（2026-07-22，函式健檢後的搬家）
+
+> 背景：用 `D:\Claude\projects\資料庫函式健檢工具\` 掃描才發現，車輛／坡務／學員報名查詢／
+> 週期性活動這幾組函式一直沒有固定主檔，同一支函式最多曾散落在 3 支不同的「這次改這個」
+> 檔案裡（例如 `get_car_by_token` 同時活在第 62／68／70 項）。以下 4 支新檔案把各自的
+> 「目前正式生效、且已合併補齊分歧欄位／補上未上線安全修正」的最終版本收攏成唯一主檔，
+> **必須排在第七階段（第 50～80 項）之後執行**，用 `CREATE OR REPLACE` 蓋掉前面幾個舊檔案
+> 留下的中間版本，新環境／舊環境都適用。舊檔案本身保留不刪（歷史紀錄＋部分 RLS policy
+> 異動仍有效），但檔案開頭都已加註「已作廢」，往後修這幾支函式只回下面 4 支主檔改。
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 81 | `rpc_car.sql` | 車輛／隨車法師／領隊 token 主檔：`get_car_by_token`／`get_leader_cars`／`checkin_car_member`／`checkin_all_car`／`checkin_car_monk`／`get_head_leader_by_token`／`is_token_expired`（7 支）。已合併補齊 dormitory_room＋phone 欄位分歧，並補上第 70 項寫了但從未真正部署到正式環境的「活動結束鎖住」安全修正 |
+| 82 | `rpc_chore.sql` | 坡務主檔：`get_chore_locations_by_event`／`get_chore_by_token`（2 支） |
+| 83 | `rpc_kiosk_student.sql` | 學員報名查詢主檔：`kiosk_get_registrations_for_student`（1 支，含 dormitory_room 欄位） |
+| 84 | `rpc_events.sql` | 週期性活動主檔：`create_recurring_events_in_range`（1 支，含複製動態欄位／義工存取設定的完整版本；`recurring_batch2.sql` 的 pg_cron 排程本身不受影響，仍照原檔執行） |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、
@@ -148,3 +165,9 @@
   匯入失敗、追查發現「他版本比較舊」才挖出來的——`schema.sql` 本身沒有同步更新的問題也一併記在這裡：
   `schema.sql` 只到 5/23，之後的表格／欄位/RPC 異動都只存在於個別 migration 檔，沒有回寫主檔，
   新環境務必照順序把 sql/ 全部檔案跑過一輪，不能只跑 `schema.sql` 就當作建好資料庫。
+- **2026-07-22 安全性提醒**：第 70 項 `lock_expired_token_pages.sql` 寫的「活動結束後鎖住
+  公開 token 頁面」邏輯，經直接查正式環境 `pg_get_functiondef` 核對，`get_car_by_token`／
+  `get_leader_cars` 這兩支從來沒有真的部署上線過（只有 checkin_* 三支和 get_chore_by_token
+  有生效）。已在第 81 項 `rpc_car.sql` 補上線。已經 Fork 這份程式碼但還沒重新跑過 SQL 的
+  分院，**若已經上線一段時間，建議提醒對方補跑第 81～84 項**，否則這個個資外洩缺口
+  仍然存在於他們自己的正式環境。

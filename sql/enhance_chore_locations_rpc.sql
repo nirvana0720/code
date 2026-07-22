@@ -8,6 +8,9 @@
 --   只有地點文字不夠用，改成回傳整包坡務資訊（含 sort_order 供分組排序）。
 -- 執行方式：貼到 Supabase Dashboard → SQL Editor → Run
 -- ============================================================
+--
+-- ⚠️ 2026-07-22 已作廢：get_chore_locations_by_event 已搬到 rpc_chore.sql（唯一主檔）。
+-- 這支檔案只留存歷史紀錄，不要再從這裡重跑 CREATE FUNCTION。
 
 CREATE OR REPLACE FUNCTION get_chore_locations_by_event(p_event_id UUID)
 RETURNS JSON

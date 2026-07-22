@@ -3,6 +3,11 @@
 -- 前提：registrations.dormitory_room 已存在（add_dormitory_phone_lineid.sql）
 -- 在 Supabase SQL Editor 執行
 -- ============================================================
+--
+-- ⚠️ 2026-07-22 已作廢：get_car_by_token／get_leader_cars 已搬到 rpc_car.sql，
+-- kiosk_get_registrations_for_student 已搬到 rpc_kiosk_student.sql（皆為唯一主檔）。
+-- 這支檔案原本漏帶 lock_expired_token_pages.sql 補的 st.phone 欄位，搬家時已一併
+-- 合併補回，不是單純複製這裡的版本。這支檔案只留存歷史紀錄，不要再從這裡重跑。
 
 -- 1. get_car_by_token：car_members.registrations 補 dormitory_room
 --    events 用 row_to_json(e.*)，show_dormitory_to_public 已隨欄位存在自動帶出，不需改

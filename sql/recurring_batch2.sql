@@ -1,6 +1,14 @@
 -- Batch 2：定期範本自動建立
 -- 1. events 加 template_id
 -- 2. pg_cron：每天台北 07:00 建未來 14 天內應存在但還沒建的活動
+--
+-- ⚠️ 2026-07-22：Step 2 的 create_recurring_events_in_range 函式定義已作廢，
+-- 正確／完整版本（有複製 event_fields／volunteer_event_access）已搬到
+-- rpc_events.sql（唯一主檔），不要再從這裡的 Step 2 重跑 CREATE FUNCTION。
+-- Step 1（加欄位）與 Step 3（pg_cron 排程本身）仍然有效，這支檔案繼續保留
+-- 是因為 Step 3 的 cron.schedule 是唯一定義排程的地方，之後若要調整排程時間，
+-- 直接回這支檔案的 Step 3 改（cron.schedule 用同名字串 'auto_create_recurring_events'
+-- 重跑會自動覆蓋舊排程，可安全重跑）。
 
 -- ── Step 1：events 加 template_id ────────────────────────────────
 ALTER TABLE events

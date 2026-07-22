@@ -3,6 +3,11 @@
 -- 日期：2026-06-07
 -- 執行方式：貼到 Supabase Dashboard → SQL Editor → Run
 --
+-- ⚠️ 2026-07-22 已作廢：kiosk_get_registrations_for_student 已搬到
+-- rpc_kiosk_student.sql（唯一主檔，已含 add_dormitory_room_to_rpcs.sql 補的
+-- dormitory_room 欄位）。這支檔案的 RLS policy 移除部分仍是有效歷史操作，
+-- 但函式定義本身不要再從這裡重跑。
+--
 -- 改動說明：
 --   目前 "anon can select registrations" 政策是 USING(true)，
 --   任何人可以查詢全場所有報名記錄（含 guest_phone）。

@@ -2,6 +2,11 @@
 -- Fix Car Token Security
 -- Run after existing schema
 -- ============================================================
+--
+-- ⚠️ 2026-07-22 已作廢：get_car_by_token 這支函式已搬到 rpc_car.sql（唯一主檔），
+-- 且已合併補上 dormitory_room 欄位與活動結束鎖定邏輯，比這裡的版本更完整。
+-- 這支檔案只留存歷史紀錄（policy 移除的部分仍是有效歷史操作），
+-- 不要再從這裡重跑 CREATE FUNCTION get_car_by_token。
 
 -- 1. Remove car_assignments anon SELECT policy
 DROP POLICY IF EXISTS "anon can read car_assignments" ON car_assignments;

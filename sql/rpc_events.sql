@@ -1,11 +1,10 @@
--- fix_recurring_fields_volunteers.sql
---
--- ⚠️ 2026-07-22 已作廢：create_recurring_events_in_range 已搬到 rpc_events.sql（唯一主檔）。
--- 這支檔案只留存歷史紀錄，不要再從這裡重跑 CREATE FUNCTION。
---
--- 修復 create_recurring_events_in_range：
--- 原版只 INSERT events，不複製 event_fields 和 volunteer_event_access
--- 本次補上：RETURNING event_id -> 複製動態欄位 + 義工存取設定
+-- 職責：週期性活動（recurring events）相關 RPC 主檔（本檔為這批函式唯一主檔）。
+-- 2026-07-22 建立：create_recurring_events_in_range 原本沒有固定主檔，散落在
+-- recurring_batch2.sql（早期版本，只建活動不複製動態欄位/義工存取設定）跟
+-- fix_recurring_fields_volunteers.sql（補上複製邏輯，是目前正確版本）兩支檔案，
+-- 用資料庫函式健檢工具比對才發現。這裡把正確版本原封不動搬過來，往後這支函式
+-- 只在這支檔案改。
+-- 可安全重跑：CREATE OR REPLACE。
 
 CREATE OR REPLACE FUNCTION create_recurring_events_in_range(
   p_template_id uuid,

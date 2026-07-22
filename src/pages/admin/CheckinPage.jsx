@@ -25,9 +25,18 @@ function formatSessionLabel(s) {
 // 場次選擇 localStorage key（同活動下次自動回到上次選的場次）
 const sessionStorageKey = eventId => `puyi-checkin-session-${eventId}`
 
-// 功德主紫色卡片：空白欄位不顯示
-function DonorCard({ donor, donorFields }) {
+// 功德主紫色卡片：showDetail 決定顯示完整明細或精簡徽章
+function DonorCard({ donor, donorFields, showDetail }) {
   if (!donor) return null
+  if (!showDetail) {
+    return (
+      <div className="mt-6 mx-auto max-w-md bg-purple-50 border-2 border-purple-300 rounded-2xl px-5 py-3 text-center shadow-sm">
+        <p className="text-base font-bold text-purple-800">
+          🪷 法會功德主・已報到
+        </p>
+      </div>
+    )
+  }
   const fields = (donorFields || [])
     .map(f => ({ label: f.field_label, value: donor.answers?.[f.field_key] }))
     .filter(f => f.value && String(f.value).trim())
@@ -62,6 +71,7 @@ export default function CheckinPage() {
   const [countdown, setCountdown] = useState(IDLE_SECONDS)
   const [todayCount, setTodayCount] = useState(0)
   const [printCopies, setPrintCopies] = useState(1) // 本次列印份數（只影響這次，不寫回資料庫）
+  const [showDonorDetail, setShowDonorDetail] = useState(false) // 功德主卡片：預設精簡徽章
 
   const [cameraOpen, setCameraOpen] = useState(false)
   const [stats, setStats] = useState({ total: 0, checkedIn: 0, walkinCount: 0 })
@@ -581,6 +591,15 @@ export default function CheckinPage() {
             className="w-14 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300"
           />
         </label>
+        <label className="flex items-center gap-1 text-xs text-gray-500">
+          <input
+            type="checkbox"
+            checked={showDonorDetail}
+            onChange={e => setShowDonorDetail(e.target.checked)}
+            className="rounded border-gray-300 focus:ring-amber-300"
+          />
+          功德主明細
+        </label>
         <span className="ml-auto text-sm text-gray-500 flex items-center gap-2 flex-wrap justify-end">
           <span className="flex items-center gap-1">
             {isMulti && currentSessionId ? '本場次 ' : ''}已報到
@@ -661,7 +680,7 @@ export default function CheckinPage() {
             <div className="text-8xl mb-6">✅</div>
             <p className="text-4xl font-bold text-green-700 mb-2">{result.name}</p>
             <p className="text-xl text-green-600">報到成功！</p>
-            <DonorCard donor={donor} donorFields={donorFields} />
+            <DonorCard donor={donor} donorFields={donorFields} showDetail={showDonorDetail} />
             <p className="text-sm text-gray-400 mt-4">{countdown} 秒後自動重置</p>
             <div className="flex items-center justify-center gap-4 mt-2">
               <button
@@ -685,7 +704,7 @@ export default function CheckinPage() {
             <div className="text-8xl mb-6">⚠️</div>
             <p className="text-4xl font-bold text-amber-700 mb-2">{result.name}</p>
             <p className="text-xl text-amber-600">已於 {new Date(result.checkedInAt).toLocaleTimeString('zh-TW', { hour12: false })} 報到過</p>
-            <DonorCard donor={donor} donorFields={donorFields} />
+            <DonorCard donor={donor} donorFields={donorFields} showDetail={showDonorDetail} />
             <div className="flex gap-3 justify-center mt-5">
               <button
                 onClick={() => printDonorTicket({ name: result.name, donor, donorFields, eventName: event?.name, copies: printCopies })}

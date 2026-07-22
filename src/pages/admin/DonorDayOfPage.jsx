@@ -261,22 +261,24 @@ export default function DonorDayOfPage() {
           <div className="space-y-3">
             {groups.map(([table, members]) => {
               const leaders = members.filter(m => leaderDraft[m.donor_id]).map(m => m.name)
+              // 只有「已綁定 LINE 且勾選發送」的人才會收到自己的個人通知，這裡預覽的是他們各自會收到的內容
+              const recipients = members.filter(m => m.lineBound && selected.has(m.donor_id))
+              const allNames = members.map(m => m.name)
               return (
                 <div key={table} className="bg-white border border-orange-200 rounded-2xl p-4">
-                  <p className="font-bold text-gray-800 mb-2">第 {table} 桌（{members.length} 位）</p>
                   <div className="space-y-2">
-                    {members.map(m => (
+                    {recipients.map(m => (
                       <div key={m.donor_id} className="text-sm text-gray-700 border-b border-gray-100 last:border-0 pb-2 last:pb-0">
-                        <p className="font-medium text-gray-800">
-                          {m.name}
-                          {!m.lineBound && <span className="ml-2 text-xs font-normal text-gray-400">（未綁定 LINE，僅列入名單，本人收不到通知）</span>}
-                        </p>
+                        <p className="font-medium text-gray-800">{m.name}</p>
                         {m.carName && <p className="text-gray-500">🚌 車次：{m.carName}</p>}
                         {m.answers?.photo_wave && <p className="text-gray-500">📷 合影波次：{m.answers.photo_wave}</p>}
                         <p className="text-gray-500">🍱 午齋桌次：{table}</p>
                       </div>
                     ))}
                   </div>
+                  <p className="text-sm text-gray-700 mt-2">
+                    第 {table} 桌（{members.length} 位） {allNames.join('、')}
+                  </p>
                   {leaders.length > 0 ? (
                     <p className="text-sm text-emerald-700 mt-2">桌長：{leaders.join('、')}</p>
                   ) : (

@@ -24,9 +24,10 @@ export function buildDonorMessage({ eventName, eventDateLabel, donorName, carNam
 
 /**
  * 桌長專屬：全桌名單（含桌長自己）
+ * 開頭明講「您是本桌桌長」，避免收到的人不知道自己被指定為桌長
  */
 export function buildTableRosterMessage({ eventName, lunchTable, names }) {
-  return `【${eventName}】${lunchTable} 桌名單：${names.join('、')}（共 ${names.length} 位）`
+  return `【${eventName}】您是 ${lunchTable} 桌桌長\n本桌名單：${names.join('、')}（共 ${names.length} 位）`
 }
 
 /**

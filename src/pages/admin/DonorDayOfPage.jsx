@@ -256,8 +256,17 @@ export default function DonorDayOfPage() {
               const leaders = members.filter(m => leaderDraft[m.donor_id]).map(m => m.name)
               return (
                 <div key={table} className="bg-white border border-orange-200 rounded-2xl p-4">
-                  <p className="font-bold text-gray-800 mb-1">🍱 {table}（{members.length} 位）</p>
-                  <p className="text-sm text-gray-600">{members.map(m => m.name).join('、')}</p>
+                  <p className="font-bold text-gray-800 mb-2">第 {table} 桌（{members.length} 位）</p>
+                  <div className="space-y-2">
+                    {members.map(m => (
+                      <div key={m.donor_id} className="text-sm text-gray-700 border-b border-gray-100 last:border-0 pb-2 last:pb-0">
+                        <p className="font-medium text-gray-800">{m.name}</p>
+                        {m.carName && <p className="text-gray-500">🚌 車次：{m.carName}</p>}
+                        {m.answers?.photo_wave && <p className="text-gray-500">📷 合影波次：{m.answers.photo_wave}</p>}
+                        <p className="text-gray-500">🍱 午齋桌次：{table}</p>
+                      </div>
+                    ))}
+                  </div>
                   {leaders.length > 0 ? (
                     <p className="text-sm text-emerald-700 mt-2">桌長：{leaders.join('、')}</p>
                   ) : (

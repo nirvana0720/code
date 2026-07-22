@@ -633,12 +633,14 @@ export default function EventDetailPage() {
               📅 當天資訊管理
             </Link>
           )}
-          <Link
-            to={`/admin/events/${id}/checkin`}
-            className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            📋 現場報到
-          </Link>
+          {event?.event_type === 'temple' && (
+            <Link
+              to={`/admin/events/${id}/checkin`}
+              className="bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              📋 現場報到
+            </Link>
+          )}
         </div>
       </div>
 

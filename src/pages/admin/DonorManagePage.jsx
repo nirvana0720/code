@@ -15,7 +15,9 @@ import {
   saveEventDonorFields,
   getRegistrationsWithStudents,
   updateEvent,
+  listEventDonorsForDayOf,
 } from '../../lib/supabase'
+import { buildDonorMessage, sendDonorNotifications } from '../../lib/donorNotify'
 
 // 預設欄位（跟 migration 的 backfill 用同一組 key/label/順序）
 const DEFAULT_DONOR_FIELDS = [
@@ -145,7 +147,16 @@ function checkNoRegistration(row, regLookup) {
 export default function DonorManagePage() {
   const { id } = useParams()
   const [eventName, setEventName] = useState('')
+  const [eventInfo, setEventInfo] = useState(null) // 完整活動資料（判斷 has_donor_notify、組訊息用日期）
   const [ticketCopies, setTicketCopies] = useState(1) // 出單機預設列印份數
+
+  // 發送功德主通知（法會前先發一次；has_donor_notify 活動才顯示）
+  const [sendModalOpen, setSendModalOpen] = useState(false)
+  const [sendLoading, setSendLoading] = useState(false)
+  const [sendCandidates, setSendCandidates] = useState([]) // 已綁定 LINE 的功德主
+  const [sendChecked, setSendChecked] = useState(new Set())
+  const [sending, setSending] = useState(false)
+  const [sendResult, setSendResult] = useState(null)
   const [donors, setDonors]       = useState([])
   const [students, setStudents]   = useState([])
   const [fields, setFields]       = useState([]) // event_donor_fields（有序）
@@ -186,6 +197,7 @@ export default function DonorManagePage() {
     setStudents(studentsRes.students || [])
     const ev = (eventsRes.events || []).find(e => e.event_id === id)
     setEventName(ev?.name ?? '')
+    setEventInfo(ev || null)
     setTicketCopies(ev?.donor_ticket_default_copies ?? 1)
 
     let currentFields = fieldsRes.fields || []
@@ -358,6 +370,54 @@ export default function DonorManagePage() {
     flash('✅ 已刪除')
   }
 
+  // ── 發送功德主通知（法會前先發一次）────────────────────────
+  async function openSendModal() {
+    setSendModalOpen(true)
+    setSendResult(null)
+    setSendLoading(true)
+    const { donors: d } = await listEventDonorsForDayOf(id)
+    const eligible = (d || []).filter(x => x.lineBound)
+    setSendCandidates(eligible)
+    setSendChecked(new Set(eligible.map(x => x.donor_id)))
+    setSendLoading(false)
+  }
+  function toggleSendChecked(donorId) {
+    setSendChecked(prev => {
+      const next = new Set(prev)
+      if (next.has(donorId)) next.delete(donorId)
+      else next.add(donorId)
+      return next
+    })
+  }
+  async function handleSendNotifications() {
+    setSending(true)
+    const eName = eventInfo?.name || ''
+    const dateLabel = eventInfo?.date_start
+      ? (eventInfo.date_end && eventInfo.date_end !== eventInfo.date_start
+          ? `${eventInfo.date_start} ～ ${eventInfo.date_end}`
+          : eventInfo.date_start)
+      : ''
+    const items = sendCandidates
+      .filter(d => sendChecked.has(d.donor_id))
+      .map(d => ({
+        donor_id: d.donor_id,
+        student_id: d.student_id,
+        name: d.name,
+        message_text: buildDonorMessage({
+          eventName: eName,
+          eventDateLabel: dateLabel,
+          donorName: d.name,
+          carName: d.carName,
+          photoWave: d.answers?.photo_wave,
+          lunchTable: undefined,
+          note: d.answers?.donor_note,
+        }),
+      }))
+    const res = await sendDonorNotifications({ eventId: id, items })
+    setSending(false)
+    setSendResult(res)
+  }
+
   // ── 篩選清單 ────────────────────────────────────────────────
   const filteredDonors = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -390,12 +450,22 @@ export default function DonorManagePage() {
       </div>
 
       {/* 標題列 */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-5 gap-3">
         <h2 className="text-xl font-bold text-gray-800">🪷 功德主管理</h2>
-        <Link
-          to={`/admin/events/${id}`}
-          className="text-sm text-gray-500 hover:text-purple-700"
-        >← 返回活動</Link>
+        <div className="flex items-center gap-3 shrink-0">
+          {eventInfo?.has_donor_notify && (
+            <button
+              onClick={openSendModal}
+              className="bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              📨 發送功德主通知
+            </button>
+          )}
+          <Link
+            to={`/admin/events/${id}`}
+            className="text-sm text-gray-500 hover:text-purple-700"
+          >← 返回活動</Link>
+        </div>
       </div>
 
       {/* 訊息列 */}
@@ -603,6 +673,20 @@ export default function DonorManagePage() {
           onFallback={fallbackToGuest}
           onAllToGuest={allAmbiguousToGuest}
           onConfirm={handleConfirmImport}
+        />
+      )}
+
+      {/* 發送功德主通知 modal */}
+      {sendModalOpen && (
+        <SendNotifyModal
+          loading={sendLoading}
+          candidates={sendCandidates}
+          checked={sendChecked}
+          onToggle={toggleSendChecked}
+          sending={sending}
+          sendResult={sendResult}
+          onClose={() => setSendModalOpen(false)}
+          onConfirm={handleSendNotifications}
         />
       )}
 
@@ -886,6 +970,91 @@ function DonorFormModal({ eventId, fields, editingDonor, studentOptions, onClose
           >{saving ? '儲存中…' : (isEdit ? '儲存修改' : '新增')}</button>
         </div>
       </form>
+    </div>
+  )
+}
+
+
+// ── 發送功德主通知 modal（法會前先發一次，全發＋可勾掉不想發的人）──
+function SendNotifyModal({ loading, candidates, checked, onToggle, sending, sendResult, onClose, onConfirm }) {
+  const checkedCount = candidates.filter(c => checked.has(c.donor_id)).length
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto">
+      <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl flex flex-col max-h-[92vh]">
+        <div className="px-5 pt-5 pb-3 border-b flex items-center justify-between">
+          <h3 className="text-lg font-bold text-gray-800">📨 發送功德主通知</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700 text-2xl leading-none">×</button>
+        </div>
+
+        {!sendResult ? (
+          <>
+            <div className="flex-1 overflow-y-auto px-5 py-3">
+              {loading ? (
+                <p className="text-center text-gray-400 py-8 text-sm">載入中…</p>
+              ) : candidates.length === 0 ? (
+                <p className="text-center text-gray-400 py-8 text-sm">目前沒有已綁定 LINE 的功德主，無法發送</p>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500 mb-2">已勾選 {checkedCount} / {candidates.length} 位（僅列出已綁定 LINE 的功德主）</p>
+                  <ul className="space-y-1">
+                    {candidates.map(c => (
+                      <li key={c.donor_id}>
+                        <label className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded px-2 py-1.5">
+                          <input
+                            type="checkbox"
+                            checked={checked.has(c.donor_id)}
+                            onChange={() => onToggle(c.donor_id)}
+                            className="w-4 h-4 accent-orange-600 flex-shrink-0"
+                          />
+                          <span className="text-sm text-gray-700">{c.name}</span>
+                          {c.carName && <span className="text-xs text-emerald-600 ml-1">🚌 {c.carName}</span>}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+            <div className="px-5 py-3 border-t flex justify-end gap-3">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">取消</button>
+              <button
+                onClick={onConfirm}
+                disabled={sending || checkedCount === 0}
+                className="px-5 py-2 text-sm bg-orange-600 hover:bg-orange-700 text-white rounded-lg disabled:opacity-50"
+              >
+                {sending ? '發送中…' : `發送（${checkedCount} 位）`}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="px-5 py-4">
+            {!sendResult.success ? (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">❌ 發送失敗：{sendResult.error}</p>
+            ) : (() => {
+              const results = sendResult.results || []
+              const sentCount = results.filter(r => r.sent).length
+              const skippedCount = results.filter(r => r.skipped).length
+              const failedCount = results.filter(r => r.failed).length
+              const failedNames = results.filter(r => r.failed).map(r => r.name)
+              return (
+                <div>
+                  <p className="text-sm text-gray-700">
+                    ✅ 成功 {sentCount} 位　⬜ 未綁定跳過 {skippedCount} 位
+                    {failedCount > 0 && <span className="text-red-600">　❌ 失敗 {failedCount} 位</span>}
+                  </p>
+                  {failedNames.length > 0 && (
+                    <p className="text-sm text-red-600 mt-2">失敗名單：{failedNames.join('、')}</p>
+                  )}
+                </div>
+              )
+            })()}
+            <div className="mt-4 flex justify-end">
+              <button onClick={onClose} className="px-5 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg">關閉</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

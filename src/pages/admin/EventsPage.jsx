@@ -19,7 +19,7 @@ export default function EventsPage() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', date_start: '', date_end: '', location: '', status: 'active', event_type: 'mountain', is_dharma: false, multi_session: false, show_on_activities: true })
+  const [form, setForm] = useState({ name: '', date_start: '', date_end: '', location: '', status: 'active', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, show_on_activities: true })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   // V7 export
@@ -204,6 +204,7 @@ export default function EventsPage() {
       status: form.status,
       event_type: form.event_type,
       is_dharma: form.is_dharma,
+      has_donor_notify: form.has_donor_notify,
       multi_session: form.multi_session,
     })
 
@@ -215,7 +216,7 @@ export default function EventsPage() {
     }
 
     setShowForm(false)
-    setForm({ name: '', date_start: '', date_end: '', location: '', status: 'draft', event_type: 'mountain', is_dharma: false, multi_session: false, show_on_activities: true })
+    setForm({ name: '', date_start: '', date_end: '', location: '', status: 'draft', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, show_on_activities: true })
     navigate(`/admin/events/${event.event_id}`)
   }
 
@@ -513,6 +514,18 @@ export default function EventsPage() {
                   className="w-4 h-4 accent-amber-600"
                 />
                 此為精舍法會活動（勾選後可設定法會報到時，出現功德主相關資訊）
+              </label>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={form.has_donor_notify}
+                  onChange={e => setForm(f => ({ ...f, has_donor_notify: e.target.checked }))}
+                  className="w-4 h-4 accent-purple-600"
+                />
+                此活動含功德主通知
+                <span className="text-xs text-gray-500 ml-1">（回山等外出活動勾選，可在活動當天用 LINE 發送車次／合影波次／午齋桌次給功德主）</span>
               </label>
             </div>
             <div className="sm:col-span-2">

@@ -86,6 +86,18 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
             此為精舍法會活動（勾選後可設定法會報到時，出現功德主相關資訊）
           </label>
         </div>
+        <div className="sm:col-span-2">
+          <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!form.has_donor_notify}
+              onChange={e => setForm(f => ({ ...f, has_donor_notify: e.target.checked }))}
+              className="w-4 h-4 accent-purple-600"
+            />
+            此活動含功德主通知
+            <span className="text-xs text-gray-500 ml-1">（回山等外出活動勾選，可在活動當天用 LINE 發送車次／合影波次／午齋桌次給功德主）</span>
+          </label>
+        </div>
         {/* 多場次報名 — 精舍活動即可啟用，不須限定法會 */}
         {form.event_type === 'temple' && (
           <div className="sm:col-span-2">

@@ -226,6 +226,7 @@ export default function EventDetailPage() {
       status: ev.status,
       event_type: ev.event_type ?? 'mountain',
       is_dharma: !!ev.is_dharma,
+      has_donor_notify: !!ev.has_donor_notify,
       multi_session: !!ev.multi_session,
       show_transport_to_public: !!ev.show_transport_to_public,
       show_dormitory_to_public: !!ev.show_dormitory_to_public,
@@ -371,6 +372,7 @@ export default function EventDetailPage() {
         status: form.status,
         event_type: form.event_type,
         is_dharma: form.is_dharma,
+        has_donor_notify: form.has_donor_notify,
         multi_session: form.multi_session,
         show_transport_to_public: form.show_transport_to_public,
         show_dormitory_to_public: form.show_dormitory_to_public,
@@ -615,12 +617,20 @@ export default function EventDetailPage() {
       <div className="flex items-center justify-between mb-5 gap-3">
         <h2 className="text-xl font-bold text-gray-800 min-w-0 truncate">{event.name}</h2>
         <div className="flex items-center gap-2 shrink-0">
-          {event?.event_type === 'temple' && event?.is_dharma && isAdmin && (
+          {((event?.event_type === 'temple' && event?.is_dharma) || event?.has_donor_notify) && isAdmin && (
             <Link
               to={`/admin/events/${id}/donors`}
               className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             >
               🪷 功德主管理
+            </Link>
+          )}
+          {event?.has_donor_notify && isAdmin && (
+            <Link
+              to={`/admin/events/${id}/donor-dayof`}
+              className="bg-orange-600 hover:bg-orange-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              📅 當天資訊管理
             </Link>
           )}
           <Link

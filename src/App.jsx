@@ -16,6 +16,7 @@ import ChoreArrangementPage from './pages/admin/ChoreArrangementPage'
 import ChoreArrangementDetailPage from './pages/admin/ChoreArrangementDetailPage'
 import MonksPage from './pages/admin/MonksPage'
 import DonorManagePage from './pages/admin/DonorManagePage'
+import DonorDayOfPage from './pages/admin/DonorDayOfPage'
 import CarCheckinPage from './pages/CarCheckinPage'
 import ChoreCheckinPage from './pages/ChoreCheckinPage'
 import LeaderScanPage from './pages/LeaderScanPage'
@@ -46,6 +47,9 @@ export default function App() {
           } />
           <Route path="/admin/events/:id/donors" element={
             <ProtectedRoute adminOnly><DonorManagePage /></ProtectedRoute>
+          } />
+          <Route path="/admin/events/:id/donor-dayof" element={
+            <ProtectedRoute adminOnly><DonorDayOfPage /></ProtectedRoute>
           } />
           <Route path="/admin/students" element={
             <ProtectedRoute adminOnly><StudentsPage /></ProtectedRoute>

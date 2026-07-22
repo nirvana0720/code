@@ -6,3 +6,4 @@ dist.tmp*
 .env
 *.local
 vite.config.js.timestamp-*.mjs
+test/config.json

@@ -2302,6 +2302,94 @@ function cleanAnswers(answers) {
   return obj
 }
 
+// ─── 功德主當天資訊管理（event_donors day-of：車次／合影波次／午齋桌次）───
+// 設計重點：分成多步查詢（避免 PostgREST nested filter 在部分 RLS 情境下踩坑，
+// 比照 getLinkedCarsForLeader 的做法），guest 型功德主（無 student_id）一律視為未綁定 LINE
+
+const DONOR_DAYOF_COLS = 'donor_id, event_id, student_id, name, answers, lunch_table, is_table_leader'
+
+/**
+ * 撈某活動的功德主清單（當天資訊管理頁／法會前通知頁共用），並附上：
+ *   - lineBound：是否已綁定 LINE（student_id 有值且 students.line_user_id 有值）
+ *   - carName：本場活動排到的車次（查不到則為 null，不視為錯誤；同一人在多台車則以頓號連接）
+ */
+export async function listEventDonorsForDayOf(eventId) {
+  const { data: donors, error } = await supabase
+    .from('event_donors')
+    .select(DONOR_DAYOF_COLS)
+    .eq('event_id', eventId)
+    .order('created_at', { ascending: true })
+  if (error) return { donors: [], error: error.message }
+
+  const studentIds = [...new Set((donors || []).map(d => d.student_id).filter(Boolean))]
+  if (studentIds.length === 0) {
+    return { donors: (donors || []).map(d => ({ ...d, lineBound: false, carName: null })), error: null }
+  }
+
+  const [{ data: students }, { data: regs }] = await Promise.all([
+    supabase.from('students').select('student_id, line_user_id').in('student_id', studentIds),
+    supabase.from('registrations').select('registration_id, student_id').eq('event_id', eventId).in('student_id', studentIds),
+  ])
+
+  const lineByStudent = new Map((students || []).map(s => [s.student_id, !!s.line_user_id]))
+  const regIdByStudent = new Map((regs || []).map(r => [r.student_id, r.registration_id]))
+  const regIds = [...new Set((regs || []).map(r => r.registration_id))]
+
+  let carNameByReg = new Map()
+  if (regIds.length > 0) {
+    const { data: members } = await supabase
+      .from('car_members')
+      .select('registration_id, car_id')
+      .in('registration_id', regIds)
+    const carIds = [...new Set((members || []).map(m => m.car_id))]
+
+    let carNameById = new Map()
+    if (carIds.length > 0) {
+      const { data: cars } = await supabase
+        .from('car_assignments')
+        .select('car_id, car_name')
+        .in('car_id', carIds)
+      carNameById = new Map((cars || []).map(c => [c.car_id, c.car_name]))
+    }
+
+    const namesByReg = new Map()
+    for (const m of (members || [])) {
+      const name = carNameById.get(m.car_id)
+      if (!name) continue
+      const arr = namesByReg.get(m.registration_id) || []
+      arr.push(name)
+      namesByReg.set(m.registration_id, arr)
+    }
+    carNameByReg = new Map([...namesByReg].map(([regId, names]) => [regId, names.join('、')]))
+  }
+
+  const result = (donors || []).map(d => {
+    const lineBound = d.student_id ? !!lineByStudent.get(d.student_id) : false
+    const regId = d.student_id ? regIdByStudent.get(d.student_id) : null
+    const carName = regId ? (carNameByReg.get(regId) || null) : null
+    return { ...d, lineBound, carName }
+  })
+  return { donors: result, error: null }
+}
+
+/**
+ * 批次更新午齋桌次／桌長標記（當天資訊管理頁「發送前」先落地存檔用）
+ *   updates: [{ donor_id, lunch_table, is_table_leader }]
+ */
+export async function updateEventDonorsDayOf(updates) {
+  if (!Array.isArray(updates) || updates.length === 0) return { success: true, error: null }
+  const results = await Promise.all(
+    updates.map(u => supabase
+      .from('event_donors')
+      .update({ lunch_table: u.lunch_table || null, is_table_leader: !!u.is_table_leader })
+      .eq('donor_id', u.donor_id)
+    )
+  )
+  const failed = results.find(r => r.error)
+  if (failed) return { success: false, error: failed.error.message }
+  return { success: true, error: null }
+}
+
 // ─── Phase 5：多場次報名 ───────────────────────────────────
 
 export async function getEventSessions(eventId) {

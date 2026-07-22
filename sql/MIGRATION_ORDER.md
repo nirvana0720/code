@@ -147,11 +147,23 @@
 | 83 | `rpc_kiosk_student.sql` | 學員報名查詢主檔：`kiosk_get_registrations_for_student`（1 支，含 dormitory_room 欄位） |
 | 84 | `rpc_events.sql` | 週期性活動主檔：`create_recurring_events_in_range`（1 支，含複製動態欄位／義工存取設定的完整版本；`recurring_batch2.sql` 的 pg_cron 排程本身不受影響，仍照原檔執行） |
 
+## 第九階段：回山活動功德主通知（2026-07-22）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 85 | `add_donor_dayof_fields.sql` | 新增 `events.has_donor_notify`（獨立開關，控制功德主通知功能）、`event_donors.lunch_table`／`is_table_leader`（活動當天午齋桌次、桌長標記） |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、
 `test_head_leader_board.sql`、`test_head_leader_board_cleanup.sql`、`temp_grant_for_chore_roster_test.sql`
 ——這些是驗證假資料或除錯查詢用，不是 schema migration，新環境不用跑。
+
+### 不列入排程的獨立小工具
+
+`fix_event_donors_anon_leak.sql`——`event_donors` 的 anon 權限修復，[52/81] `fix_rls_clean.sql`
+已經做過（DROP POLICY + REVOKE），這支不重複排進上面的階段順序。只給「只跑過 `schema.sql`、
+沒跑完整套 migration」的舊環境單獨執行救急用，見該檔案開頭註解。
 
 ## ⚠️ 注意事項
 

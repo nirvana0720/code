@@ -38,8 +38,15 @@
 - **RPC 函式主檔整理＋安全修正** ⚠️ 需另外處理：用資料庫函式健檢工具（`D:\Claude\projects\資料庫函式健檢工具\`）比對全部 SQL 檔案，發現車輛／隨車法師／領隊 token／坡務／學員報名查詢／週期性活動這幾組共 11 支函式，一直沒有固定主檔，同一支函式最多曾散落在 3 支不同的「這次改這個」檔案裡（例如 `get_car_by_token` 同時活在 3 支檔案）。已整理成 4 支新主檔：`sql/rpc_car.sql`（7 支：`get_car_by_token`／`get_leader_cars`／`checkin_car_member`／`checkin_all_car`／`checkin_car_monk`／`get_head_leader_by_token`／`is_token_expired`）、`sql/rpc_chore.sql`（2 支：`get_chore_locations_by_event`／`get_chore_by_token`）、`sql/rpc_kiosk_student.sql`（1 支：`kiosk_get_registrations_for_student`）、`sql/rpc_events.sql`（1 支：`create_recurring_events_in_range`）。原本 9 支舊檔案（`fix_car_token_security.sql`、`fix_head_leader_checkin_token.sql`、`add_dormitory_room_to_rpcs.sql`、`fix_rls_registrations_anon.sql`、`add_chore_checkin_rpc.sql`、`lock_expired_token_pages.sql`、`enhance_chore_locations_rpc.sql`、`fix_recurring_fields_volunteers.sql`、`recurring_batch2.sql`）都已加註「已作廢」，往後只在新主檔修改。
   - **⚠️ 順帶補回一個真實安全缺口**：整理過程中直接查正式環境 `pg_get_functiondef` 核對才發現，2026-07-14 `lock_expired_token_pages.sql` 寫的「活動結束後鎖住公開 token 頁面」邏輯，`get_car_by_token`／`get_leader_cars` 這兩支從來沒有真的部署上線過——活動結束後，舊連結（義工手機／LINE 對話紀錄常見）依然打得開，會顯示學員姓名、電話等個資。已在 `rpc_car.sql` 補上線（`checkin_*` 三支和 `get_chore_by_token` 原本就有生效，不受影響）。
   - **已 Sync fork 的分院請務必到 Supabase SQL Editor 依序執行 `sql/rpc_car.sql`、`sql/rpc_chore.sql`、`sql/rpc_kiosk_student.sql`、`sql/rpc_events.sql` 這 4 支檔案**（新建置的環境已包含在 `full_setup_all_in_one.sql` 第八階段內，無需另外處理）。若已上線一段時間，建議優先確認並補跑，堵住上述個資外洩缺口。
+- **新增：回山活動功德主通知（含當天資訊管理頁）** ⚠️ 需另外處理（資料庫欄位異動）：活動設定新增獨立開關「此活動含功德主通知」（`events.has_donor_notify`，任何 `event_type` 皆可用，跟精舍法會報到用的 `is_dharma` 互不影響），勾選後可在活動詳情頁使用新的「📅 當天資訊管理」頁（`/admin/events/:id/donor-dayof`）：撈功德主名單、標示是否已綁定 LINE 與已排到的車次、逐位填寫午齋桌次並可指定桌長，確認畫面依桌次分組預覽後才真正發送；也可在「功德主管理」頁用新按鈕「📨 發送功德主通知」在法會前先發一次（不含桌次資訊）。新增 `event_donors.lunch_table`／`is_table_leader` 兩個欄位、新的 Edge Function `send-donor-notification`（部署方式同 `send-car-notification`，需另外 `supabase functions deploy send-donor-notification`）、`src/lib/donorNotify.js`。**已 Sync fork 的分院請到 Supabase SQL Editor 執行 `sql/add_donor_dayof_fields.sql`**（新建置的環境已包含在 `full_setup_all_in_one.sql` 內，無需另外處理）。
+- **核對確認：`event_donors` anon 權限**：查證 `schema.sql`（停在 5/23）雖然仍寫著開放 anon 存取 `event_donors`，但正式環境早於 2026-06-05 已透過 `fix_rls_clean.sql`（已收錄於 `full_setup_all_in_one.sql` 第 52 項）修復，目前正式環境安全無虞。這次額外整理出 `sql/fix_event_donors_anon_leak.sql`，供尚未完整跑過 migration（只建了 `schema.sql`）的既有環境單獨執行用，不影響已依完整流程建置的環境。
+- **修復：活動管理「匯出模板」清單混入精舍活動、已結束的法會無法選**：`openExportModal()` 原本只排除 `status='closed'`，完全沒有依中台／精舍篩選，精舍自己的活動會混進候選清單；同時已結束的法會（最常見的「拿去年辦過的法會當範本」情境）反而被排除選不到。已改為只列出 `location_tag='zhongtai'` 的活動，且不再排除已結束的，清單裡用（已結束）標示。無需資料庫異動。
 
 ---
+
+## 2026-07-22（續二）
+
+- **新增：報到頁「功德主明細」顯示開關**：`CheckinPage.jsx` 刷卡成功畫面的功德主卡片，原本固定列出該場活動設定的全部動態欄位（地址、電話等）。新增頂部工具列勾選開關（預設不勾），不勾時只顯示精簡徽章「🪷 法會功德主・已報到」，勾選才顯示完整明細（跟出單機印單同樣內容）。純畫面顯示邏輯，不影響出單機列印內容，無需資料庫異動。已部署，良師父已在「現場報到」頁確認開關正常運作。
 
 ## 2026-07-22（續）
 

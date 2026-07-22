@@ -68,12 +68,13 @@ export default function DonorDayOfPage() {
     setLeaderDraft(prev => ({ ...prev, [donorId]: !prev[donorId] }))
   }
 
-  // 依 lunch_table 分組（只看已勾選發送 + 已填桌次的人）
+  // 依 lunch_table 分組——不論有沒有綁定 LINE、有沒有勾選發送都要算進桌次名單，
+  // 因為桌長需要知道「全桌」有誰，未綁定 LINE 的人一樣要能被排進某一桌，
+  // 只是他們自己收不到個人通知（那個限制在 handleConfirmSend 裡處理）
   const { groups, unassigned } = useMemo(() => {
     const g = new Map() // lunchTable → donor[]
     const un = []
     for (const d of donors) {
-      if (!selected.has(d.donor_id)) continue
       const table = (lunchDraft[d.donor_id] || '').trim()
       if (!table) { un.push(d); continue }
       const arr = g.get(table) || []
@@ -81,7 +82,7 @@ export default function DonorDayOfPage() {
       g.set(table, arr)
     }
     return { groups: [...g.entries()], unassigned: un }
-  }, [donors, selected, lunchDraft])
+  }, [donors, lunchDraft])
 
   async function handleGoConfirm() {
     setSaving(true)
@@ -102,8 +103,14 @@ export default function DonorDayOfPage() {
     const items = []
 
     for (const [table, members] of groups) {
+      // 全桌名單（給桌長看的）要含全部人，不論有沒有綁定 LINE
       const names = members.map(m => m.name)
       for (const d of members) {
+        // 個人通知／桌長名單都只能發給「已綁定 LINE 且勾選發送」的人，
+        // 未綁定 LINE 的人只會出現在 names 名單裡，自己收不到任何訊息
+        const canReceive = d.lineBound && selected.has(d.donor_id)
+        if (!canReceive) continue
+
         const personalMsg = buildDonorMessage({
           eventName,
           eventDateLabel: dateLabel,
@@ -169,11 +176,11 @@ export default function DonorDayOfPage() {
                   <div
                     key={d.donor_id}
                     className={`rounded-2xl border p-4 shadow-sm transition-colors ${
-                      disabled ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-white border-orange-200'
+                      disabled ? 'bg-gray-50 border-gray-200' : 'bg-white border-orange-200'
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <label className="flex items-start gap-3 min-w-0 flex-1 cursor-pointer">
+                      <label className={`flex items-start gap-3 min-w-0 flex-1 ${disabled ? '' : 'cursor-pointer'}`}>
                         <input
                           type="checkbox"
                           checked={isSelected}
@@ -181,11 +188,11 @@ export default function DonorDayOfPage() {
                           onChange={() => toggleSelected(d.donor_id, d.lineBound)}
                           className="w-5 h-5 mt-0.5 accent-orange-600 shrink-0"
                         />
-                        <div className="min-w-0">
+                        <div className={`min-w-0 ${disabled ? 'opacity-60' : ''}`}>
                           <p className="text-base font-bold text-gray-800 truncate">
                             {d.name}
                             {!d.lineBound && (
-                              <span className="ml-2 text-xs font-normal text-gray-400">（未綁定 LINE）</span>
+                              <span className="ml-2 text-xs font-normal text-gray-400">（未綁定 LINE，僅記錄桌次，本人收不到通知）</span>
                             )}
                           </p>
                           {d.answers?.photo_wave && (
@@ -248,7 +255,7 @@ export default function DonorDayOfPage() {
           <p className="text-sm text-gray-600 mb-4">請確認以下發送內容，確認後才會真正送出：</p>
 
           {groups.length === 0 && (
-            <p className="text-center text-gray-400 py-8 text-sm">目前沒有「已勾選發送且已填桌次」的功德主，請返回修改</p>
+            <p className="text-center text-gray-400 py-8 text-sm">目前沒有「已填桌次」的功德主，請返回修改</p>
           )}
 
           <div className="space-y-3">
@@ -260,7 +267,10 @@ export default function DonorDayOfPage() {
                   <div className="space-y-2">
                     {members.map(m => (
                       <div key={m.donor_id} className="text-sm text-gray-700 border-b border-gray-100 last:border-0 pb-2 last:pb-0">
-                        <p className="font-medium text-gray-800">{m.name}</p>
+                        <p className="font-medium text-gray-800">
+                          {m.name}
+                          {!m.lineBound && <span className="ml-2 text-xs font-normal text-gray-400">（未綁定 LINE，僅列入名單，本人收不到通知）</span>}
+                        </p>
                         {m.carName && <p className="text-gray-500">🚌 車次：{m.carName}</p>}
                         {m.answers?.photo_wave && <p className="text-gray-500">📷 合影波次：{m.answers.photo_wave}</p>}
                         <p className="text-gray-500">🍱 午齋桌次：{table}</p>

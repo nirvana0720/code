@@ -134,7 +134,13 @@ WITH checks(seq, migration_file, note, ok) AS (
 
   (80, 'add_session_field_target_sessions.sql',
    'event_session_fields.show_if_session_ids 欄位存在（2026-07-20）',
-   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='event_session_fields' AND column_name='show_if_session_ids'))
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='event_session_fields' AND column_name='show_if_session_ids')),
+
+  (85, 'add_donor_dayof_fields.sql',
+   'events.has_donor_notify／event_donors.lunch_table／is_table_leader 欄位存在（回山活動功德主通知，2026-07-22）',
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='has_donor_notify')
+   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='event_donors' AND column_name='lunch_table')
+   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='event_donors' AND column_name='is_table_leader'))
 )
 SELECT
   seq AS "順序",

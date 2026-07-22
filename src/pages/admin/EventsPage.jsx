@@ -223,8 +223,8 @@ export default function EventsPage() {
   async function openExportModal() {
     setExporting(true)
     const { events: allEvents } = await getAllEvents({ excludeCanary: true })
-    const activeEvents = (allEvents || []).filter(e => e.status !== 'closed')
-    setExportCandidates(activeEvents.map(e => ({ event_id: e.event_id, name: e.name, status: e.status, checked: true })))
+    const zhongtaiEvents = (allEvents || []).filter(e => e.location_tag === 'zhongtai')
+    setExportCandidates(zhongtaiEvents.map(e => ({ event_id: e.event_id, name: e.name, status: e.status, checked: true })))
     setExporting(false)
     setShowExportModal(true)
   }
@@ -811,7 +811,7 @@ export default function EventsPage() {
               {exporting ? (
                 <p className="text-sm text-gray-400 text-center py-6">載入中…</p>
               ) : exportCandidates.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">目前沒有進行中的活動</p>
+                <p className="text-sm text-gray-400 text-center py-6">目前沒有中台活動</p>
               ) : exportCandidates.map(c => (
                 <label key={c.event_id} className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded px-2 py-1.5">
                   <input
@@ -824,6 +824,7 @@ export default function EventsPage() {
                   />
                   <span className="text-sm text-gray-700">{c.name}</span>
                   {c.status === 'draft' && <span className="text-xs text-gray-400 ml-1">（草稿）</span>}
+                  {c.status === 'closed' && <span className="text-xs text-gray-400 ml-1">（已結束）</span>}
                 </label>
               ))}
             </div>

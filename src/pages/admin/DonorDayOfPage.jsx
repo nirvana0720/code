@@ -350,6 +350,7 @@ export default function DonorDayOfPage() {
             const sentCount = results.filter(r => r.sent).length
             const skippedCount = results.filter(r => r.skipped).length
             const failedCount = results.filter(r => r.failed).length
+            const skippedNames = results.filter(r => r.skipped).map(r => r.name)
             const failedNames = results.filter(r => r.failed).map(r => r.name)
             return (
               <div className="bg-white border border-gray-200 rounded-2xl p-5">
@@ -358,6 +359,9 @@ export default function DonorDayOfPage() {
                   ✅ 成功 {sentCount} 則　⬜ 未綁定跳過 {skippedCount} 則
                   {failedCount > 0 && <span className="text-red-600">　❌ 失敗 {failedCount} 則</span>}
                 </p>
+                {skippedNames.length > 0 && (
+                  <p className="text-sm text-gray-500 mt-2">未綁定跳過名單：{skippedNames.join('、')}</p>
+                )}
                 {failedNames.length > 0 && (
                   <p className="text-sm text-red-600 mt-2">失敗名單：{failedNames.join('、')}</p>
                 )}

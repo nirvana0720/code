@@ -10,6 +10,12 @@ function eventDateLabel(ev) {
   return ev.date_start
 }
 
+// 個人備註（功德主管理頁填的）+ 這次發送的統一備註，兩者都有就疊在一起顯示
+function combineNote(donorNote, commonNote) {
+  const parts = [donorNote, commonNote].map(s => (s || '').trim()).filter(Boolean)
+  return parts.length ? parts.join('\n') : undefined
+}
+
 export default function DonorDayOfPage() {
   const { id } = useParams()
   const [event, setEvent] = useState(null)
@@ -21,6 +27,8 @@ export default function DonorDayOfPage() {
   // 本地編輯中的午齋桌次 / 桌長標記（donor_id → value）
   const [lunchDraft, setLunchDraft] = useState({})
   const [leaderDraft, setLeaderDraft] = useState({})
+  // 統一備註：這次發送全部人共用的提醒文字（例：帶海青到東明台領證），不寫回資料庫，只在這次發送生效
+  const [commonNote, setCommonNote] = useState('')
 
   const [view, setView] = useState('list') // 'list' | 'confirm' | 'result'
   const [saving, setSaving] = useState(false)
@@ -118,7 +126,7 @@ export default function DonorDayOfPage() {
           carName: d.carName,
           photoWave: d.answers?.photo_wave,
           lunchTable: table,
-          note: d.answers?.donor_note,
+          note: combineNote(d.answers?.donor_note, commonNote),
         })
         items.push({ donor_id: d.donor_id, student_id: d.student_id, name: d.name, message_text: personalMsg })
 
@@ -163,6 +171,18 @@ export default function DonorDayOfPage() {
         <>
           <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-4 text-sm text-orange-800 sticky top-0 z-10">
             已勾選發送 <span className="font-bold">{selectedCount}</span> / 已綁定 LINE <span className="font-bold">{lineBoundCount}</span> 位
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-600 mb-1">統一備註（這次發送全部人共用，選填）</label>
+            <textarea
+              value={commonNote}
+              onChange={e => setCommonNote(e.target.value)}
+              rows={2}
+              placeholder="例：帶海青到東明台領證"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-orange-300"
+            />
+            <p className="text-xs text-gray-400 mt-1">會加在每個人的個人通知後面，跟功德主管理頁填的個人備註一起顯示（兩者都有會疊在一起）</p>
           </div>
 
           {donors.length === 0 ? (
@@ -267,14 +287,18 @@ export default function DonorDayOfPage() {
               return (
                 <div key={table} className="bg-white border border-orange-200 rounded-2xl p-4">
                   <div className="space-y-2">
-                    {recipients.map(m => (
-                      <div key={m.donor_id} className="text-sm text-gray-700 border-b border-gray-100 last:border-0 pb-2 last:pb-0">
-                        <p className="font-medium text-gray-800">{m.name}</p>
-                        {m.carName && <p className="text-gray-500">🚌 車次：{m.carName}</p>}
-                        {m.answers?.photo_wave && <p className="text-gray-500">📷 合影波次：{m.answers.photo_wave}</p>}
-                        <p className="text-gray-500">🍱 午齋桌次：{table}</p>
-                      </div>
-                    ))}
+                    {recipients.map(m => {
+                      const note = combineNote(m.answers?.donor_note, commonNote)
+                      return (
+                        <div key={m.donor_id} className="text-sm text-gray-700 border-b border-gray-100 last:border-0 pb-2 last:pb-0">
+                          <p className="font-medium text-gray-800">{m.name}</p>
+                          {m.carName && <p className="text-gray-500">🚌 車次：{m.carName}</p>}
+                          {m.answers?.photo_wave && <p className="text-gray-500">📷 合影波次：{m.answers.photo_wave}</p>}
+                          <p className="text-gray-500">🍱 午齋桌次：{table}</p>
+                          {note && <p className="text-gray-500 whitespace-pre-line">📝 備註：{note}</p>}
+                        </div>
+                      )
+                    })}
                   </div>
                   <p className="text-sm text-gray-700 mt-2">
                     第 {table} 桌（{members.length} 位） {allNames.join('、')}

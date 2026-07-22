@@ -284,21 +284,19 @@ export default function DonorDayOfPage() {
               // 只有「已綁定 LINE 且勾選發送」的人才會收到自己的個人通知，這裡預覽的是他們各自會收到的內容
               const recipients = members.filter(m => m.lineBound && selected.has(m.donor_id))
               const allNames = members.map(m => m.name)
+              // 這一桌所有收件人實際會收到的注意事項，去重後在卡片最下面統一顯示一次
+              const notes = [...new Set(recipients.map(m => combineNote(m.answers?.donor_note, commonNote)).filter(Boolean))]
               return (
                 <div key={table} className="bg-white border border-orange-200 rounded-2xl p-4">
                   <div className="space-y-2">
-                    {recipients.map(m => {
-                      const note = combineNote(m.answers?.donor_note, commonNote)
-                      return (
-                        <div key={m.donor_id} className="text-sm text-gray-700 border-b border-gray-100 last:border-0 pb-2 last:pb-0">
-                          <p className="font-medium text-gray-800">{m.name}</p>
-                          {m.carName && <p className="text-gray-500">🚌 車次：{m.carName}</p>}
-                          {m.answers?.photo_wave && <p className="text-gray-500">📷 合影波次：{m.answers.photo_wave}</p>}
-                          <p className="text-gray-500">🍱 午齋桌次：{table}</p>
-                          {note && <p className="text-gray-500 whitespace-pre-line">📝 備註：{note}</p>}
-                        </div>
-                      )
-                    })}
+                    {recipients.map(m => (
+                      <div key={m.donor_id} className="text-sm text-gray-700 border-b border-gray-100 last:border-0 pb-2 last:pb-0">
+                        <p className="font-medium text-gray-800">{m.name}</p>
+                        {m.carName && <p className="text-gray-500">🚌 車次：{m.carName}</p>}
+                        {m.answers?.photo_wave && <p className="text-gray-500">📷 合影波次：{m.answers.photo_wave}</p>}
+                        <p className="text-gray-500">🍱 午齋桌次：{table}</p>
+                      </div>
+                    ))}
                   </div>
                   <p className="text-sm text-gray-700 mt-2">
                     第 {table} 桌（{members.length} 位） {allNames.join('、')}
@@ -308,6 +306,9 @@ export default function DonorDayOfPage() {
                   ) : (
                     <p className="text-sm text-amber-600 mt-2">⚠️ 尚未指定桌長</p>
                   )}
+                  {notes.map((n, i) => (
+                    <p key={i} className="text-sm text-gray-500 whitespace-pre-line mt-2">📝 注意事項：{n}</p>
+                  ))}
                 </div>
               )
             })}

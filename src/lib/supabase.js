@@ -494,8 +494,12 @@ export async function saveEventFields(eventId, fields) {
 }
 
 /**
- * 多日交通安排：確保 attend_dates（checkbox）／is_lodging（boolean）這兩個動態欄位存在，
- * 且 attend_dates 的 options 跟活動目前的 date_start~date_end 同步。
+ * 多日交通安排：確保 attend_dates（checkbox）這個動態欄位存在，且 options 跟活動目前的
+ * date_start~date_end 同步；「是否掛單」欄位視情況決定要不要另外加 is_lodging：
+ * - 活動已經有 stay_overnight（回山模板既有、給山上資料匯入/寮房比對用的「是否掛單」）時，
+ *   不再另外新增 is_lodging，直接讓排車邏輯 fallback 讀 stay_overnight（見
+ *   attendDateHelpers.resolveAttendSlots），避免同一件事問學員兩次
+ * - 沒有 stay_overnight 的活動（例如手動新增、非回山模板來源），才自動加 is_lodging
  * 只在 events.multi_day_transport 開啟時，於活動存檔流程呼叫。
  * options 用 ISO 日期字串（YYYY-MM-DD），跟 attendDateHelpers.resolveAttendSlots 的排序/比對邏輯一致。
  */
@@ -506,13 +510,14 @@ export async function syncAttendDatesField(eventId, dateStart, dateEnd) {
     .from('event_fields')
     .select('field_id, field_key')
     .eq('event_id', eventId)
-    .in('field_key', ['attend_dates', 'is_lodging'])
+    .in('field_key', ['attend_dates', 'is_lodging', 'stay_overnight'])
 
   if (selErr) return { success: false, error: selErr.message }
 
   const options = eachDateInRange(dateStart, dateEnd)
-  const attendDatesRow = (existing || []).find(f => f.field_key === 'attend_dates')
-  const isLodgingRow   = (existing || []).find(f => f.field_key === 'is_lodging')
+  const attendDatesRow   = (existing || []).find(f => f.field_key === 'attend_dates')
+  const isLodgingRow     = (existing || []).find(f => f.field_key === 'is_lodging')
+  const stayOvernightRow = (existing || []).find(f => f.field_key === 'stay_overnight')
 
   if (attendDatesRow) {
     const { error } = await supabase
@@ -533,7 +538,7 @@ export async function syncAttendDatesField(eventId, dateStart, dateEnd) {
     if (error) return { success: false, error: error.message }
   }
 
-  if (!isLodgingRow) {
+  if (!isLodgingRow && !stayOvernightRow) {
     const { error } = await supabase.from('event_fields').insert({
       event_id: eventId,
       field_key: 'is_lodging',

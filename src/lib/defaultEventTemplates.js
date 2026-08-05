@@ -227,6 +227,231 @@ export const DEFAULT_TEMPLATES = [
     "session_fields": []
   },
   {
+    "name": "多日回山活動模板（依日期分別排車）",
+    "description": "跨天的回山活動使用，適合有的精舍每天分開發車、出發回程時間不同的情況。已預設開啟「多日交通安排」，建立活動後請到「活動設定」補填實際的起訖日期並存檔，報名表單就會自動出現「參加日期」欄位（排車頁會依日期分別安排）。欄位內容跟「回山模板」（模板管理）完全一致，其中「是否掛單」同時也是多日排車判斷「只需去程/回程各一次」的依據，不會再重複問一次。",
+    "location": "中台禪寺",
+    "location_tag": "zhongtai",
+    "event_type": "mountain",
+    "is_dharma": false,
+    "multi_session": false,
+    "offline_registration": false,
+    "cover_image_url": "",
+    "related_links": [],
+    "multi_day_transport": true,
+    "fields": [
+      {
+        "field_key": "identity",
+        "field_label": "身分別",
+        "field_type": "radio",
+        "options": [
+          "義工",
+          "信眾"
+        ],
+        "show_if": null,
+        "sort_order": 1,
+        "required": true,
+        "dashboard_role": "identity",
+        "option_meta": null
+      },
+      {
+        "field_key": "arrive_time",
+        "field_label": "預計到達山上時間",
+        "field_type": "datetime",
+        "options": [],
+        "show_if": {
+          "identity": "義工"
+        },
+        "sort_order": 2,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "transport_up",
+        "field_label": "上山交通方式",
+        "field_type": "radio",
+        "options": [
+          "搭精舍車（大車）",
+          "搭學員的車",
+          "自行開車",
+          "其他"
+        ],
+        "show_if": null,
+        "sort_order": 3,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "carpool_up",
+        "field_label": "上山共乘者（司機學員姓名）",
+        "field_type": "text",
+        "options": [],
+        "show_if": {
+          "transport_up": "搭學員的車"
+        },
+        "sort_order": 4,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "plate_up",
+        "field_label": "上山車牌號碼",
+        "field_type": "plate",
+        "options": [],
+        "show_if": {
+          "transport_up": "自行開車"
+        },
+        "sort_order": 5,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "leave_time",
+        "field_label": "預計離開山上時間",
+        "field_type": "datetime",
+        "options": [],
+        "show_if": {
+          "identity": "義工"
+        },
+        "sort_order": 6,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "transport_down",
+        "field_label": "下山交通方式",
+        "field_type": "radio",
+        "options": [
+          "搭精舍車（大車）",
+          "搭學員的車",
+          "自行開車",
+          "其他"
+        ],
+        "show_if": null,
+        "sort_order": 7,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "carpool_down",
+        "field_label": "下山共乘者（司機學員姓名）",
+        "field_type": "text",
+        "options": [],
+        "show_if": {
+          "transport_down": "搭學員的車"
+        },
+        "sort_order": 8,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "plate_down",
+        "field_label": "下山車牌號碼",
+        "field_type": "plate",
+        "options": [],
+        "show_if": {
+          "transport_down": "自行開車"
+        },
+        "sort_order": 9,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "volunteer_group",
+        "field_label": "發心組別",
+        "field_type": "radio",
+        "options": [
+          "交通組",
+          "行堂組",
+          "茶水間",
+          "大寮",
+          "客寮",
+          "機動組",
+          "環保組",
+          "大會安排",
+          "其他"
+        ],
+        "show_if": {
+          "identity": "義工"
+        },
+        "sort_order": 10,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "stay_overnight",
+        "field_label": "是否掛單",
+        "field_type": "boolean",
+        "options": [],
+        "show_if": null,
+        "sort_order": 11,
+        "required": false,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "stay_start",
+        "field_label": "掛單開始日期",
+        "field_type": "date",
+        "options": [],
+        "show_if": {
+          "stay_overnight": true
+        },
+        "sort_order": 12,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "stay_end",
+        "field_label": "掛單結束日期",
+        "field_type": "date",
+        "options": [],
+        "show_if": {
+          "stay_overnight": true
+        },
+        "sort_order": 13,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      },
+      {
+        "field_key": "note_to_temple",
+        "field_label": "備註",
+        "field_type": "text",
+        "options": [],
+        "show_if": null,
+        "sort_order": 14,
+        "required": false,
+        "dashboard_role": null,
+        "option_meta": null,
+        "placeholder": "欲同車者或其他需求"
+      },
+      {
+        "field_key": "欲發心組別",
+        "field_label": "欲發心組別",
+        "field_type": "text",
+        "options": [],
+        "show_if": {
+          "volunteer_group": "其他"
+        },
+        "sort_order": 15,
+        "required": true,
+        "dashboard_role": null,
+        "option_meta": null
+      }
+    ],
+    "session_fields": []
+  },
+  {
     "name": "供佛齋僧法會",
     "description": "佛制結夏安居，為出家僧侶三個月的精進修行期。十方居士於此期間發心供養清淨僧寶，隨喜齋僧，功德等同供養十方三世一切諸佛，是積累福慧資糧最殊勝的因緣之一。《佛說盂蘭盆經》云，供養一切自恣僧眾，能令現世父母、七世父母離餓鬼苦。歡迎護法居士踴躍報名，共沾法喜，同植善根。",
     "location": "中台禪寺",

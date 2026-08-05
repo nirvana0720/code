@@ -138,7 +138,11 @@ export default function EventsPage() {
   }
 
   // ── 區間手動產生 ────────────────────────────────────────────────
-  /** 計算範本在 [start, end] 內符合週期的所有日期（字串陣列，上限 52） */
+  /** 計算範本在 [start, end] 內符合週期的所有日期（字串陣列，上限 52）
+   *  注意：cur.getDay()/getDate() 是用本地時區判斷星期幾/幾號，所以組字串時也要用本地時區的
+   *  getFullYear/getMonth/getDate，不能用 toISOString()（那是轉成 UTC）——不然在 UTC+8
+   *  環境下，字串會跟判斷週期用的星期幾/幾號對不上，甚至整組日期少一天
+   *  （2026-08-05 發現同源 bug，見 attendDateHelpers.js 的 eachDateInRange） */
   function computeTemplateDates(tmpl, start, end) {
     if (!start || !end || start > end) return []
     const dates = []
@@ -151,7 +155,10 @@ export default function EventsPage() {
         (tmpl.frequency === 'weekly'  && dow === Number(tmpl.day_of_week)) ||
         (tmpl.frequency === 'monthly' && dom === Number(tmpl.day_of_month))
       ) {
-        dates.push(cur.toISOString().slice(0, 10))
+        const y = cur.getFullYear()
+        const m = String(cur.getMonth() + 1).padStart(2, '0')
+        const d = String(cur.getDate()).padStart(2, '0')
+        dates.push(`${y}-${m}-${d}`)
       }
       cur.setDate(cur.getDate() + 1)
     }

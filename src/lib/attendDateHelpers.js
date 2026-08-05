@@ -1,11 +1,17 @@
 // 職責單一：多日回山排車的出席日期判斷（answers.attend_dates / answers.is_lodging）
 
-// answers.attend_dates 是字串陣列（如 ["2026-08-10","2026-08-11"]），answers.is_lodging 是 boolean
+// answers.attend_dates 是字串陣列（如 ["2026-08-10","2026-08-11"]）
+// 「是否掛單」優先讀 answers.is_lodging；如果活動用的是回山模板既有的 stay_overnight
+// （寮房比對用的「是否掛單」，syncAttendDatesField 偵測到已有這個欄位時就不會再另外
+// 加 is_lodging，避免問兩次一樣的問題），就 fallback 讀 stay_overnight
+// （2026-08-05 定調：兩者語意上是同一件事——會被排車邏輯判定「掛單」的人，
+// 本來就是回山期間有在山上過夜留宿的人）
 // 回傳這個人在哪些「日期+方向」組合需要車：[{ date, direction }]
 export function resolveAttendSlots(answers) {
   const dates = (answers?.attend_dates ?? []).slice().sort()
   if (dates.length === 0) return []
-  if (answers?.is_lodging) {
+  const isLodging = answers?.is_lodging ?? answers?.stay_overnight ?? false
+  if (isLodging) {
     return [
       { date: dates[0], direction: 'up' },
       { date: dates[dates.length - 1], direction: 'down' },
@@ -31,14 +37,17 @@ export function formatDateWithWeekday(dateStr) {
 }
 
 // 依活動起訖日逐日展開成 YYYY-MM-DD 陣列（含頭尾），供 attend_dates 欄位 options 產生用
+// 注意：全程用 UTC 運算，不要用「本地時區建 Date 再轉 toISOString」的寫法——
+// 在 UTC+8（台灣）環境下，本地午夜轉成 UTC 字串會退到前一天，導致整組日期少一天
+// （2026-08-05 發現：date_start=2026-08-06 卻算出 2026-08-05，即此 bug）
 export function eachDateInRange(dateStart, dateEnd) {
   if (!dateStart || !dateEnd || dateStart > dateEnd) return []
   const dates = []
-  let cur = new Date(dateStart + 'T00:00:00')
-  const last = new Date(dateEnd + 'T00:00:00')
+  let cur = new Date(dateStart + 'T00:00:00Z')
+  const last = new Date(dateEnd + 'T00:00:00Z')
   while (cur <= last && dates.length < 60) {
     dates.push(cur.toISOString().slice(0, 10))
-    cur.setDate(cur.getDate() + 1)
+    cur.setUTCDate(cur.getUTCDate() + 1)
   }
   return dates
 }

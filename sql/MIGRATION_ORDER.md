@@ -153,6 +153,12 @@
 |------|------|------|
 | 85 | `add_donor_dayof_fields.sql` | 新增 `events.has_donor_notify`（獨立開關，控制功德主通知功能）、`event_donors.lunch_table`／`is_table_leader`（活動當天午齋桌次、桌長標記） |
 
+## 第十階段：多日回山排車＋大車移小車持久化（2026-08-04）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 86 | `add_multiday_transport_and_small_overrides.sql` | 新增 `events.multi_day_transport`（多日交通安排開關）、`car_assignments.service_date`（車輛服務日期，NULL=單日活動沿用舊行為）、新表 `car_small_overrides`（大車手動移小車的持久化，取代前端 `guestSmallOverrides` state）。只套用到之後新建的活動，不回填舊資料 |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、

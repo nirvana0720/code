@@ -140,7 +140,13 @@ WITH checks(seq, migration_file, note, ok) AS (
    'events.has_donor_notify／event_donors.lunch_table／is_table_leader 欄位存在（回山活動功德主通知，2026-07-22）',
    EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='has_donor_notify')
    AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='event_donors' AND column_name='lunch_table')
-   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='event_donors' AND column_name='is_table_leader'))
+   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='event_donors' AND column_name='is_table_leader')),
+
+  (86, 'add_multiday_transport_and_small_overrides.sql',
+   'events.multi_day_transport／car_assignments.service_date／car_small_overrides 表存在（多日回山排車＋大車移小車持久化，2026-08-04）',
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='multi_day_transport')
+   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='car_assignments' AND column_name='service_date')
+   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='car_small_overrides'))
 )
 SELECT
   seq AS "順序",

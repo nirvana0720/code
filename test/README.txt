@@ -37,6 +37,12 @@
 - get_leader_cars：車輛自己的 token 能查到同活動底下指定的車（前端「切換方向」
   Tab 用的是車 token，不是 head_leader token；head_leader 表是另一套查詢，走
   get_head_leader_by_token）
+- get_car_by_token／get_leader_cars／checkin_car_member 的 service_date 鎖定判斷
+  （2026-08-04 多日回山排車＋補件）：車輛有 service_date 時優先用它判斷是否已過，不受活動本身
+  date_end 影響（測 service_date 已過但活動還「進行中」該鎖、service_date 未到但活動已「結束」
+  該保持開放；checkin_car_member 額外驗證 service_date 已過會擋下報到寫入）。checkin_all_car／
+  checkin_car_monk／is_token_expired 改法跟 checkin_car_member 完全同一套邏輯，暫沒有各自另外
+  補測試案例，只靠程式碼比對確認改法一致。
 - checkin_car_member：單筆報到寫入成功；用 head_leader token 也能報到
   （這是 2026-07-15 修過一次的 bug，寫這條測試防止之後又活過來）
 - checkin_all_car：一鍵全車報到

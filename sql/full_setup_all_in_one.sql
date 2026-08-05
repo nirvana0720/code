@@ -5230,6 +5230,7 @@ GRANT SELECT (student_id, qr_code, name, active, created_at) ON students TO anon
 -- 已合併補齊 dormitory_room＋phone 欄位分歧，並補上「活動結束後鎖住」安全修正
 -- （原本寫在 lock_expired_token_pages.sql 但從未真正部署到正式環境）。
 
+-- ── get_car_by_token：車輛看板用 token 查詢單台車完整資料（含成員/法師/領隊） ──
 CREATE OR REPLACE FUNCTION get_car_by_token(p_token TEXT)
 RETURNS JSON
 LANGUAGE plpgsql SECURITY DEFINER
@@ -5242,7 +5243,7 @@ BEGIN
   FROM (
     SELECT
       ca.car_id, ca.car_name, ca.seats, ca.event_id, ca.sort_order,
-      ca.direction, ca.pre_depart, ca.late_return,
+      ca.direction, ca.service_date, ca.pre_depart, ca.late_return,
       row_to_json(e.*) AS events,
       (
         SELECT json_agg(cm_row)
@@ -5283,7 +5284,10 @@ BEGIN
     FROM car_assignments ca
     LEFT JOIN events e ON e.event_id = ca.event_id
     WHERE ca.access_token = p_token
-      AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end)
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date <= ca.service_date)
+        OR (ca.service_date IS NULL AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end))
+      )
     LIMIT 1
   ) t;
 
@@ -5293,6 +5297,7 @@ $$;
 
 GRANT EXECUTE ON FUNCTION get_car_by_token(TEXT) TO anon, authenticated;
 
+-- ── get_leader_cars：領隊看板用 token 一次查詢自己權限範圍內的多台車 ──
 CREATE OR REPLACE FUNCTION get_leader_cars(p_token TEXT, p_car_ids UUID[])
 RETURNS JSON
 LANGUAGE plpgsql SECURITY DEFINER
@@ -5309,19 +5314,15 @@ BEGIN
     RETURN '[]'::JSON;
   END IF;
 
-  IF EXISTS (
-    SELECT 1 FROM events e
-    WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
-  ) THEN
-    RETURN '[]'::JSON;
-  END IF;
+  -- 鎖定判斷改在下方主查詢的 WHERE 逐車判斷（每台車自己的 service_date 優先，NULL 才 fallback
+  -- 回 e.date_end），不再用「整個活動 date_end 已過」一次鎖住全部——多日活動不同日期的車，
+  -- 已過的那幾天鎖住、還沒到的維持開放，不會互相影響。
 
   SELECT json_agg(row_to_json(t)) INTO result
   FROM (
     SELECT
       ca.car_id, ca.car_name, ca.seats, ca.event_id, ca.sort_order,
-      ca.direction, ca.pre_depart, ca.late_return, ca.access_token,
+      ca.direction, ca.service_date, ca.pre_depart, ca.late_return, ca.access_token,
       row_to_json(e.*) AS events,
       (
         SELECT json_agg(cm_row)
@@ -5363,6 +5364,10 @@ BEGIN
     LEFT JOIN events e ON e.event_id = ca.event_id
     WHERE ca.car_id = ANY(p_car_ids)
       AND ca.event_id = v_event_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date <= ca.service_date)
+        OR (ca.service_date IS NULL AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end))
+      )
   ) t;
 
   RETURN COALESCE(result, '[]'::JSON);
@@ -5371,6 +5376,10 @@ $$;
 
 GRANT EXECUTE ON FUNCTION get_leader_cars(TEXT, UUID[]) TO anon, authenticated;
 
+-- ── checkin_car_member／checkin_all_car／checkin_car_monk：報到三支 ──────────
+-- 2026-07-15 修復：p_token 除了該車自己的 access_token，也放行同活動、權限涵蓋該車的
+-- head_leader token（小車領隊只認得 car_type='small'），讓總領隊/小車領隊看板點報到
+-- 不會失敗（fix_head_leader_checkin_token.sql 那次修復，內容原封不動搬過來）。
 CREATE OR REPLACE FUNCTION checkin_car_member(
   p_token TEXT,
   p_car_id UUID,
@@ -5403,8 +5412,13 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM events e WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+    SELECT 1 FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.car_id = p_car_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > ca.service_date)
+        OR (ca.service_date IS NULL AND e.date_end IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end)
+      )
   ) THEN
     RAISE EXCEPTION '活動已結束，無法報到';
   END IF;
@@ -5416,6 +5430,7 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION checkin_car_member(TEXT, UUID, UUID, BOOLEAN) TO anon, authenticated;
+
 
 CREATE OR REPLACE FUNCTION checkin_all_car(p_token TEXT, p_car_id UUID)
 RETURNS VOID
@@ -5444,8 +5459,13 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM events e WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+    SELECT 1 FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.car_id = p_car_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > ca.service_date)
+        OR (ca.service_date IS NULL AND e.date_end IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end)
+      )
   ) THEN
     RAISE EXCEPTION '活動已結束，無法報到';
   END IF;
@@ -5457,6 +5477,7 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION checkin_all_car(TEXT, UUID) TO anon, authenticated;
+
 
 CREATE OR REPLACE FUNCTION checkin_car_monk(
   p_token TEXT,
@@ -5492,8 +5513,13 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM events e WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+    SELECT 1 FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.car_id = v_car_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > ca.service_date)
+        OR (ca.service_date IS NULL AND e.date_end IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end)
+      )
   ) THEN
     RAISE EXCEPTION '活動已結束，無法報到';
   END IF;
@@ -5506,6 +5532,7 @@ $$;
 
 GRANT EXECUTE ON FUNCTION checkin_car_monk(TEXT, UUID, BOOLEAN) TO anon, authenticated;
 
+-- ── get_head_leader_by_token：總領隊／小車領隊看板用 token 查詢自己的權限範圍 ──
 CREATE OR REPLACE FUNCTION get_head_leader_by_token(p_token TEXT)
 RETURNS JSON
 LANGUAGE plpgsql SECURITY DEFINER
@@ -5544,6 +5571,11 @@ $$;
 
 GRANT EXECUTE ON FUNCTION get_head_leader_by_token(TEXT) TO anon, authenticated;
 
+-- ── is_token_expired：供前端判斷「查無資料」是無效 token 還是活動已結束 ──
+-- 三張公開 token 表（car_assignments / head_leader / chores）共用同一套判斷邏輯，
+-- 只回傳布林值，不洩漏任何實際資料，anon 可放心呼叫。
+-- 邏輯：token 在任一張表存在且對應活動已結束 → true；
+--      token 不存在（單純無效）或活動尚未結束 → false。
 CREATE OR REPLACE FUNCTION is_token_expired(p_token TEXT)
 RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER
@@ -5551,11 +5583,18 @@ SET search_path = public
 AS $$
 DECLARE
   v_date_end DATE;
+  v_service_date DATE;
 BEGIN
-  SELECT e.date_end INTO v_date_end
+  SELECT e.date_end, ca.service_date INTO v_date_end, v_service_date
   FROM car_assignments ca JOIN events e ON e.event_id = ca.event_id
   WHERE ca.access_token = p_token
   LIMIT 1;
+
+  -- 車輛 token：service_date 優先於 date_end；兩者皆 NULL 才視為「查無資料」繼續往下查
+  -- head_leader／chores（這兩張表沒有 service_date 欄位，維持原邏輯）
+  IF v_service_date IS NOT NULL THEN
+    RETURN (NOW() AT TIME ZONE 'Asia/Taipei')::date > v_service_date;
+  END IF;
 
   IF v_date_end IS NULL THEN
     SELECT e.date_end INTO v_date_end
@@ -5580,7 +5619,6 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION is_token_expired(TEXT) TO anon, authenticated;
-
 -- ------------------------------------------------------------
 -- [83/86] rpc_chore.sql
 -- ------------------------------------------------------------
@@ -5855,3 +5893,37 @@ ALTER TABLE event_donors  ADD COLUMN IF NOT EXISTS is_table_leader   BOOLEAN NOT
 COMMENT ON COLUMN events.has_donor_notify        IS '是否開放功德主通知功能（回山等外出活動用；與 is_dharma 精舍法會報到用途互不影響）';
 COMMENT ON COLUMN event_donors.lunch_table       IS '活動當天午齋桌次（當天資訊管理頁填寫）';
 COMMENT ON COLUMN event_donors.is_table_leader   IS '是否為該桌桌長（發送當天通知時，桌長會額外收到一則全桌名單訊息）';
+
+-- ------------------------------------------------------------
+-- [88/88] add_multiday_transport_and_small_overrides.sql（2026-08-04 追加，多日回山排車＋大車移小車持久化）
+-- ------------------------------------------------------------
+-- 多日回山排車：events.multi_day_transport 開關 + car_assignments.service_date（車輛服務日期）。
+-- 大車移小車持久化：新表 car_small_overrides，取代原本只存在前端 state 的 guestSmallOverrides。
+-- 只套用到之後新建的活動，不回填任何舊資料。
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS multi_day_transport BOOLEAN NOT NULL DEFAULT false;
+COMMENT ON COLUMN events.multi_day_transport IS '多日交通安排：開啟後報名表單出現參加日期/是否掛單欄位，排車頁出現日期籤';
+
+ALTER TABLE car_assignments ADD COLUMN IF NOT EXISTS service_date DATE;
+COMMENT ON COLUMN car_assignments.service_date IS '這台車服務的日期，NULL=單日活動（沿用舊行為）';
+CREATE INDEX IF NOT EXISTS idx_car_assignments_event_date_dir ON car_assignments(event_id, service_date, direction);
+
+CREATE TABLE IF NOT EXISTS car_small_overrides (
+  registration_id      UUID PRIMARY KEY REFERENCES registrations(registration_id) ON DELETE CASCADE,
+  direction             TEXT NOT NULL CHECK (direction IN ('up','down')),
+  service_date          DATE,
+  target_driver_reg_id  UUID NOT NULL REFERENCES registrations(registration_id) ON DELETE CASCADE,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+COMMENT ON TABLE car_small_overrides IS '師父手動把大車的人移到某台小車（用司機的 registration_id 識別那台小車），取代原本只存在前端 state 的 guestSmallOverrides';
+CREATE INDEX IF NOT EXISTS idx_car_small_overrides_target ON car_small_overrides(target_driver_reg_id);
+
+ALTER TABLE car_small_overrides ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "auth full access on car_small_overrides" ON car_small_overrides
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+GRANT ALL ON car_small_overrides TO authenticated;
+
+-- ------------------------------------------------------------
+-- 第十階段收尾：確認 rpc_car.sql 已用 service_date 重新部署（本檔案上方 [82/86] 區塊即為最新版）
+-- ------------------------------------------------------------

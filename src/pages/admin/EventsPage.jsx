@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
-import { supabase, getAllEvents, createEvent, getMyEvents, saveEventFields, saveEventSessionFields, getRecurringTemplates, createRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, createEventFromTemplate, getExistingTemplateDates, getVolunteers } from '../../lib/supabase'
+import { supabase, getAllEvents, createEvent, getMyEvents, saveEventFields, saveEventSessionFields, getRecurringTemplates, createRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, createEventFromTemplate, getExistingTemplateDates, getVolunteers, syncAttendDatesField } from '../../lib/supabase'
 import { DEFAULT_TEMPLATES } from '../../lib/defaultEventTemplates'
 import FieldRow from '../../components/FieldRow'
 import { useAuth } from '../../lib/auth'
@@ -19,7 +19,7 @@ export default function EventsPage() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', date_start: '', date_end: '', location: '', status: 'active', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, show_on_activities: true })
+  const [form, setForm] = useState({ name: '', date_start: '', date_end: '', location: '', status: 'active', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, multi_day_transport: false, show_on_activities: true })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   // V7 export
@@ -206,6 +206,7 @@ export default function EventsPage() {
       is_dharma: form.is_dharma,
       has_donor_notify: form.has_donor_notify,
       multi_session: form.multi_session,
+      multi_day_transport: form.multi_day_transport,
     })
 
     setSaving(false)
@@ -215,8 +216,12 @@ export default function EventsPage() {
       return
     }
 
+    if (form.multi_day_transport) {
+      await syncAttendDatesField(event.event_id, form.date_start, form.date_end)
+    }
+
     setShowForm(false)
-    setForm({ name: '', date_start: '', date_end: '', location: '', status: 'draft', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, show_on_activities: true })
+    setForm({ name: '', date_start: '', date_end: '', location: '', status: 'draft', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, multi_day_transport: false, show_on_activities: true })
     navigate(`/admin/events/${event.event_id}`)
   }
 
@@ -542,6 +547,22 @@ export default function EventsPage() {
                 </span>
               </label>
             </div>
+            {form.date_start && form.date_end && form.date_start !== form.date_end && (
+              <div className="sm:col-span-2">
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.multi_day_transport}
+                    onChange={e => setForm(f => ({ ...f, multi_day_transport: e.target.checked }))}
+                    className="w-4 h-4 accent-teal-600"
+                  />
+                  <span>
+                    多日交通安排
+                    <span className="text-xs text-gray-500 ml-1">（開啟後報名表單會要求填參加日期與是否掛單，排車頁可依日期分別安排）</span>
+                  </span>
+                </label>
+              </div>
+            )}
 
             {formError && (
               <p className="sm:col-span-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">

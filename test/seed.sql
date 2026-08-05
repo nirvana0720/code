@@ -48,10 +48,17 @@ INSERT INTO registrations (registration_id, event_id, student_id, is_driver, ans
 
 -- ============================================================
 -- 4) 車輛分組：進行中活動一台車、已結束活動一台車，各自固定 token
+--    另外兩台車測 service_date 優先於 date_end 的鎖定邏輯（2026-08-04 多日回山排車）：
+--    b3 掛在「進行中」活動（date_end 還沒到，本來不會鎖）但自己的 service_date 已過 → 應鎖住
+--    b4 掛在「已結束」活動（date_end 已過，本來會鎖）但自己的 service_date 還沒到 → 應維持開放
 -- ============================================================
 INSERT INTO car_assignments (car_id, event_id, car_name, seats, car_type, direction, access_token) VALUES
   ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000a1', '測試車1號', 20, 'large', 'up', 'TEST_CAR_TOKEN_ACTIVE'),
   ('00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-0000000000a2', '測試車2號（已結束活動）', 20, 'large', 'up', 'TEST_CAR_TOKEN_EXPIRED');
+
+INSERT INTO car_assignments (car_id, event_id, car_name, seats, car_type, direction, service_date, access_token) VALUES
+  ('00000000-0000-0000-0000-0000000000b3', '00000000-0000-0000-0000-0000000000a1', '測試車3號（service_date 已過）', 20, 'large', 'up', CURRENT_DATE - 1, 'TEST_CAR_TOKEN_SVCDATE_PAST'),
+  ('00000000-0000-0000-0000-0000000000b4', '00000000-0000-0000-0000-0000000000a2', '測試車4號（service_date 未到）', 20, 'large', 'up', CURRENT_DATE + 1, 'TEST_CAR_TOKEN_SVCDATE_FUTURE');
 
 -- 領隊 = 測試學員甲；車上成員 = 甲(駕駛) + 乙
 INSERT INTO car_leaders (car_id, registration_id) VALUES

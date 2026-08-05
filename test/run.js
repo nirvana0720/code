@@ -44,6 +44,10 @@ const SEED = {
   studentDriver: 'TESTSTU001',
   tokenCarActive: 'TEST_CAR_TOKEN_ACTIVE',
   tokenCarExpired: 'TEST_CAR_TOKEN_EXPIRED',
+  carSvcDatePast: '00000000-0000-0000-0000-0000000000b3',
+  carSvcDateFuture: '00000000-0000-0000-0000-0000000000b4',
+  tokenCarSvcDatePast: 'TEST_CAR_TOKEN_SVCDATE_PAST',
+  tokenCarSvcDateFuture: 'TEST_CAR_TOKEN_SVCDATE_FUTURE',
   tokenHeadLeader: 'TEST_HEAD_LEADER_TOKEN',
   tokenChore: 'TEST_CHORE_TOKEN',
 };
@@ -174,6 +178,34 @@ async function assertThrows(fn, messageIncludes, label) {
     const cars = await rpc('get_leader_cars', { p_token: SEED.tokenCarActive, p_car_ids: [SEED.carActive] });
     assertEqual((cars || []).length, 1, '車輛數');
     assertEqual(cars[0].car_name, '測試車1號', 'car_name');
+  });
+
+  // ── 多日回山排車：service_date 優先於 date_end 的鎖定判斷（2026-08-04）──
+  await test('get_car_by_token：service_date 已過的車即使活動本身還「進行中」也應該鎖住', async () => {
+    const car = await rpc('get_car_by_token', { p_token: SEED.tokenCarSvcDatePast });
+    assertEqual(car, null, 'service_date 已過應回傳 null（即使活動 date_end 還沒到）');
+  });
+
+  await test('get_car_by_token：service_date 還沒到的車即使活動本身已「結束」也應該維持開放', async () => {
+    const car = await rpc('get_car_by_token', { p_token: SEED.tokenCarSvcDateFuture });
+    if (!car) throw new Error('service_date 還沒到，不該被鎖住，但查無資料');
+    assertEqual(car.car_name, '測試車4號（service_date 未到）', 'car_name');
+  });
+
+  await test('get_leader_cars：service_date 已過的車即使活動本身還「進行中」也應該被排除', async () => {
+    const cars = await rpc('get_leader_cars', { p_token: SEED.tokenCarSvcDatePast, p_car_ids: [SEED.carSvcDatePast] });
+    assertEqual((cars || []).length, 0, 'service_date 已過的車不應出現在結果中');
+  });
+
+  await test('checkin_car_member：service_date 已過的車即使活動 date_end 還沒到也應該擋下報到（補件：鎖定判斷套用到報到三支）', async () => {
+    await assertThrows(
+      () => rpc('checkin_car_member', {
+        p_token: SEED.tokenCarSvcDatePast, p_car_id: SEED.carSvcDatePast,
+        p_registration_id: SEED.regDriver, p_check_in: true,
+      }),
+      '活動已結束',
+      'checkin_car_member 對 service_date 已過的車'
+    );
   });
 
   await test('checkin_car_member：單筆報到後 checked_in_at 有值', async () => {

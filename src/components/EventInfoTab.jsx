@@ -112,6 +112,21 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
             </label>
           </div>
         )}
+        {/* 多日交通安排 — 只在活動起訖日不同時顯示 */}
+        {form.date_start && form.date_end && form.date_start !== form.date_end && (
+          <div className="sm:col-span-2">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={!!form.multi_day_transport}
+                onChange={e => setForm(f => ({ ...f, multi_day_transport: e.target.checked }))}
+                className="w-4 h-4 accent-teal-600"
+              />
+              多日交通安排
+              <span className="text-xs text-gray-500 ml-1">（開啟後報名表單會要求填參加日期與是否掛單，排車頁可依日期分別安排）</span>
+            </label>
+          </div>
+        )}
         {/* 福慧出坡（排坡系統）— 勾選後此活動才會出現在排坡系統列表 */}
         <div className="sm:col-span-2">
           <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">

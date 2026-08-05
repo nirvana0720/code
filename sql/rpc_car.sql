@@ -20,6 +20,16 @@
 --    都沒基於對方版本改，這裡兩個欄位都保留。
 -- 往後這 5 支函式只在這支檔案改。
 -- 可安全重跑：CREATE OR REPLACE。
+--
+-- ⚠️ 2026-08-04 更新（多日回山排車）：get_car_by_token／get_leader_cars 的鎖定判斷改用
+-- car_assignments.service_date（這台車服務的日期）優先判斷；service_date 為 NULL（單日活動、
+-- 或既有舊資料）才 fallback 回原本的 e.date_end 判斷，避免多日活動同一活動底下不同日期的車
+-- 被一起鎖住/開放。兩支函式回傳資料都加上 service_date 欄位供前端顯示。
+-- ⚠️ 2026-08-04 補件：同一批鎖定邏輯套用到 checkin_car_member／checkin_all_car／checkin_car_monk／
+-- is_token_expired，避免同一支檔案裡鎖定判斷不一致（這幾支原本只看 e.date_end，多日活動某天的車
+-- service_date 已過、get_car_by_token 查不到了，這幾支卻還放行寫入）。get_head_leader_by_token
+-- 維持看整個活動的 date_end 不變——它回傳的是「總領隊/小車領隊」這個人的權限範圍，不是單一台車，
+-- 沒有對應的 service_date 可用。
 
 -- ── get_car_by_token：車輛看板用 token 查詢單台車完整資料（含成員/法師/領隊） ──
 CREATE OR REPLACE FUNCTION get_car_by_token(p_token TEXT)
@@ -34,7 +44,7 @@ BEGIN
   FROM (
     SELECT
       ca.car_id, ca.car_name, ca.seats, ca.event_id, ca.sort_order,
-      ca.direction, ca.pre_depart, ca.late_return,
+      ca.direction, ca.service_date, ca.pre_depart, ca.late_return,
       row_to_json(e.*) AS events,
       (
         SELECT json_agg(cm_row)
@@ -75,7 +85,10 @@ BEGIN
     FROM car_assignments ca
     LEFT JOIN events e ON e.event_id = ca.event_id
     WHERE ca.access_token = p_token
-      AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end)
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date <= ca.service_date)
+        OR (ca.service_date IS NULL AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end))
+      )
     LIMIT 1
   ) t;
 
@@ -102,20 +115,15 @@ BEGIN
     RETURN '[]'::JSON;
   END IF;
 
-  -- 活動已結束就鎖住，回傳空陣列（不 RAISE，前端統一當作查無資料處理）
-  IF EXISTS (
-    SELECT 1 FROM events e
-    WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
-  ) THEN
-    RETURN '[]'::JSON;
-  END IF;
+  -- 鎖定判斷改在下方主查詢的 WHERE 逐車判斷（每台車自己的 service_date 優先，NULL 才 fallback
+  -- 回 e.date_end），不再用「整個活動 date_end 已過」一次鎖住全部——多日活動不同日期的車，
+  -- 已過的那幾天鎖住、還沒到的維持開放，不會互相影響。
 
   SELECT json_agg(row_to_json(t)) INTO result
   FROM (
     SELECT
       ca.car_id, ca.car_name, ca.seats, ca.event_id, ca.sort_order,
-      ca.direction, ca.pre_depart, ca.late_return, ca.access_token,
+      ca.direction, ca.service_date, ca.pre_depart, ca.late_return, ca.access_token,
       row_to_json(e.*) AS events,
       (
         SELECT json_agg(cm_row)
@@ -157,6 +165,10 @@ BEGIN
     LEFT JOIN events e ON e.event_id = ca.event_id
     WHERE ca.car_id = ANY(p_car_ids)
       AND ca.event_id = v_event_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date <= ca.service_date)
+        OR (ca.service_date IS NULL AND (e.date_end IS NULL OR (NOW() AT TIME ZONE 'Asia/Taipei')::date <= e.date_end))
+      )
   ) t;
 
   RETURN COALESCE(result, '[]'::JSON);
@@ -201,8 +213,13 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM events e WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+    SELECT 1 FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.car_id = p_car_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > ca.service_date)
+        OR (ca.service_date IS NULL AND e.date_end IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end)
+      )
   ) THEN
     RAISE EXCEPTION '活動已結束，無法報到';
   END IF;
@@ -243,8 +260,13 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM events e WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+    SELECT 1 FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.car_id = p_car_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > ca.service_date)
+        OR (ca.service_date IS NULL AND e.date_end IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end)
+      )
   ) THEN
     RAISE EXCEPTION '活動已結束，無法報到';
   END IF;
@@ -292,8 +314,13 @@ BEGIN
   END IF;
 
   IF EXISTS (
-    SELECT 1 FROM events e WHERE e.event_id = v_event_id
-      AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end
+    SELECT 1 FROM car_assignments ca
+    LEFT JOIN events e ON e.event_id = ca.event_id
+    WHERE ca.car_id = v_car_id
+      AND (
+        (ca.service_date IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > ca.service_date)
+        OR (ca.service_date IS NULL AND e.date_end IS NOT NULL AND (NOW() AT TIME ZONE 'Asia/Taipei')::date > e.date_end)
+      )
   ) THEN
     RAISE EXCEPTION '活動已結束，無法報到';
   END IF;
@@ -357,11 +384,18 @@ SET search_path = public
 AS $$
 DECLARE
   v_date_end DATE;
+  v_service_date DATE;
 BEGIN
-  SELECT e.date_end INTO v_date_end
+  SELECT e.date_end, ca.service_date INTO v_date_end, v_service_date
   FROM car_assignments ca JOIN events e ON e.event_id = ca.event_id
   WHERE ca.access_token = p_token
   LIMIT 1;
+
+  -- 車輛 token：service_date 優先於 date_end；兩者皆 NULL 才視為「查無資料」繼續往下查
+  -- head_leader／chores（這兩張表沒有 service_date 欄位，維持原邏輯）
+  IF v_service_date IS NOT NULL THEN
+    RETURN (NOW() AT TIME ZONE 'Asia/Taipei')::date > v_service_date;
+  END IF;
 
   IF v_date_end IS NULL THEN
     SELECT e.date_end INTO v_date_end

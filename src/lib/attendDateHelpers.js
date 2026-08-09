@@ -21,10 +21,68 @@ export function resolveAttendSlots(answers) {
   return dates.flatMap(d => [{ date: d, direction: 'up' }, { date: d, direction: 'down' }])
 }
 
-// 判斷某人在指定 date+direction 是否需要車（單日活動 selectedDate 傳 null）
-export function isInSlot(answers, selectedDate, direction) {
+// 分時段模式（multi_slot_transport）專用：answers 裡的 key 直接是 slot_up_YYYY-MM-DD／
+// slot_down_YYYY-MM-DD（radio，值為選中的時段字串），不再用 attend_dates 反推
+const SLOT_FIELD_RE = /^slot_(up|down)_(\d{4}-\d{2}-\d{2})$/
+
+// 掃描 answers 的 key，反推這個人在哪些「日期+方向」需要車，含時段
+// 只有分時段模式的報名答案會有 slot_up_xxx / slot_down_xxx 這種 key
+export function resolveSlotBasedAttendSlots(answers) {
+  const results = []
+  for (const key of Object.keys(answers || {})) {
+    const m = key.match(SLOT_FIELD_RE)
+    if (!m) continue
+    const timeSlot = answers[key]
+    if (!timeSlot) continue // 留白 = 不需要
+    results.push({ direction: m[1], date: m[2], timeSlot })
+  }
+  return results.sort((a, b) => a.date === b.date
+    ? a.direction.localeCompare(b.direction)
+    : a.date.localeCompare(b.date))
+}
+
+// 判斷 answers 是不是分時段模式的答案（有沒有任何 slot_ 開頭的 key）
+export function isSlotBasedAnswers(answers) {
+  return Object.keys(answers || {}).some(k => SLOT_FIELD_RE.test(k))
+}
+
+// 分時段模式專用：算填答涵蓋幾個不同日期，供「是否掛單」顯示判斷用
+export function countDistinctSlotDays(answers) {
+  const days = new Set(resolveSlotBasedAttendSlots(answers).map(s => s.date))
+  return days.size
+}
+
+// 判斷單一欄位在目前作答狀態下是否應該顯示（DynamicForm 渲染／Kiosk 必填驗證共用邏輯，
+// 避免同一套判斷各自維護一份）：
+// - is_lodging／stay_overnight：若這個活動是分時段模式（fields 裡有任何 slot_up/slot_down
+//   欄位），改用 countDistinctSlotDays(answers) >= 2 判斷要不要顯示／必填，不走 show_if
+// - 其他欄位（含 stay_start／stay_end）維持原本 show_if 判斷
+export function isFieldVisible(field, answers, fields) {
+  if (field.field_key === 'is_lodging' || field.field_key === 'stay_overnight') {
+    const isSlotMode = (fields || []).some(f => SLOT_FIELD_RE.test(f.field_key))
+    if (isSlotMode) return countDistinctSlotDays(answers) >= 2
+  }
+  if (!field.show_if) return true
+  return Object.entries(field.show_if).every(([k, v]) => answers[k] === v)
+}
+
+// Kiosk 前台必填驗證共用：目前應顯示、且標記必填的欄位清單
+export function getVisibleRequiredFields(fields, answers) {
+  return (fields || []).filter(f => f.required && isFieldVisible(f, answers, fields))
+}
+
+// 判斷某人在指定 date+direction(+timeSlot) 是否需要車（單日活動 selectedDate 傳 null）
+// selectedTimeSlot：分時段活動的時段篩選，預設 null＝不篩選時段（相容既有呼叫）
+export function isInSlot(answers, selectedDate, direction, selectedTimeSlot = null) {
   if (selectedDate == null) return true // 單日活動，維持現有行為，不篩選
-  return resolveAttendSlots(answers).some(s => s.date === selectedDate && s.direction === direction)
+  const slots = isSlotBasedAnswers(answers)
+    ? resolveSlotBasedAttendSlots(answers)
+    : resolveAttendSlots(answers).map(s => ({ ...s, timeSlot: null }))
+  return slots.some(s =>
+    s.date === selectedDate &&
+    s.direction === direction &&
+    (selectedTimeSlot == null || s.timeSlot === selectedTimeSlot)
+  )
 }
 
 // 週幾中文對照，供日期籤 UI／event_fields options 顯示用（例：8/10（一））

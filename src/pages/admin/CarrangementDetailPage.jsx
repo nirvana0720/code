@@ -22,6 +22,7 @@ import { preceptBadgeProps } from '../../lib/registrationHelpers'
 
 import { genId, dirLabel, getName, getGuestNote, findGuestHost, fieldKeysFor, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, keyFor } from '../../lib/carrangeHelpers'
 import { isInSlot, eachDateInRange } from '../../lib/attendDateHelpers'
+import { timeSlotsFor, restoreCarDirection, overrideStateKey, allDateDirectionSlots } from '../../lib/carSlotHelpers'
 import autoArrange from '../../lib/autoArrange'
 import { getChoreLocationsByEvent } from '../../lib/choreAssignment'
 import { formatEventDate } from '../../lib/eventDetailHelpers'
@@ -56,8 +57,17 @@ export default function CarrangementDetailPage() {
   }, [dates]) // eslint-disable-line react-hooks/exhaustive-deps
   // dateKeysAll：要載入/儲存/匯出的全部「日期」清單；單日活動固定 [null]
   const dateKeysAll = dates.length > 0 ? dates : [null]
-  // dirKey：目前畫面顯示中的「日期＋方向」state key（單日活動＝原本的 'up'/'down'）
-  const dirKey = keyFor(selectedDate, direction)
+
+  // ── 分時段活動（multi_slot_transport）的時段籤：依目前選中方向決定選項 ──
+  const timeSlots = useMemo(() => timeSlotsFor(event, direction), [event, direction])
+  const [selectedTimeSlot, setSelectedTimeSlot] = useState(null)
+  useEffect(() => {
+    if (timeSlots[0] !== null && !timeSlots.includes(selectedTimeSlot)) setSelectedTimeSlot(timeSlots[0])
+    if (timeSlots[0] === null && selectedTimeSlot !== null) setSelectedTimeSlot(null)
+  }, [timeSlots]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // dirKey：目前畫面顯示中的「日期＋方向＋時段」state key（單日活動＝原本的 'up'/'down'）
+  const dirKey = keyFor(selectedDate, direction, selectedTimeSlot)
 
   // 以下所有 XxxByDir 狀態改用 dirKey 索引（單日活動時 dirKey 就是 'up'/'down'，行為不變）
   const [carsByDir, setCarsByDir]               = useState({})
@@ -109,16 +119,16 @@ export default function CarrangementDetailPage() {
   const setAutoArrangeWarnings = v => setAutoArrangeWarningsByDir(prev => ({ ...prev, [dirKey]: v }))
   const setGroupPrecept        = v => setGroupPreceptByDir(prev => ({ ...prev, [dirKey]: v }))
 
-  // ── 衍生資料（含訪客；多日活動再依日期＋方向篩一次） ──
+  // ── 衍生資料（含訪客；多日活動再依日期＋方向＋時段篩一次） ──
   const regMap      = useMemo(() => Object.fromEntries(regs.map(r => [r.registration_id, r])), [regs])
-  const inSlot = r => isInSlot(r.answers, selectedDate, direction)
+  const inSlot = r => isInSlot(r.answers, selectedDate, direction, selectedTimeSlot)
   const largePeople = useMemo(
     () => regs.filter(r => isLargeCar(r, direction) && inSlot(r) && !smallOverrides.hasOwnProperty(r.registration_id)),
-    [regs, smallOverrides, direction, selectedDate]
+    [regs, smallOverrides, direction, selectedDate, selectedTimeSlot]
   )
   const smallPeople = useMemo(
     () => regs.filter(r => isSmallCar(r.answers, direction) && inSlot(r)),
-    [regs, direction, selectedDate]
+    [regs, direction, selectedDate, selectedTimeSlot]
   )
 
   const { matchedGroups, orphans } = useMemo(
@@ -162,7 +172,7 @@ export default function CarrangementDetailPage() {
 
   const otherTransportRegs = useMemo(() =>
     regs.filter(r => isOtherTransport(r, direction) && inSlot(r)),
-  [regs, direction, selectedDate])
+  [regs, direction, selectedDate, selectedTimeSlot])
 
   // ── 載入 ──
   useEffect(() => { load() }, [eventId])
@@ -197,25 +207,22 @@ export default function CarrangementDetailPage() {
     const evDateKeys = ev?.multi_day_transport ? eachDateInRange(ev.date_start, ev.date_end) : [null]
     const byKey = {}
     for (const c of (allCars ?? [])) {
-      const dk = keyFor(c.service_date ?? null, c.direction)
+      const dk = keyFor(c.service_date ?? null, c.direction, c.time_slot ?? null)
       if (!byKey[dk]) byKey[dk] = []
       byKey[dk].push(c)
     }
 
     const nextCars = {}, nextCarCount = {}, nextSeats = {}, nextOrphan = {}
     const nextSmallMonks = {}, nextSmallPre = {}, nextSmallLate = {}
-    for (const dk0 of evDateKeys) {
-      for (const dir of ['up', 'down']) {
-        const dk = keyFor(dk0, dir)
-        const restored = restoreDirection(byKey[dk] ?? [], registrations, dir, dk0)
-        nextCars[dk] = restored.cars
-        nextCarCount[dk] = restored.carCount
-        nextSeats[dk] = restored.seats
-        nextOrphan[dk] = restored.orphans
-        nextSmallMonks[dk] = restored.smallCarMonks
-        nextSmallPre[dk] = restored.smallPreDeparts
-        nextSmallLate[dk] = restored.smallLateReturns
-      }
+    for (const { dateKey: dk0, direction: dir, timeSlot: slot, dirKey: dk } of allDateDirectionSlots(evDateKeys, ev)) {
+      const restored = restoreCarDirection(byKey[dk] ?? [], registrations, dir, dk0, slot)
+      nextCars[dk] = restored.cars
+      nextCarCount[dk] = restored.carCount
+      nextSeats[dk] = restored.seats
+      nextOrphan[dk] = restored.orphans
+      nextSmallMonks[dk] = restored.smallCarMonks
+      nextSmallPre[dk] = restored.smallPreDeparts
+      nextSmallLate[dk] = restored.smallLateReturns
     }
     setCarsByDir(nextCars)
     setCarCountByDir(nextCarCount)
@@ -226,11 +233,13 @@ export default function CarrangementDetailPage() {
     setSmallLateReturnByDir(nextSmallLate)
 
     // 大車移小車持久化：從 car_small_overrides 表載入（取代舊版用 car_members 內容反推的猜測法）
+    // car_small_overrides 沒有 time_slot 欄位，分時段活動要用每個人自己的分時段答案反推 dirKey（見 overrideStateKey）
     const regIds = registrations.map(r => r.registration_id)
+    const regById = Object.fromEntries(registrations.map(r => [r.registration_id, r]))
     const { overrides } = await getCarSmallOverrides(regIds)
     const nextSmallOverrides = {}
     for (const o of (overrides ?? [])) {
-      const dk = keyFor(o.service_date ?? null, o.direction)
+      const dk = overrideStateKey(regById[o.registration_id], o.direction, o.service_date ?? null)
       if (!nextSmallOverrides[dk]) nextSmallOverrides[dk] = {}
       nextSmallOverrides[dk][o.registration_id] = o.target_driver_reg_id
     }
@@ -264,52 +273,6 @@ export default function CarrangementDetailPage() {
     }
   }
 
-  // 還原單一「日期＋方向」的排車結果（從 DB savedCars + registrations）
-  // dateKey：這批車的 service_date（單日活動傳 null）
-  function restoreDirection(savedCars, registrations, dir, dateKey) {
-    const out = { cars: [], carCount: 2, seats: 20, orphans: {}, smallCarMonks: {}, smallPreDeparts: {}, smallLateReturns: {} }
-    if (!savedCars || savedCars.length === 0) return out
-
-    const largeSaved = savedCars.filter(c => c.car_type === 'large')
-    if (largeSaved.length > 0) {
-      out.cars = largeSaved.map(c => ({
-        tempId:       c.car_id,
-        car_name:     c.car_name,
-        seats:        c.seats,
-        members:      (c.car_members ?? []).map(m => m.registration_id),
-        leaders:      (c.car_leaders ?? []).map(l => l.registration_id),
-        access_token: c.access_token ?? '',
-        monks:        (c.car_monks ?? []).map(m => m.monk_id),
-        preDepart:    c.pre_depart || false,
-        notice_text:  c.notice_text ?? '',
-      }))
-      out.carCount = out.cars.length
-      out.seats    = out.cars[0]?.seats ?? 20
-    }
-
-    const smallSaved = savedCars.filter(c => c.car_type === 'small')
-    if (smallSaved.length > 0) {
-      const smallRegs = registrations.filter(r => isSmallCar(r.answers, dir) && isInSlot(r.answers, dateKey, dir))
-      const { matchedGroups: freshMatched } = computeSmallGroups(smallRegs, dir)
-      for (const savedCar of smallSaved) {
-        const groupKey   = savedCar.note   // 司機的 registration_id
-        const freshGroup = freshMatched.find(g => g.key === groupKey)
-        const originalIds = new Set((freshGroup?.members ?? []).map(m => m.registration_id))
-        for (const member of (savedCar.car_members ?? [])) {
-          if (originalIds.has(member.registration_id)) continue
-          const reg = registrations.find(r => r.registration_id === member.registration_id)
-          // 只還原「孤兒乘客手動指定小車」；大車移小車的人一律從 car_small_overrides 表載入，這裡不猜
-          if (reg && isSmallCar(reg.answers, dir)) out.orphans[member.registration_id] = groupKey
-        }
-        const savedMonks = (savedCar.car_monks ?? []).map(m => m.monk_id)
-        if (savedMonks.length > 0) out.smallCarMonks[groupKey] = savedMonks
-        if (savedCar.pre_depart) out.smallPreDeparts[groupKey] = true
-        if (savedCar.late_return) out.smallLateReturns[groupKey] = true
-      }
-    }
-    return out
-  }
-
   // ── 操作 ──
   function handleAutoArrange() {
     if (largePeople.length === 0) { alert('此方向沒有搭精舍車的學員'); return }
@@ -327,7 +290,11 @@ export default function CarrangementDetailPage() {
 
   function handleCopyToOtherDir() {
     const otherDir = direction === 'up' ? 'down' : 'up'
-    const otherDirKey = keyFor(selectedDate, otherDir)
+    // 分時段活動：去程/回程的時段選項不完全相同（上午/中午 vs 中午/下午），
+    // 目前選中的時段若對方也有就沿用，否則落到對方的第一個時段
+    const otherSlots = timeSlotsFor(event, otherDir)
+    const otherSlot = otherSlots.includes(selectedTimeSlot) ? selectedTimeSlot : otherSlots[0]
+    const otherDirKey = keyFor(selectedDate, otherDir, otherSlot)
     const otherCarsExist = (carsByDir[otherDirKey] ?? []).length > 0
     if (otherCarsExist && !window.confirm(`會覆蓋目前「${dirLabel(otherDir)}」的所有排車結果，確定繼續？`)) return
 
@@ -503,15 +470,12 @@ export default function CarrangementDetailPage() {
   async function handleSave() {
     // 1. 人員爆掉：列出所有超額車輛（已含法師人數），強制確認
     const overflowList = []
-    for (const dk0 of dateKeysAll) {
-      for (const dir of ['up', 'down']) {
-        const dk = keyFor(dk0, dir)
-        for (const car of (carsByDir[dk] ?? [])) {
-          const total = car.members.length + (car.monks ?? []).length
-          if (total > car.seats) {
-            const dateLabel = dk0 ? `${dk0}・` : ''
-            overflowList.push(`${dateLabel}${dirLabel(dir)}・${car.car_name}（${total}/${car.seats}，超額 +${total - car.seats}）`)
-          }
+    for (const { dateKey: dk0, direction: dir, timeSlot: slot, dirKey: dk } of allDateDirectionSlots(dateKeysAll, event)) {
+      for (const car of (carsByDir[dk] ?? [])) {
+        const total = car.members.length + (car.monks ?? []).length
+        if (total > car.seats) {
+          const dateLabel = dk0 ? `${dk0}${slot ? `・${slot}` : ''}・` : ''
+          overflowList.push(`${dateLabel}${dirLabel(dir)}・${car.car_name}（${total}/${car.seats}，超額 +${total - car.seats}）`)
         }
       }
     }
@@ -521,14 +485,11 @@ export default function CarrangementDetailPage() {
 
     // 2. 法師：整場活動都沒指派任何法師，提醒一次（可繞過）
     let totalMonks = 0, hasAnyCar = false
-    for (const dk0 of dateKeysAll) {
-      for (const dir of ['up', 'down']) {
-        const dk = keyFor(dk0, dir)
-        const dkCars = carsByDir[dk] ?? []
-        if (dkCars.length > 0) hasAnyCar = true
-        totalMonks += dkCars.flatMap(c => c.monks ?? []).length
-        totalMonks += Object.values(smallCarMonksByDir[dk] ?? {}).flat().length
-      }
+    for (const { dirKey: dk } of allDateDirectionSlots(dateKeysAll, event)) {
+      const dkCars = carsByDir[dk] ?? []
+      if (dkCars.length > 0) hasAnyCar = true
+      totalMonks += dkCars.flatMap(c => c.monks ?? []).length
+      totalMonks += Object.values(smallCarMonksByDir[dk] ?? {}).flat().length
     }
     if (hasAnyCar && totalMonks === 0) {
       if (!window.confirm('法師尚未排入車次，仍要儲存？')) return
@@ -536,9 +497,9 @@ export default function CarrangementDetailPage() {
 
     setSaving(true); setMsg('')
 
-    const calcFinalSmall = (dir, dk0) => {
-      const dk = keyFor(dk0, dir)
-      const smallRegsDir = regs.filter(r => isSmallCar(r.answers, dir) && isInSlot(r.answers, dk0, dir))
+    const calcFinalSmall = (dir, dk0, slot) => {
+      const dk = keyFor(dk0, dir, slot)
+      const smallRegsDir = regs.filter(r => isSmallCar(r.answers, dir) && isInSlot(r.answers, dk0, dir, slot))
       const { matchedGroups: m } = computeSmallGroups(smallRegsDir, dir)
       const orphanMap = orphanByDir[dk] ?? {}
       const overrideMap = smallOverridesByDir[dk] ?? {}
@@ -552,33 +513,26 @@ export default function CarrangementDetailPage() {
       }))
     }
 
-    const savePromises = []
-    for (const dk0 of dateKeysAll) {
-      for (const dir of ['up', 'down']) {
-        const dk = keyFor(dk0, dir)
-        savePromises.push(
-          saveCarArrangement(
-            eventId,
-            carsByDir[dk] ?? [],
-            calcFinalSmall(dir, dk0),
-            dir,
-            smallCarMonksByDir[dk] ?? {},
-            smallPreDepartByDir[dk] ?? {},
-            smallLateReturnByDir[dk] ?? {},
-            dk0
-          )
-        )
-      }
-    }
+    const savePromises = allDateDirectionSlots(dateKeysAll, event).map(
+      ({ dateKey: dk0, direction: dir, timeSlot: slot, dirKey: dk }) => saveCarArrangement(
+        eventId,
+        carsByDir[dk] ?? [],
+        calcFinalSmall(dir, dk0, slot),
+        dir,
+        smallCarMonksByDir[dk] ?? {},
+        smallPreDepartByDir[dk] ?? {},
+        smallLateReturnByDir[dk] ?? {},
+        dk0,
+        slot
+      )
+    )
 
-    // 大車移小車持久化：全量取代
+    // 大車移小車持久化：全量取代（car_small_overrides 沒有 time_slot 欄位，
+    // 同一人在同一 date+direction 只會落在一個時段，不會重複寫入）
     const overrideRows = []
-    for (const dk0 of dateKeysAll) {
-      for (const dir of ['up', 'down']) {
-        const dk = keyFor(dk0, dir)
-        for (const [regId, targetKey] of Object.entries(smallOverridesByDir[dk] ?? {})) {
-          overrideRows.push({ registration_id: regId, direction: dir, service_date: dk0, target_driver_reg_id: targetKey })
-        }
+    for (const { dateKey: dk0, direction: dir, dirKey: dk } of allDateDirectionSlots(dateKeysAll, event)) {
+      for (const [regId, targetKey] of Object.entries(smallOverridesByDir[dk] ?? {})) {
+        overrideRows.push({ registration_id: regId, direction: dir, service_date: dk0, target_driver_reg_id: targetKey })
       }
     }
     const regIds = regs.map(r => r.registration_id)
@@ -619,7 +573,7 @@ export default function CarrangementDetailPage() {
   // ── 渲染 ──
   if (loading) return <AdminLayout><div className="text-center py-20 text-gray-400">載入中…</div></AdminLayout>
 
-  const hasAnyCarAnywhere = dateKeysAll.some(dk0 => ['up', 'down'].some(dir => (carsByDir[keyFor(dk0, dir)] ?? []).length > 0))
+  const hasAnyCarAnywhere = allDateDirectionSlots(dateKeysAll, event).some(({ dirKey }) => (carsByDir[dirKey] ?? []).length > 0)
 
   return (
     <AdminLayout>
@@ -671,6 +625,8 @@ export default function CarrangementDetailPage() {
         <DateDirectionTabs
           dates={dates} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
           direction={direction} setDirection={setDirection} carsByDir={carsByDir}
+          multiSlot={!!event?.multi_slot_transport}
+          selectedTimeSlot={selectedTimeSlot} setSelectedTimeSlot={setSelectedTimeSlot}
         />
 
         {/* 統計卡片 */}

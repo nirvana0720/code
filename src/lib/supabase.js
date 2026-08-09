@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { eachDateInRange } from './attendDateHelpers'
+import { eachDateInRange, formatDateWithWeekday } from './attendDateHelpers'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -551,6 +551,123 @@ export async function syncAttendDatesField(eventId, dateStart, dateEnd) {
     if (error) return { success: false, error: error.message }
   }
 
+  return { success: true, error: null }
+}
+
+/**
+ * 分時段（events.multi_slot_transport）：確保每一天的「去程時段」「回程時段」兩個動態欄位
+ * （field_key = slot_up_YYYY-MM-DD／slot_down_YYYY-MM-DD，field_type: radio）存在且跟活動目前
+ * 的 date_start~date_end 同步，取代 attend_dates。「是否掛單」欄位邏輯與 syncAttendDatesField
+ * 相同（已有 stay_overnight 就不新增 is_lodging）。只在 multi_day_transport ＋ multi_slot_transport
+ * 都開啟時，於活動存檔流程呼叫（見 EventDetailPage 存檔流程的分支判斷）。
+ */
+export async function syncTimeSlotFields(eventId, dateStart, dateEnd) {
+  if (!eventId || !dateStart || !dateEnd) return { success: true, error: null }
+
+  const dates = eachDateInRange(dateStart, dateEnd)
+  const validDateSet = new Set(dates)
+  const slotFieldRe = /^slot_(up|down)_(\d{4}-\d{2}-\d{2})$/
+
+  const { data: allFields, error: selErr } = await supabase
+    .from('event_fields')
+    .select('field_id, field_key')
+    .eq('event_id', eventId)
+
+  if (selErr) return { success: false, error: selErr.message }
+
+  const existingByKey = Object.fromEntries((allFields || []).map(f => [f.field_key, f]))
+
+  let sortOrder = -100
+  for (const d of dates) {
+    const label = formatDateWithWeekday(d)
+    const slotSpecs = [
+      { key: `slot_up_${d}`,   label: `${label} 去程時段`, options: ['上午', '中午'] },
+      { key: `slot_down_${d}`, label: `${label} 回程時段`, options: ['中午', '下午'] },
+    ]
+    for (const spec of slotSpecs) {
+      const row = existingByKey[spec.key]
+      if (row) {
+        const { error } = await supabase.from('event_fields')
+          .update({ field_label: spec.label, options: spec.options })
+          .eq('field_id', row.field_id)
+        if (error) return { success: false, error: error.message }
+      } else {
+        const { error } = await supabase.from('event_fields').insert({
+          event_id: eventId,
+          field_key: spec.key,
+          field_label: spec.label,
+          field_type: 'radio',
+          options: spec.options,
+          required: false,
+          show_if: null,
+          sort_order: sortOrder++,
+        })
+        if (error) return { success: false, error: error.message }
+      }
+    }
+  }
+
+  const isLodgingRow     = existingByKey['is_lodging']
+  const stayOvernightRow = existingByKey['stay_overnight']
+  if (!isLodgingRow && !stayOvernightRow) {
+    const { error } = await supabase.from('event_fields').insert({
+      event_id: eventId,
+      field_key: 'is_lodging',
+      field_label: '是否掛單（中間留宿）',
+      field_type: 'boolean',
+      options: [],
+      required: true,
+      sort_order: -1,
+    })
+    if (error) return { success: false, error: error.message }
+  }
+
+  // 清掉超出目前活動日期範圍的舊 slot 欄位（活動日期縮短時要清理）
+  const staleIds = (allFields || [])
+    .filter(f => {
+      const m = f.field_key.match(slotFieldRe)
+      return m && !validDateSet.has(m[2])
+    })
+    .map(f => f.field_id)
+  if (staleIds.length > 0) {
+    const { error } = await supabase.from('event_fields').delete().in('field_id', staleIds)
+    if (error) return { success: false, error: error.message }
+  }
+
+  return { success: true, error: null }
+}
+
+/**
+ * 切換多日回山活動的模式（attend_dates ↔ 分時段）前，先清掉舊模式留下的動態欄位，
+ * 避免兩套動態欄位同時存在。useSlotMode=true（切到分時段）清掉 attend_dates；
+ * useSlotMode=false（切回一般多日模式）清掉 slot_up_xxx／slot_down_xxx。
+ * 在活動存檔流程呼叫 syncAttendDatesField／syncTimeSlotFields 之前先呼叫。
+ */
+export async function cleanupOppositeMultiDayFields(eventId, useSlotMode) {
+  if (!eventId) return { success: true, error: null }
+
+  if (useSlotMode) {
+    const { error } = await supabase
+      .from('event_fields')
+      .delete()
+      .eq('event_id', eventId)
+      .eq('field_key', 'attend_dates')
+    if (error) return { success: false, error: error.message }
+    return { success: true, error: null }
+  }
+
+  const { data: allFields, error: selErr } = await supabase
+    .from('event_fields')
+    .select('field_id, field_key')
+    .eq('event_id', eventId)
+  if (selErr) return { success: false, error: selErr.message }
+
+  const slotFieldRe = /^slot_(up|down)_\d{4}-\d{2}-\d{2}$/
+  const staleIds = (allFields || []).filter(f => slotFieldRe.test(f.field_key)).map(f => f.field_id)
+  if (staleIds.length > 0) {
+    const { error } = await supabase.from('event_fields').delete().in('field_id', staleIds)
+    if (error) return { success: false, error: error.message }
+  }
   return { success: true, error: null }
 }
 
@@ -1517,12 +1634,14 @@ export async function getEventRegistrationsDetail(eventId) {
  * @param {'up'|'down'|null} direction 方向，傳 null 取全部（向後相容）
  * @param {string|null|undefined} serviceDate 多日排車用：指定日期只取該日；傳 null 明確取「無日期」（單日活動）；
  *   不傳（undefined）＝不篩選日期，取全部日期（多日排車 load() 一次撈全部再依日期分組用）
+ * @param {string|null|undefined} timeSlot 分時段排車用：指定時段只取該時段；傳 null 明確取「無時段」（非分時段活動）；
+ *   不傳（undefined）＝不篩選時段，取全部時段
  */
-export async function getCarArrangement(eventId, direction = null, serviceDate = undefined) {
+export async function getCarArrangement(eventId, direction = null, serviceDate = undefined, timeSlot = undefined) {
   let query = supabase
     .from('car_assignments')
     .select(`
-      car_id, car_name, seats, car_type, note, access_token, sort_order, direction, service_date, pre_depart, late_return, notice_text,
+      car_id, car_name, seats, car_type, note, access_token, sort_order, direction, service_date, time_slot, pre_depart, late_return, notice_text,
       car_members ( registration_id ),
       car_leaders ( registration_id ),
       car_monks ( id, monk_id, checked_in_at )
@@ -1532,6 +1651,9 @@ export async function getCarArrangement(eventId, direction = null, serviceDate =
   if (direction) query = query.eq('direction', direction)
   if (serviceDate !== undefined) {
     query = serviceDate === null ? query.is('service_date', null) : query.eq('service_date', serviceDate)
+  }
+  if (timeSlot !== undefined) {
+    query = timeSlot === null ? query.is('time_slot', null) : query.eq('time_slot', timeSlot)
   }
 
   const { data, error } = await query.order('sort_order', { ascending: true })
@@ -1550,16 +1672,18 @@ export async function getCarArrangement(eventId, direction = null, serviceDate =
  * @param {{ [groupKey]: boolean }}  smallPreDeparts 小車提前出發：{ groupKey → true }
  * @param {{ [groupKey]: boolean }}  smallLateReturns 小車延後回程：{ groupKey → true }
  * @param {string|null} serviceDate 多日排車用：這批車服務的日期；單日活動傳 null（沿用舊行為）
+ * @param {string|null} timeSlot 分時段排車用：這批車服務的時段；非分時段活動傳 null（沿用舊行為）
  */
-export async function saveCarArrangement(eventId, largeCars, smallGroups = [], direction = 'down', smallCarMonks = {}, smallPreDeparts = {}, smallLateReturns = {}, serviceDate = null) {
-  // 只刪除此活動「指定方向＋指定日期」的車輛（CASCADE 刪 car_members、car_leaders、car_monks）
-  // 注意：其他方向／其他日期的排車不能動
+export async function saveCarArrangement(eventId, largeCars, smallGroups = [], direction = 'down', smallCarMonks = {}, smallPreDeparts = {}, smallLateReturns = {}, serviceDate = null, timeSlot = null) {
+  // 只刪除此活動「指定方向＋指定日期＋指定時段」的車輛（CASCADE 刪 car_members、car_leaders、car_monks）
+  // 注意：其他方向／其他日期／其他時段的排車不能動
   let delQuery = supabase
     .from('car_assignments')
     .delete()
     .eq('event_id', eventId)
     .eq('direction', direction)
   delQuery = serviceDate === null ? delQuery.is('service_date', null) : delQuery.eq('service_date', serviceDate)
+  delQuery = timeSlot === null ? delQuery.is('time_slot', null) : delQuery.eq('time_slot', timeSlot)
   const { error: delErr } = await delQuery
 
   if (delErr) return { success: false, error: delErr.message }
@@ -1574,6 +1698,7 @@ export async function saveCarArrangement(eventId, largeCars, smallGroups = [], d
       car_type:   'large',
       direction,
       service_date: serviceDate,
+      time_slot:  timeSlot,
       note:       c.note || null,
       pre_depart: c.preDepart || false,
       late_return: false,  // 大車不適用延後回程（當天接送）
@@ -1586,6 +1711,7 @@ export async function saveCarArrangement(eventId, largeCars, smallGroups = [], d
       car_type:   'small',
       direction,
       service_date: serviceDate,
+      time_slot:  timeSlot,
       note:       g.key,   // 司機的 registration_id，重載時用來重建孤兒指派
       pre_depart: smallPreDeparts[g.key] || false,
       late_return: smallLateReturns[g.key] || false,

@@ -21,6 +21,9 @@
    }
    這支檔案不進 git（.gitignore 已排除），换电脑要重新填一次，
    或跟 config/config.js 一样集中记录在良师父自己的密码管理工具里。
+   SUPABASE_SERVICE_ROLE_KEY 是選填欄位（Supabase Dashboard → 測試專案 →
+   Project Settings → API → service_role secret），只給「分時段整合測試」
+   繞過 RLS 用，沒填就自動跳過那段、其他測試案例照常跑，見下方分時段測試段落。
 
 平常怎麼用
 ----------
@@ -65,5 +68,49 @@
   沒有活著的 bug，暫時沒寫自動化測試案例
 - touch_event_donors_updated_at / touch_registrations_updated_at：兩個都是最簡單的
   時間戳記觸發器，兩個版本逐字相同，暫不需要測試案例
-- 涉及後台登入（authenticated 角色）才能呼叫的函式（例如活動/學員後台管理相關）
-  需要額外做 Supabase Auth 登入拿 JWT，比較麻煩，先不寫，之後有空再補
+- 涉及後台登入（authenticated 角色）才能呼叫的函式（例如活動/學員後台管理相關，
+  多日回山「分時段」以外的其他功能）需要額外做 Supabase Auth 登入拿 JWT，比較
+  麻煩，先不寫，之後有空再補
+
+分時段（multi_slot_transport）測試（2026-08-09 建立，補件 2026-08-09 更新）
+------------------------------------------------------------------
+分兩支檔案：
+
+1. test/unit_slot_logic.mjs —— 不連線 Supabase、不用 config.json，用 Node
+   原生 ESM 直接 import src/lib/attendDateHelpers.js／carrangeHelpers.js／
+   carSlotHelpers.js 的實際函式來測（isSlotBasedAnswers／resolveSlotBasedAttendSlots／
+   countDistinctSlotDays／isInSlot／isFieldVisible／getVisibleRequiredFields／
+   keyFor／timeSlotsFor／overrideStateKey／allDateDirectionSlots），涵蓋：
+   - 分時段答案怎麼反推「哪些日期+方向+時段需要車」、留白的時段題不計入
+   - 只填一天 vs 填兩天，is_lodging 該不該顯示／列入必填
+   - 排車頁 state key（keyFor／timeSlotsFor／overrideStateKey）向下相容非分時段活動
+   - 舊 attend_dates 模式（isInSlot 的 fallback 分支）行為不受影響
+   執行：雙擊 test/run_unit.bat，或指令 node test/run_unit.mjs（用 node:module 的
+   register() 補上 Vite 專案原始碼慣用的無副檔名 relative import，見
+   test/esm-js-ext-loader.mjs）。
+
+2. test/run.js 的「分時段整合測試」區塊（檔案最後一段）—— 真正對測試專案的
+   event_fields／car_assignments 寫入 + 讀回斷言，不是只測純函式。這幾支寫入函式
+   （syncTimeSlotFields／cleanupOppositeMultiDayFields／saveCarArrangement／
+   getCarArrangement）要 authenticated 角色才能寫入這兩張表（anon INSERT
+   event_fields 會被 RLS 擋下，42501），所以這段改用 config.json 的
+   SUPABASE_SERVICE_ROLE_KEY（繞過 RLS）發送跟這幾支函式完全相同的 PostgREST
+   請求，不是呼叫 JS 函式本身（那幾支是 Vite ESM 模組、用到 import.meta.env，
+   純 Node 沒有 bundler 沒辦法直接 import 執行）。沒填 SUPABASE_SERVICE_ROLE_KEY
+   時這段會整段跳過，不影響前面所有既有測試案例。
+   涵蓋：
+   - event_fields 正確生成 slot_up_xxx／slot_down_xxx（數量/label/options），
+     且沒有 attend_dates
+   - 用 fixture 真實報名答案（只填一天 vs 填兩天）驗證 is_lodging 必填清單判斷
+   - ⚠️ 最重要：time_slot 的 NULL 比對——存三筆同一天同方向、時段分別是
+     上午／中午／NULL 的車，驗證查詢跟刪除都精準只命中對應那一筆，不會互相污染
+     （這是 saveCarArrangement／getCarArrangement 用 .is()/.eq() 分流處理
+     NULL 比對這個風險點的直接驗證）
+   - cleanupOppositeMultiDayFields 兩個方向：切到一般模式清掉 slot_up/slot_down
+     （is_lodging 留著）、切到分時段模式清掉 attend_dates
+   用到的 fixture 在 test/seed.sql 第 8 節（event_id 尾碼 e2，報名 e3/e4，車輛
+   e5），第一次用或種子資料重貼過，記得先貼一次 test/seed.sql。
+   ⚠️ time_slot 那組測試需要 sql/add_multi_slot_transport.sql 已經套用到測試
+   專案（events.multi_slot_transport／car_assignments.time_slot 兩個欄位都要
+   存在），沒套用會在第一個 POST 就丟出 42703 column does not exist，先貼這支
+   migration 到測試專案 SQL Editor 再跑。

@@ -18,6 +18,7 @@ import {
 import DynamicForm from '../components/DynamicForm'
 import CameraScanner from '../components/CameraScanner'
 import { isDriverFromAnswers } from '../lib/registrationHelpers'
+import { getVisibleRequiredFields } from '../lib/attendDateHelpers'
 
 // ── QR 小卡（代報親友報到用）──────────────────────────────
 // 把 DOM 中的 <svg> 載成 <img> 物件（內部用，給 canvas drawImage）
@@ -855,12 +856,8 @@ export default function KioskPage() {
       setErrorMsg('請填寫親友姓名')
       return
     }
-    // 驗證必填（含 show_if）
-    const visibleRequired = fields.filter(f => {
-      if (!f.required) return false
-      if (!f.show_if) return true
-      return Object.entries(f.show_if).every(([k, v]) => friendAnswers[k] === v)
-    })
+    // 驗證必填（含 show_if／分時段活動 is_lodging 特判，見 attendDateHelpers.getVisibleRequiredFields）
+    const visibleRequired = getVisibleRequiredFields(fields, friendAnswers)
     const missing = visibleRequired.filter(f => {
       const val = friendAnswers[f.field_key]
       return val === undefined || val === null || val === '' || (Array.isArray(val) && val.length === 0)
@@ -996,12 +993,8 @@ export default function KioskPage() {
   // ── 送出表單 ──────────────────────────────────────────────
   async function handleSubmit() {
     const { event, fields } = selectedItem
-    // 驗證必填
-    const visibleRequired = fields.filter(f => {
-      if (!f.required) return false
-      if (!f.show_if) return true
-      return Object.entries(f.show_if).every(([k, v]) => answers[k] === v)
-    })
+    // 驗證必填（含 show_if／分時段活動 is_lodging 特判，見 attendDateHelpers.getVisibleRequiredFields）
+    const visibleRequired = getVisibleRequiredFields(fields, answers)
     const missing = visibleRequired.filter(f => {
       const val = answers[f.field_key]
       return val === undefined || val === null || val === '' || (Array.isArray(val) && val.length === 0)

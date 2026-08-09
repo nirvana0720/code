@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
-import { supabase, getAllEvents, createEvent, getMyEvents, saveEventFields, saveEventSessionFields, getRecurringTemplates, createRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, createEventFromTemplate, getExistingTemplateDates, getVolunteers, syncAttendDatesField } from '../../lib/supabase'
+import { supabase, getAllEvents, createEvent, getMyEvents, saveEventFields, saveEventSessionFields, getRecurringTemplates, createRecurringTemplate, updateRecurringTemplate, deleteRecurringTemplate, createEventFromTemplate, getExistingTemplateDates, getVolunteers, syncAttendDatesField, syncTimeSlotFields } from '../../lib/supabase'
 import { DEFAULT_TEMPLATES } from '../../lib/defaultEventTemplates'
 import FieldRow from '../../components/FieldRow'
 import { useAuth } from '../../lib/auth'
@@ -19,7 +19,7 @@ export default function EventsPage() {
   const [events, setEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', date_start: '', date_end: '', location: '', status: 'active', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, multi_day_transport: false, show_on_activities: true })
+  const [form, setForm] = useState({ name: '', date_start: '', date_end: '', location: '', status: 'active', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, multi_day_transport: false, multi_slot_transport: false, show_on_activities: true })
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   // V7 export
@@ -214,6 +214,7 @@ export default function EventsPage() {
       has_donor_notify: form.has_donor_notify,
       multi_session: form.multi_session,
       multi_day_transport: form.multi_day_transport,
+      multi_slot_transport: form.multi_slot_transport,
     })
 
     setSaving(false)
@@ -224,11 +225,15 @@ export default function EventsPage() {
     }
 
     if (form.multi_day_transport) {
-      await syncAttendDatesField(event.event_id, form.date_start, form.date_end)
+      if (form.multi_slot_transport) {
+        await syncTimeSlotFields(event.event_id, form.date_start, form.date_end)
+      } else {
+        await syncAttendDatesField(event.event_id, form.date_start, form.date_end)
+      }
     }
 
     setShowForm(false)
-    setForm({ name: '', date_start: '', date_end: '', location: '', status: 'draft', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, multi_day_transport: false, show_on_activities: true })
+    setForm({ name: '', date_start: '', date_end: '', location: '', status: 'draft', event_type: 'mountain', is_dharma: false, has_donor_notify: false, multi_session: false, multi_day_transport: false, multi_slot_transport: false, show_on_activities: true })
     navigate(`/admin/events/${event.event_id}`)
   }
 
@@ -364,6 +369,7 @@ export default function EventsPage() {
         is_dharma: tmpl.is_dharma,
         multi_session: tmpl.multi_session,
         multi_day_transport: tmpl.multi_day_transport || false,
+        multi_slot_transport: tmpl.multi_slot_transport || false,
         offline_registration: tmpl.offline_registration,
         related_links: tmpl.related_links || [],
         status: 'draft',
@@ -405,6 +411,7 @@ export default function EventsPage() {
         is_dharma: tmpl.is_dharma,
         multi_session: tmpl.multi_session,
         multi_day_transport: tmpl.multi_day_transport || false,
+        multi_slot_transport: tmpl.multi_slot_transport || false,
         offline_registration: tmpl.offline_registration,
         related_links: tmpl.related_links || [],
         status: 'draft',
@@ -570,6 +577,17 @@ export default function EventsPage() {
                     <span className="text-xs text-gray-500 ml-1">（開啟後報名表單會要求填參加日期與是否掛單，排車頁可依日期分別安排）</span>
                   </span>
                 </label>
+                {form.multi_day_transport && (
+                  <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none mt-2 ml-6">
+                    <input
+                      type="checkbox"
+                      checked={form.multi_slot_transport}
+                      onChange={e => setForm(f => ({ ...f, multi_slot_transport: e.target.checked }))}
+                      className="w-4 h-4 accent-teal-600"
+                    />
+                    分時段（同一天可能有不同出發/回程時段，例如上午/中午梯次）
+                  </label>
+                )}
               </div>
             )}
 

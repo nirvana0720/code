@@ -5925,5 +5925,22 @@ CREATE POLICY "auth full access on car_small_overrides" ON car_small_overrides
 GRANT ALL ON car_small_overrides TO authenticated;
 
 -- ------------------------------------------------------------
+-- [89/89] add_multi_slot_transport.sql（2026-08-09 追加，多日回山活動分時段）
+-- ------------------------------------------------------------
+-- 巢狀在 multi_day_transport 底下的分時段子選項：開啟後報名表單改用每日
+-- 去程/回程時段題，取代 attend_dates；排車頁 car_assignments 多一層 time_slot
+-- 分組。與 attend_dates 模式互斥，只套用到之後新建的活動，不回填舊資料。
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS multi_slot_transport BOOLEAN NOT NULL DEFAULT false;
+COMMENT ON COLUMN events.multi_slot_transport IS '多日交通安排底下的分時段子選項：開啟後報名表單改用每日去程/回程時段題（slot_up_YYYY-MM-DD／slot_down_YYYY-MM-DD），取代 attend_dates；排車頁多一層時段分組';
+
+ALTER TABLE car_assignments ADD COLUMN IF NOT EXISTS time_slot TEXT
+  CHECK (time_slot IS NULL OR time_slot IN ('上午','中午','下午'));
+COMMENT ON COLUMN car_assignments.time_slot IS '這台車服務的時段（僅分時段活動使用），NULL=非分時段活動（沿用舊行為）';
+
+CREATE INDEX IF NOT EXISTS idx_car_assignments_event_date_dir_slot
+  ON car_assignments(event_id, service_date, direction, time_slot);
+
+-- ------------------------------------------------------------
 -- 第十階段收尾：確認 rpc_car.sql 已用 service_date 重新部署（本檔案上方 [82/86] 區塊即為最新版）
 -- ------------------------------------------------------------

@@ -18,11 +18,16 @@
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
-const { URL } = require('url');
+const { URL, pathToFileURL } = require('url');
 
 const CFG = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 const SUPABASE_URL = CFG.SUPABASE_URL;
 const SUPABASE_ANON_KEY = CFG.SUPABASE_ANON_KEY;
+// service_role key：只給「分時段（multi_slot_transport）整合測試」這個新區塊用，繞過 RLS
+// 直接驗證 event_fields／car_assignments 的寫入結果（這兩張表的寫入函式要 authenticated
+// 角色才能呼叫，run.js 原本只有 anon key，測不到）。沒填這個欄位時，新區塊會整段跳過，
+// 不影響前面所有既有測試案例的執行方式。
+const SUPABASE_SERVICE_ROLE_KEY = CFG.SUPABASE_SERVICE_ROLE_KEY || null;
 
 // ── 安全防呆：擋掉正式環境（報名系統+補課系統共用正式專案 ID 的固定字串）──
 if (!SUPABASE_URL || SUPABASE_URL.includes('yiowkvxwvwpzebdriksu')) {
@@ -50,16 +55,50 @@ const SEED = {
   tokenCarSvcDateFuture: 'TEST_CAR_TOKEN_SVCDATE_FUTURE',
   tokenHeadLeader: 'TEST_HEAD_LEADER_TOKEN',
   tokenChore: 'TEST_CHORE_TOKEN',
+  // 分時段（multi_slot_transport）整合測試 fixture，見 seed.sql 第 8 節
+  eventSlot: '00000000-0000-0000-0000-0000000000e2',
+  regSlotOneDay: '00000000-0000-0000-0000-0000000000e3',  // 只填 day1
+  regSlotTwoDay: '00000000-0000-0000-0000-0000000000e4',  // 填兩天，掛單
+  carSlot: '00000000-0000-0000-0000-0000000000e5',
 };
 
+// ── 分時段整合測試專用：service_role 版的 GET/POST/DELETE（繞過 RLS）──
+// 這幾支不是 supabase.js 裡 syncTimeSlotFields／saveCarArrangement／getCarArrangement／
+// cleanupOppositeMultiDayFields 的直接呼叫（那幾支是 Vite ESM 模組，用到 import.meta.env，
+// 純 Node 環境沒有 bundler 沒辦法直接 import 執行），而是照這幾支函式實際送出的
+// PostgREST 請求原樣重現，直接對真正的資料庫斷言寫入/讀取結果——尤其是
+// service_date／time_slot 的 NULL 比對（.is() vs .eq()）這個風險點，這樣測法能
+// 100% 反映真實資料庫行為，不是只測 mock。
+function adminGet(pathQuery) {
+  return restRequest('GET', pathQuery, undefined, SUPABASE_SERVICE_ROLE_KEY).then(res => {
+    if (res.status >= 400) throw new Error(`admin GET ${pathQuery} 回傳 ${res.status}：${JSON.stringify(res.body)}`);
+    return res.body;
+  });
+}
+function adminPost(pathQuery, body) {
+  return restRequest('POST', pathQuery, body, SUPABASE_SERVICE_ROLE_KEY).then(res => {
+    if (res.status >= 400) throw new Error(`admin POST ${pathQuery} 回傳 ${res.status}：${JSON.stringify(res.body)}`);
+    return res.body;
+  });
+}
+function adminDelete(pathQuery) {
+  return restRequest('DELETE', pathQuery, undefined, SUPABASE_SERVICE_ROLE_KEY).then(res => {
+    if (res.status >= 400) throw new Error(`admin DELETE ${pathQuery} 回傳 ${res.status}：${JSON.stringify(res.body)}`);
+    return res.body;
+  });
+}
+
 // ── 共用：直接呼叫 PostgREST table endpoint（測 RLS 用，不是走 RPC）──
-function restRequest(method, tablePathWithQuery, body) {
+// apiKey 不傳時沿用原本行為（anon key），既有測試呼叫方式完全不受影響；
+// 分時段整合測試會明確傳入 SUPABASE_SERVICE_ROLE_KEY 繞過 RLS。
+function restRequest(method, tablePathWithQuery, body, apiKey) {
+  const key = apiKey || SUPABASE_ANON_KEY;
   return new Promise((resolve, reject) => {
     const u = new URL(SUPABASE_URL + '/rest/v1/' + tablePathWithQuery);
     const bodyBuf = body !== undefined ? Buffer.from(JSON.stringify(body), 'utf8') : null;
     const headers = {
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': 'Bearer ' + SUPABASE_ANON_KEY,
+      'apikey': key,
+      'Authorization': 'Bearer ' + key,
       'Content-Type': 'application/json',
     };
     if (bodyBuf) headers['Content-Length'] = bodyBuf.length;
@@ -304,6 +343,185 @@ async function assertThrows(fn, messageIncludes, label) {
     const res = await restRequest('DELETE', 'event_donors?donor_id=eq.' + DUMMY_DONOR_ID);
     assertTrue(res.status >= 400, 'anon DELETE event_donors 應該回傳錯誤狀態碼，實際：' + res.status + '，body：' + JSON.stringify(res.body));
   });
+
+  // ── 分時段（multi_slot_transport）整合測試：真正寫/讀資料庫 ──────────────
+  // 只有 config.json 有填 SUPABASE_SERVICE_ROLE_KEY 才會跑（見上面 adminGet/adminPost/
+  // adminDelete 註解）；沒填的話整段跳過，不影響上面所有既有測試案例。
+  //
+  // ⚠️ 涵蓋範圍務必看清楚：這個區塊是用 REST（service_role）「重現」
+  // syncTimeSlotFields／saveCarArrangement／getCarArrangement／
+  // cleanupOppositeMultiDayFields 這四支函式送出的 PostgREST 請求，藉此驗證
+  // 資料庫端的規則（RLS、event_fields／car_assignments 的實際資料形狀、
+  // service_date／time_slot 的 NULL 比對），不是直接呼叫這四支函式本身。
+  // 原因：這四支函式在 src/lib/supabase.js，是 Vite ESM 模組、開頭讀
+  // import.meta.env 取 SUPABASE_URL/KEY，這個物件在純 Node（沒有 Vite/bundler）
+  // 環境下是 undefined，直接 import 會在模組頂層就丟出 TypeError，沒辦法安全繞過
+  // （需要在 import 前用 loader 竄改原始碼文字才能塞值進去，改動與風險都不小，
+  // 這裡刻意不做）。
+  // 實務影響：**如果之後只改這四支函式「內部邏輯」（例如改寫法、調整判斷順序），
+  // 但沒有動到它們送出的資料庫規則或資料形狀，這批測試不會自動抓到**，仍然要
+  // 靠人工核對程式碼或之後補上真正的函式呼叫能力。
+  if (!SUPABASE_SERVICE_ROLE_KEY) {
+    console.log('');
+    console.log('⚠️ 略過「分時段整合測試」：config.json 沒有 SUPABASE_SERVICE_ROLE_KEY');
+    console.log('   （event_fields／car_assignments 寫入要 authenticated 角色，anon key 測不到）');
+  } else {
+    console.log('');
+    console.log('=== 分時段（multi_slot_transport）整合測試 ===');
+
+    // src/lib/attendDateHelpers.js 沒有任何 import，是唯一能在純 Node 安全動態
+    // import 的來源檔（不會踩到 import.meta.env，也不會踩到 carSlotHelpers.js/
+    // carrangeHelpers.js 那種無副檔名 relative import 才需要的 loader）。
+    // 全區塊共用同一份，下面每個測試案例不要各自重複 import。
+    const helpers = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'lib', 'attendDateHelpers.js')).href);
+
+    // 用 REST（service_role）自建 event + registrations，不依賴人工先手動貼過 seed.sql
+    // 第 8 節（那份 fixture 仍然保留給「以後 run.js 有 Auth 登入能力」時比對用，見 README）。
+    // 日期全程用 UTC 運算，避免本地時區退一天（同 attendDateHelpers.eachDateInRange 的教訓）。
+    let day1 = null, day2 = null;
+    await test('分時段整合：準備 fixture（event + 兩筆報名，用 REST 直接自建）', async () => {
+      const now = new Date();
+      const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const toISO = ms => new Date(ms).toISOString().slice(0, 10);
+      day1 = toISO(base + 5 * 86400000);
+      day2 = toISO(base + 6 * 86400000);
+
+      // 清乾淨舊的（子表先刪，events 本身最後刪，重新建立一份乾淨的）
+      await adminDelete(`event_fields?event_id=eq.${SEED.eventSlot}`);
+      await adminDelete(`car_assignments?event_id=eq.${SEED.eventSlot}`);
+      await adminDelete(`registrations?event_id=eq.${SEED.eventSlot}`);
+      await adminDelete(`events?event_id=eq.${SEED.eventSlot}`);
+
+      await adminPost('events', {
+        event_id: SEED.eventSlot, name: '測試活動-分時段回山（run.js 自建）',
+        date_start: day1, date_end: day2, location: '普宜精舍', event_type: 'mountain',
+        status: 'active', is_dharma: false, multi_day_transport: true,
+      });
+      await adminPost('registrations', {
+        registration_id: SEED.regSlotOneDay, event_id: SEED.eventSlot, student_id: 'TESTSTU001', is_driver: false,
+        answers: { [`slot_up_${day1}`]: '上午', [`slot_down_${day1}`]: '下午' },
+      });
+      await adminPost('registrations', {
+        registration_id: SEED.regSlotTwoDay, event_id: SEED.eventSlot, student_id: 'TESTSTU002', is_driver: false,
+        answers: { [`slot_up_${day1}`]: '上午', [`slot_down_${day2}`]: '下午', is_lodging: true },
+      });
+
+      const rows = await adminGet(`events?event_id=eq.${SEED.eventSlot}&select=date_start,date_end`);
+      assertEqual(rows.length, 1, '活動應該建立成功');
+      assertEqual([rows[0].date_start, rows[0].date_end], [day1, day2], '活動日期應該符合預期');
+    });
+
+    // ── 1) 模擬 syncTimeSlotFields：清空後重新生成，斷言 event_fields 形狀正確 ──
+    await test('分時段整合：模擬 syncTimeSlotFields，event_fields 正確生成 slot_up/slot_down（無 attend_dates）', async () => {
+      await adminDelete(`event_fields?event_id=eq.${SEED.eventSlot}`);
+      // field_label 用 helpers.formatDateWithWeekday 動態算，跟 supabase.js 的
+      // syncTimeSlotFields 實際組字串的方式（`${formatDateWithWeekday(d)} 去程時段`）
+      // 完全一致，不要手寫死格式，否則本尊格式一改，這個斷言測不出來
+      const label1 = helpers.formatDateWithWeekday(day1);
+      const label2 = helpers.formatDateWithWeekday(day2);
+      const specs = [
+        { field_key: `slot_up_${day1}`,   field_label: `${label1} 去程時段`, options: ['上午', '中午'] },
+        { field_key: `slot_down_${day1}`, field_label: `${label1} 回程時段`, options: ['中午', '下午'] },
+        { field_key: `slot_up_${day2}`,   field_label: `${label2} 去程時段`, options: ['上午', '中午'] },
+        { field_key: `slot_down_${day2}`, field_label: `${label2} 回程時段`, options: ['中午', '下午'] },
+      ];
+      for (const spec of specs) {
+        await adminPost('event_fields', {
+          event_id: SEED.eventSlot, field_key: spec.field_key, field_label: spec.field_label,
+          field_type: 'radio', options: spec.options, required: false, sort_order: -100,
+        });
+      }
+      await adminPost('event_fields', {
+        event_id: SEED.eventSlot, field_key: 'is_lodging', field_label: '是否掛單（中間留宿）',
+        field_type: 'boolean', options: [], required: true, sort_order: -1,
+      });
+
+      const rows = await adminGet(`event_fields?event_id=eq.${SEED.eventSlot}&select=field_key,field_label,field_type,options&order=sort_order.asc`);
+      const slotRows = rows.filter(r => /^slot_(up|down)_\d{4}-\d{2}-\d{2}$/.test(r.field_key));
+      assertEqual(slotRows.length, 4, 'slot_up/slot_down 欄位數量');
+      const up1 = rows.find(r => r.field_key === `slot_up_${day1}`);
+      assertEqual(up1.field_label, `${label1} 去程時段`, 'day1 去程 field_label');
+      assertEqual(up1.options, ['上午', '中午'], 'day1 去程 options');
+      assertTrue(!rows.some(r => r.field_key === 'attend_dates'), '不應該有 attend_dates 欄位');
+      assertTrue(rows.some(r => r.field_key === 'is_lodging'), '應該有 is_lodging 欄位');
+    });
+
+    // ── 2) is_lodging 顯示/必填門檻：用 fixture 真實報名答案跑 attendDateHelpers 實際函式 ──
+    await test('分時段整合：只填一天的報名（e3），is_lodging 不進必填清單', async () => {
+      const fieldRows = await adminGet(`event_fields?event_id=eq.${SEED.eventSlot}&select=field_key,field_label,field_type,required`);
+      const regRows = await adminGet(`registrations?registration_id=eq.${SEED.regSlotOneDay}&select=answers`);
+      const answers = regRows[0].answers;
+      assertEqual(helpers.countDistinctSlotDays(answers), 1, 'e3 只填一天');
+      const required = helpers.getVisibleRequiredFields(fieldRows, answers);
+      assertTrue(!required.some(f => f.field_key === 'is_lodging'), 'is_lodging 不該出現在必填清單');
+    });
+
+    await test('分時段整合：填兩天的報名（e4），is_lodging 進必填清單', async () => {
+      const fieldRows = await adminGet(`event_fields?event_id=eq.${SEED.eventSlot}&select=field_key,field_label,field_type,required`);
+      const regRows = await adminGet(`registrations?registration_id=eq.${SEED.regSlotTwoDay}&select=answers`);
+      const answers = regRows[0].answers;
+      assertEqual(helpers.countDistinctSlotDays(answers), 2, 'e4 填兩天');
+      const required = helpers.getVisibleRequiredFields(fieldRows, answers);
+      assertTrue(required.some(f => f.field_key === 'is_lodging'), 'is_lodging 應該出現在必填清單');
+    });
+
+    // ── 3) 最重要：saveCarArrangement／getCarArrangement 的 time_slot NULL 比對 ──
+    //    car_assignments.time_slot 是新欄位，這組測試需要 sql/add_multi_slot_transport.sql
+    //    已經套用到這個測試專案，沒套用會在第一個 adminPost 就丟出 42703 column does not exist。
+    await test('分時段整合：不同 timeSlot 存兩筆排車，彼此不互相污染（time_slot NULL 比對風險點）', async () => {
+      // 清乾淨這個活動 direction=up 的既有車輛（含 seed.sql 灌的 e5），重新灌三筆：
+      // A：time_slot=上午、B：time_slot=中午、C：time_slot=NULL（模擬非分時段的存法）
+      await adminDelete(`car_assignments?event_id=eq.${SEED.eventSlot}&direction=eq.up`);
+      await adminPost('car_assignments', {
+        event_id: SEED.eventSlot, car_name: 'A-上午', seats: 20, car_type: 'large',
+        direction: 'up', service_date: day1, time_slot: '上午',
+      });
+      await adminPost('car_assignments', {
+        event_id: SEED.eventSlot, car_name: 'B-中午', seats: 20, car_type: 'large',
+        direction: 'up', service_date: day1, time_slot: '中午',
+      });
+      await adminPost('car_assignments', {
+        event_id: SEED.eventSlot, car_name: 'C-無時段', seats: 20, car_type: 'large',
+        direction: 'up', service_date: day1, time_slot: null,
+      });
+
+      // getCarArrangement 的等效查詢：time_slot=null 用 is.null，其餘用 eq.xxx（不能用 eq.null）
+      const amRows = await adminGet(`car_assignments?event_id=eq.${SEED.eventSlot}&direction=eq.up&service_date=eq.${day1}&time_slot=eq.${encodeURIComponent('上午')}&select=car_name,time_slot`);
+      assertEqual(amRows.map(r => r.car_name), ['A-上午'], 'time_slot=上午 應該只查到 A');
+      const noonRows = await adminGet(`car_assignments?event_id=eq.${SEED.eventSlot}&direction=eq.up&service_date=eq.${day1}&time_slot=eq.${encodeURIComponent('中午')}&select=car_name,time_slot`);
+      assertEqual(noonRows.map(r => r.car_name), ['B-中午'], 'time_slot=中午 應該只查到 B');
+      const nullRows = await adminGet(`car_assignments?event_id=eq.${SEED.eventSlot}&direction=eq.up&service_date=eq.${day1}&time_slot=is.null&select=car_name,time_slot`);
+      assertEqual(nullRows.map(r => r.car_name), ['C-無時段'], 'time_slot IS NULL 應該只查到 C（不能混到 A/B）');
+
+      // saveCarArrangement 的等效刪除：只刪 time_slot=上午 那筆，B／C 不能被波及
+      // （若誤用 time_slot = $1 而非 IS NOT DISTINCT FROM／is./eq. 分流寫法，這步最容易錯）
+      await adminDelete(`car_assignments?event_id=eq.${SEED.eventSlot}&direction=eq.up&service_date=eq.${day1}&time_slot=eq.${encodeURIComponent('上午')}`);
+      const afterDelete = await adminGet(`car_assignments?event_id=eq.${SEED.eventSlot}&direction=eq.up&service_date=eq.${day1}&select=car_name,time_slot&order=car_name.asc`);
+      assertEqual(afterDelete.map(r => r.car_name).sort(), ['B-中午', 'C-無時段'], '刪 time_slot=上午 後應該只剩 B 和 C，不能誤刪或漏刪');
+    });
+
+    // ── 4) cleanupOppositeMultiDayFields：切換模式後舊欄位要被清掉 ──
+    await test('分時段整合：cleanupOppositeMultiDayFields(useSlotMode=false) 清掉 slot_up/slot_down，保留 is_lodging', async () => {
+      const allFields = await adminGet(`event_fields?event_id=eq.${SEED.eventSlot}&select=field_id,field_key`);
+      const staleIds = allFields.filter(f => /^slot_(up|down)_\d{4}-\d{2}-\d{2}$/.test(f.field_key)).map(f => f.field_id);
+      assertTrue(staleIds.length > 0, '切換前應該還有 slot_up/slot_down 欄位可清（若這裡是 0，代表前面 syncTimeSlotFields 那項測試沒先跑過）');
+      await adminDelete(`event_fields?field_id=in.(${staleIds.join(',')})`);
+
+      const afterRows = await adminGet(`event_fields?event_id=eq.${SEED.eventSlot}&select=field_key`);
+      assertTrue(!afterRows.some(r => /^slot_(up|down)_\d{4}-\d{2}-\d{2}$/.test(r.field_key)), 'slot_up/slot_down 欄位應該都被刪掉');
+      assertTrue(afterRows.some(r => r.field_key === 'is_lodging'), 'is_lodging 不屬於分時段專屬欄位，不該被這支函式刪掉');
+    });
+
+    await test('分時段整合：cleanupOppositeMultiDayFields(useSlotMode=true) 清掉 attend_dates', async () => {
+      await adminPost('event_fields', {
+        event_id: SEED.eventSlot, field_key: 'attend_dates', field_label: '參加日期',
+        field_type: 'checkbox', options: [day1, day2], required: true, sort_order: -2,
+      });
+      await adminDelete(`event_fields?event_id=eq.${SEED.eventSlot}&field_key=eq.attend_dates`);
+      const afterRows = await adminGet(`event_fields?event_id=eq.${SEED.eventSlot}&select=field_key`);
+      assertTrue(!afterRows.some(r => r.field_key === 'attend_dates'), 'attend_dates 欄位應該被刪掉');
+    });
+  }
 
   console.log('');
   console.log('=== 結果：' + pass + ' 過、' + fail + ' 沒過 ===');

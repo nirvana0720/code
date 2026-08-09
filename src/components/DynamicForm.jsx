@@ -11,13 +11,12 @@
  *   形如 { parking_type: ['跟王小明同車（不另計）'] }，僅對 radio/checkbox 有效
  */
 
+import { isFieldVisible, countDistinctSlotDays } from '../lib/attendDateHelpers'
+
 export default function DynamicForm({ fields, answers, onChange, fieldExtraOptions = {} }) {
-  // 判斷欄位是否應顯示
+  // 判斷欄位是否應顯示（含分時段活動 is_lodging/stay_overnight 特判，見 attendDateHelpers.isFieldVisible）
   function isVisible(field) {
-    if (!field.show_if) return true
-    return Object.entries(field.show_if).every(
-      ([key, val]) => answers[key] === val
-    )
+    return isFieldVisible(field, answers, fields)
   }
 
   function handleChange(fieldKey, value) {
@@ -29,6 +28,13 @@ export default function DynamicForm({ fields, answers, onChange, fieldExtraOptio
         delete next[f.field_key]
       }
     })
+
+    // 分時段活動：任一 slot_up_xxx / slot_down_xxx 欄位改變後，若填答天數變成 < 2，
+    // 清空 is_lodging／stay_overnight（連帶讓上面的 show_if 機制自動清掉 stay_start/stay_end）
+    if (/^slot_(up|down)_\d{4}-\d{2}-\d{2}$/.test(fieldKey) && countDistinctSlotDays(next) < 2) {
+      delete next.is_lodging
+      delete next.stay_overnight
+    }
 
     // 車牌自動帶入：當某個 plate 欄位剛因本次選擇而出現，且目前沒有值，
     // 自動複製畫面上另一個已填的 plate 欄位的值（例如上山選自行開車後帶入下山車牌）

@@ -27,6 +27,8 @@ import {
   saveEventSessionFields,
   uploadEventCoverImage,
   syncAttendDatesField,
+  syncTimeSlotFields,
+  cleanupOppositeMultiDayFields,
 } from '../../lib/supabase'
 import {
   sessionFieldsForPeriod,
@@ -230,6 +232,7 @@ export default function EventDetailPage() {
       has_donor_notify: !!ev.has_donor_notify,
       multi_session: !!ev.multi_session,
       multi_day_transport: !!ev.multi_day_transport,
+      multi_slot_transport: !!ev.multi_slot_transport,
       show_transport_to_public: !!ev.show_transport_to_public,
       show_dormitory_to_public: !!ev.show_dormitory_to_public,
       is_chore_event: !!ev.is_chore_event,
@@ -377,6 +380,7 @@ export default function EventDetailPage() {
         has_donor_notify: form.has_donor_notify,
         multi_session: form.multi_session,
         multi_day_transport: form.multi_day_transport,
+        multi_slot_transport: form.multi_slot_transport,
         show_transport_to_public: form.show_transport_to_public,
         show_dormitory_to_public: form.show_dormitory_to_public,
         is_chore_event: form.is_chore_event,
@@ -405,7 +409,12 @@ export default function EventDetailPage() {
       setSaveMsg('✅ 已儲存（含義工存取設定）')
       setEvent(ev => ({ ...ev, ...form }))
       if (form.multi_day_transport && form.date_start && form.date_end) {
-        await syncAttendDatesField(id, form.date_start, form.date_end)
+        await cleanupOppositeMultiDayFields(id, form.multi_slot_transport)
+        if (form.multi_slot_transport) {
+          await syncTimeSlotFields(id, form.date_start, form.date_end)
+        } else {
+          await syncAttendDatesField(id, form.date_start, form.date_end)
+        }
         const { fields: freshFields } = await getEventFields(id)
         setFields(freshFields)
       }

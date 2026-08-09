@@ -125,6 +125,17 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
               多日交通安排
               <span className="text-xs text-gray-500 ml-1">（開啟後報名表單會要求填參加日期與是否掛單，排車頁可依日期分別安排）</span>
             </label>
+            {form.multi_day_transport && (
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none mt-2 ml-6">
+                <input
+                  type="checkbox"
+                  checked={!!form.multi_slot_transport}
+                  onChange={e => setForm(f => ({ ...f, multi_slot_transport: e.target.checked }))}
+                  className="w-4 h-4 accent-teal-600"
+                />
+                分時段（同一天可能有不同出發/回程時段，例如上午/中午梯次）
+              </label>
+            )}
           </div>
         )}
         {/* 福慧出坡（排坡系統）— 勾選後此活動才會出現在排坡系統列表 */}

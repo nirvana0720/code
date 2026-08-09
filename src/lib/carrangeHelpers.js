@@ -10,8 +10,12 @@ export const DIRECTIONS = [
 ]
 export const dirLabel = d => DIRECTIONS.find(x => x.key === d)?.label ?? d
 
-// 多日排車：把「日期＋方向」併成單一 state key（單日活動 dateKey 傳 null，維持舊行為 'up'/'down'）
-export const keyFor = (dateKey, direction) => dateKey ? `${dateKey}::${direction}` : direction
+// 多日排車：把「日期＋方向（＋時段）」併成單一 state key（單日活動 dateKey 傳 null，維持舊行為
+// 'up'/'down'；非分時段活動 timeSlot 不傳或傳 null，key 格式跟現在一樣，不影響既有活動）
+export const keyFor = (dateKey, direction, timeSlot) => {
+  const base = dateKey ? `${dateKey}::${direction}` : direction
+  return timeSlot ? `${base}::${timeSlot}` : base
+}
 
 // 取得顯示名稱（相容訪客）
 export const getName    = r => {

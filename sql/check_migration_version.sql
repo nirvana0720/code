@@ -146,7 +146,12 @@ WITH checks(seq, migration_file, note, ok) AS (
    'events.multi_day_transport／car_assignments.service_date／car_small_overrides 表存在（多日回山排車＋大車移小車持久化，2026-08-04）',
    EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='multi_day_transport')
    AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='car_assignments' AND column_name='service_date')
-   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='car_small_overrides'))
+   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='car_small_overrides')),
+
+  (87, 'add_multi_slot_transport.sql',
+   'events.multi_slot_transport／car_assignments.time_slot 欄位存在（多日回山活動分時段，2026-08-09）',
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='multi_slot_transport')
+   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='car_assignments' AND column_name='time_slot'))
 )
 SELECT
   seq AS "順序",

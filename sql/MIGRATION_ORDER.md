@@ -159,6 +159,12 @@
 |------|------|------|
 | 86 | `add_multiday_transport_and_small_overrides.sql` | 新增 `events.multi_day_transport`（多日交通安排開關）、`car_assignments.service_date`（車輛服務日期，NULL=單日活動沿用舊行為）、新表 `car_small_overrides`（大車手動移小車的持久化，取代前端 `guestSmallOverrides` state）。只套用到之後新建的活動，不回填舊資料 |
 
+## 第十一階段：多日回山活動分時段（2026-08-09）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 87 | `add_multi_slot_transport.sql` | 新增 `events.multi_slot_transport`（巢狀在 `multi_day_transport` 底下的分時段開關，預設 false，與 attend_dates 模式互斥）、`car_assignments.time_slot`（上午/中午/下午，NULL=非分時段活動沿用舊行為）。只套用到之後新建的活動，不回填舊資料 |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、

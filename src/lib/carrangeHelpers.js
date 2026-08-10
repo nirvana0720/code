@@ -10,6 +10,9 @@ export const DIRECTIONS = [
 ]
 export const dirLabel = d => DIRECTIONS.find(x => x.key === d)?.label ?? d
 
+// 排車頁「其他日期」分頁的 selectedDate sentinel（不是真正的日期字串，不進 eachDateInRange）
+export const OTHER_DATE_KEY = '__other__'
+
 // 多日排車：把「日期＋方向（＋時段）」併成單一 state key（單日活動 dateKey 傳 null，維持舊行為
 // 'up'/'down'；非分時段活動 timeSlot 不傳或傳 null，key 格式跟現在一樣，不影響既有活動）
 export const keyFor = (dateKey, direction, timeSlot) => {

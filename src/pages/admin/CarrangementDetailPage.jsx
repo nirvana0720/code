@@ -17,12 +17,18 @@ import {
   setTransportOverride,
   getCarSmallOverrides,
   replaceCarSmallOverridesForEvent,
+  getOtherDateCars,
+  saveOtherDateCars,
+  deleteOtherDateCarMember,
+  getRegistrationBucketOverrides,
+  upsertRegistrationBucketOverride,
 } from '../../lib/supabase'
 import { preceptBadgeProps } from '../../lib/registrationHelpers'
 
-import { genId, dirLabel, getName, getGuestNote, findGuestHost, fieldKeysFor, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, keyFor } from '../../lib/carrangeHelpers'
-import { isInSlot, eachDateInRange } from '../../lib/attendDateHelpers'
+import { genId, dirLabel, getName, getGuestNote, findGuestHost, fieldKeysFor, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, keyFor, OTHER_DATE_KEY } from '../../lib/carrangeHelpers'
+import { eachDateInRange } from '../../lib/attendDateHelpers'
 import { timeSlotsFor, restoreCarDirection, overrideStateKey, allDateDirectionSlots } from '../../lib/carSlotHelpers'
+import { filterByFinalBucket, resolveFinalBucket, pendingOtherDateRegs as computePendingOtherDateRegs } from '../../lib/otherDateHelpers'
 import autoArrange from '../../lib/autoArrange'
 import { getChoreLocationsByEvent } from '../../lib/choreAssignment'
 import { formatEventDate } from '../../lib/eventDetailHelpers'
@@ -32,6 +38,7 @@ import DateDirectionTabs from '../../components/carrange/DateDirectionTabs'
 import CarSearchStats from '../../components/carrange/CarSearchStats'
 import LargeCarList from '../../components/carrange/LargeCarList'
 import SmallCarList from '../../components/carrange/SmallCarList'
+import OtherDateCarList from '../../components/carrange/OtherDateCarList'
 
 
 export default function CarrangementDetailPage() {
@@ -82,6 +89,11 @@ export default function CarrangementDetailPage() {
   const [autoArrangeWarningsByDir, setAutoArrangeWarningsByDir] = useState({})
   const [groupPreceptByDir, setGroupPreceptByDir] = useState({})
 
+  // ── 「其他日期」分頁：完全獨立的 state 與存讀邏輯（不進 allDateDirectionSlots 的迭代範圍）──
+  const [otherDateCarsByDir, setOtherDateCarsByDir] = useState({ up: [], down: [] })
+  // ── 跨分頁手動 override：{ [registration_id]: { up: overrideRow, down: overrideRow } } ──
+  const [overridesMap, setOverridesMap] = useState({})
+
   const [headLeaderRegId, setHeadLeaderRegId]   = useState('')
   const [headLeaderToken, setHeadLeaderToken]   = useState('')
   const [smallCarLeaders, setSmallCarLeaders]   = useState([])
@@ -121,15 +133,26 @@ export default function CarrangementDetailPage() {
 
   // ── 衍生資料（含訪客；多日活動再依日期＋方向＋時段篩一次） ──
   const regMap      = useMemo(() => Object.fromEntries(regs.map(r => [r.registration_id, r])), [regs])
-  const inSlot = r => isInSlot(r.answers, selectedDate, direction, selectedTimeSlot)
+  // 「這個日期+方向該顯示的人」：先用 isInSlot 篩出原始候選，再排除掉歸進其他日期分頁的人
+  // （自動判斷或手動 override 都算），override 指定回某個正常日期的人則歸到那個日期
+  const bucketFilteredRegs = useMemo(
+    () => filterByFinalBucket(regs, selectedDate, direction, selectedTimeSlot, event, overridesMap),
+    [regs, selectedDate, direction, selectedTimeSlot, event, overridesMap]
+  )
   const largePeople = useMemo(
-    () => regs.filter(r => isLargeCar(r, direction) && inSlot(r) && !smallOverrides.hasOwnProperty(r.registration_id)),
-    [regs, smallOverrides, direction, selectedDate, selectedTimeSlot]
+    () => bucketFilteredRegs.filter(r => isLargeCar(r, direction) && !smallOverrides.hasOwnProperty(r.registration_id)),
+    [bucketFilteredRegs, smallOverrides, direction]
   )
   const smallPeople = useMemo(
-    () => regs.filter(r => isSmallCar(r.answers, direction) && inSlot(r)),
-    [regs, direction, selectedDate, selectedTimeSlot]
+    () => bucketFilteredRegs.filter(r => isSmallCar(r.answers, direction)),
+    [bucketFilteredRegs, direction]
   )
+  // 目前方向下每個人的 bucket／isStale 判斷結果，供「移到...」按鈕與異動提示使用
+  const bucketInfoByReg = useMemo(() => {
+    const map = {}
+    for (const r of regs) map[r.registration_id] = resolveFinalBucket(r, direction, event, overridesMap)
+    return map
+  }, [regs, direction, event, overridesMap])
 
   const { matchedGroups, orphans } = useMemo(
     () => computeSmallGroups(smallPeople, direction),
@@ -171,8 +194,24 @@ export default function CarrangementDetailPage() {
   [largePeople, guestInfoMap])
 
   const otherTransportRegs = useMemo(() =>
-    regs.filter(r => isOtherTransport(r, direction) && inSlot(r)),
-  [regs, direction, selectedDate, selectedTimeSlot])
+    bucketFilteredRegs.filter(r => isOtherTransport(r, direction)),
+  [bucketFilteredRegs, direction])
+
+  // ── 「其他日期」分頁衍生資料 ──
+  const otherDateCars = otherDateCarsByDir[direction] ?? []
+  const otherDateAssignedSet = useMemo(
+    () => new Set(otherDateCars.flatMap(c => c.members)),
+    [otherDateCars]
+  )
+  const searchableOtherDateRegs = useMemo(
+    () => regs.filter(r => !otherDateAssignedSet.has(r.registration_id)),
+    [regs, otherDateAssignedSet]
+  )
+  // 系統自動判斷該歸其他日期、但還沒被排進任何其他日期車輛的人（即時衍生，不持久化）
+  const pendingOtherDateRegs = useMemo(
+    () => computePendingOtherDateRegs(regs, direction, event, overridesMap, otherDateAssignedSet),
+    [regs, direction, event, overridesMap, otherDateAssignedSet]
+  )
 
   // ── 載入 ──
   useEffect(() => { load() }, [eventId])
@@ -244,6 +283,28 @@ export default function CarrangementDetailPage() {
       nextSmallOverrides[dk][o.registration_id] = o.target_driver_reg_id
     }
     setSmallOverridesByDir(nextSmallOverrides)
+
+    // 跨分頁手動 override（其他日期分頁功能）：一次查好整個活動的份量，組成 overridesMap
+    const { overrides: bucketOverrides } = await getRegistrationBucketOverrides(regIds)
+    const nextOverridesMap = {}
+    for (const o of (bucketOverrides ?? [])) {
+      if (!nextOverridesMap[o.registration_id]) nextOverridesMap[o.registration_id] = {}
+      nextOverridesMap[o.registration_id][o.direction] = o
+    }
+    setOverridesMap(nextOverridesMap)
+
+    // 「其他日期」分頁車輛：獨立讀取，不進 allDateDirectionSlots 的迭代範圍
+    const { cars: otherCars } = await getOtherDateCars(eventId)
+    const nextOtherDateByDir = { up: [], down: [] }
+    for (const c of (otherCars ?? [])) {
+      nextOtherDateByDir[c.direction].push({
+        tempId: c.car_id,
+        car_name: c.car_name,
+        note: c.note ?? '',
+        members: (c.car_members ?? []).map(m => m.registration_id),
+      })
+    }
+    setOtherDateCarsByDir(nextOtherDateByDir)
 
     if (headLeader) {
       setHeadLeaderRegId(headLeader.registration_id ?? '')
@@ -333,6 +394,61 @@ export default function CarrangementDetailPage() {
         : `已從「${fromLabel}」複製到「${toLabel}」，記得按儲存`
     )
     setTimeout(() => setMsg(''), 8000)
+  }
+
+  // ─── 「其他日期」分頁車輛操作（獨立 state，只在本頁存檔時一併送出） ───────────────
+  function setOtherDateCars(updater) {
+    setOtherDateCarsByDir(prev => {
+      const cur  = prev[direction] ?? []
+      const next = typeof updater === 'function' ? updater(cur) : updater
+      return { ...prev, [direction]: next }
+    })
+  }
+  function addOtherDateCar() {
+    setOtherDateCars(prev => [...prev, { tempId: genId(), car_name: `其他車 ${prev.length + 1}`, note: '', members: [] }])
+  }
+  function removeOtherDateCar(idx) {
+    setOtherDateCars(prev => prev.filter((_, i) => i !== idx))
+  }
+  function updateOtherDateCarName(idx, name) {
+    setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, car_name: name } : c))
+  }
+  function updateOtherDateCarNote(idx, note) {
+    setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, note } : c))
+  }
+  function addOtherDateMember(idx, regId) {
+    setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, members: [...c.members, regId] } : c))
+  }
+  function removeOtherDateMember(idx, regId) {
+    setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, members: c.members.filter(id => id !== regId) } : c))
+  }
+
+  // ─── 跨分頁手動 override（「移到...」按鈕，SECTION F）───────────────────────────
+  async function handleMoveToBucket(regId, targetBucket, fromOtherCarIdx) {
+    const reg = regMap[regId]
+    const answers = reg?.answers ?? {}
+    const row = {
+      registration_id: regId,
+      direction,
+      target_bucket: targetBucket,
+      source_stay_start: answers.stay_start ?? null,
+      source_stay_end: answers.stay_end ?? null,
+      source_transport: answers[fieldKeysFor(direction).transport] ?? null,
+    }
+    const { success, error } = await upsertRegistrationBucketOverride(row)
+    if (!success) { alert('移動失敗：' + error); return }
+    setOverridesMap(prev => ({ ...prev, [regId]: { ...(prev[regId] ?? {}), [direction]: row } }))
+    // 從其他日期分頁移出去到別的地方：override 生效的同時，立即把這個人從原本那台其他
+    // 日期車的 car_members 清掉（不留到下次按「儲存」），避免沒存檔就離開頁面時，
+    // 這個人同時出現在正常分頁（override 已生效）跟其他日期分頁（car_members 還留著）
+    if (fromOtherCarIdx != null && targetBucket !== 'other') {
+      const fromCar = otherDateCars[fromOtherCarIdx]
+      if (fromCar && !String(fromCar.tempId).startsWith('tmp-')) {
+        const { success: odSuccess, error: odError } = await deleteOtherDateCarMember(fromCar.tempId, regId)
+        if (!odSuccess) { alert('移動失敗（清除原車輛乘客失敗）：' + odError); return }
+      }
+      removeOtherDateMember(fromOtherCarIdx, regId)
+    }
   }
 
   // 單人移動（大車之間／未分配／訪客快速移小車下拉選單用）
@@ -499,7 +615,7 @@ export default function CarrangementDetailPage() {
 
     const calcFinalSmall = (dir, dk0, slot) => {
       const dk = keyFor(dk0, dir, slot)
-      const smallRegsDir = regs.filter(r => isSmallCar(r.answers, dir) && isInSlot(r.answers, dk0, dir, slot))
+      const smallRegsDir = filterByFinalBucket(regs, dk0, dir, slot, event, overridesMap).filter(r => isSmallCar(r.answers, dir))
       const { matchedGroups: m } = computeSmallGroups(smallRegsDir, dir)
       const orphanMap = orphanByDir[dk] ?? {}
       const overrideMap = smallOverridesByDir[dk] ?? {}
@@ -537,20 +653,25 @@ export default function CarrangementDetailPage() {
     }
     const regIds = regs.map(r => r.registration_id)
 
-    const [carResults, hlRes, sclRes, overrideRes] = await Promise.all([
+    // 「其他日期」分頁車輛：獨立存檔（不進 allDateDirectionSlots 的迭代範圍）
+    const otherDateSavePromises = ['up', 'down'].map(dir => saveOtherDateCars(eventId, dir, otherDateCarsByDir[dir] ?? []))
+
+    const [carResults, hlRes, sclRes, overrideRes, otherDateResults] = await Promise.all([
       Promise.all(savePromises),
       headLeaderRegId ? saveHeadLeader(eventId, headLeaderRegId) : Promise.resolve({ success: true }),
       saveSmallCarLeaders(eventId, smallCarLeaders.map(l => l.registration_id).filter(Boolean)),
       replaceCarSmallOverridesForEvent(regIds, overrideRows),
+      Promise.all(otherDateSavePromises),
     ])
 
     setSaving(false)
     const firstCarErr = carResults.find(r => !r.success)
-    if (!firstCarErr && hlRes.success && sclRes.success && overrideRes.success) {
+    const firstOtherDateErr = otherDateResults.find(r => !r.success)
+    if (!firstCarErr && hlRes.success && sclRes.success && overrideRes.success && !firstOtherDateErr) {
       setMsg('已儲存 ✓')
       await load()
     } else {
-      setMsg(`儲存失敗：${firstCarErr?.error || hlRes.error || sclRes.error || overrideRes.error}`)
+      setMsg(`儲存失敗：${firstCarErr?.error || hlRes.error || sclRes.error || overrideRes.error || firstOtherDateErr?.error}`)
     }
     setTimeout(() => setMsg(''), 4000)
   }
@@ -566,7 +687,7 @@ export default function CarrangementDetailPage() {
   function handleExport() {
     exportCarrangement({
       event, regs, regMap, allMonks, choreLocations,
-      dateKeysAll, carsByDir, orphanByDir, smallOverridesByDir,
+      dateKeysAll, carsByDir, orphanByDir, smallOverridesByDir, otherDateCarsByDir,
     })
   }
 
@@ -574,6 +695,7 @@ export default function CarrangementDetailPage() {
   if (loading) return <AdminLayout><div className="text-center py-20 text-gray-400">載入中…</div></AdminLayout>
 
   const hasAnyCarAnywhere = allDateDirectionSlots(dateKeysAll, event).some(({ dirKey }) => (carsByDir[dirKey] ?? []).length > 0)
+    || Object.values(otherDateCarsByDir).some(list => (list ?? []).length > 0)
 
   return (
     <AdminLayout>
@@ -627,8 +749,21 @@ export default function CarrangementDetailPage() {
           direction={direction} setDirection={setDirection} carsByDir={carsByDir}
           multiSlot={!!event?.multi_slot_transport}
           selectedTimeSlot={selectedTimeSlot} setSelectedTimeSlot={setSelectedTimeSlot}
+          event={event}
         />
 
+        {/* ── 「其他日期」分頁：安置不在正常班表的少數人，完全獨立於下方大車/小車排車 UI ── */}
+        {selectedDate === OTHER_DATE_KEY ? (
+          <OtherDateCarList
+            direction={direction} cars={otherDateCars} regMap={regMap} searchableRegs={searchableOtherDateRegs}
+            onUpdateCarName={updateOtherDateCarName} onUpdateCarNote={updateOtherDateCarNote}
+            onAddMember={addOtherDateMember} onRemoveMember={removeOtherDateMember}
+            onAddCar={addOtherDateCar} onRemoveCar={removeOtherDateCar}
+            dates={dates} onMoveToBucket={handleMoveToBucket} bucketInfoByReg={bucketInfoByReg}
+            pendingRegs={pendingOtherDateRegs}
+          />
+        ) : (
+        <>
         {/* 統計卡片 */}
         {(() => {
           const statMonkCount = cars.reduce((s, c) => s + (c.monks?.length ?? 0), 0)
@@ -669,6 +804,7 @@ export default function CarrangementDetailPage() {
           movePerson={movePerson} toggleLeader={toggleLeader}
           unassignMonkAllCars={unassignMonkAllCars} assignMonkToLargeCar={assignMonkToLargeCar}
           updateCarName={updateCarName} onMoveManyToSmall={moveManyToSmall} copyLink={copyLink}
+          dates={dates} onMoveToBucket={handleMoveToBucket} bucketInfoByReg={bucketInfoByReg}
         />
 
         {/* ── 小車配對 ── */}
@@ -683,6 +819,7 @@ export default function CarrangementDetailPage() {
             toggleSmallPreDepart={toggleSmallPreDepart} toggleSmallLateReturn={toggleSmallLateReturn}
             handleSelectMainDriver={handleSelectMainDriver} driverPickerBusy={driverPickerBusy}
             smallOverrides={smallOverrides} onMoveBackToLarge={moveBackToLarge}
+            dates={dates} onMoveToBucket={handleMoveToBucket} bucketInfoByReg={bucketInfoByReg}
           />
         )}
 
@@ -732,6 +869,8 @@ export default function CarrangementDetailPage() {
               </div>
             </div>
           </section>
+        )}
+        </>
         )}
 
         {/* ── 小車領隊（上下山共用，可多人） ── */}

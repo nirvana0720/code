@@ -60,6 +60,10 @@ const SEED = {
   regSlotOneDay: '00000000-0000-0000-0000-0000000000e3',  // 只填 day1
   regSlotTwoDay: '00000000-0000-0000-0000-0000000000e4',  // 填兩天，掛單
   carSlot: '00000000-0000-0000-0000-0000000000e5',
+  // 「其他日期」分頁整合測試 fixture（2026-08-10，用 REST 自建，不依賴 seed.sql）
+  eventOtherDate: '00000000-0000-0000-0000-0000000000f1',
+  regOtherDateA: '00000000-0000-0000-0000-0000000000f2',
+  regOtherDateB: '00000000-0000-0000-0000-0000000000f3',
 };
 
 // ── 分時段整合測試專用：service_role 版的 GET/POST/DELETE（繞過 RLS）──
@@ -101,6 +105,10 @@ function restRequest(method, tablePathWithQuery, body, apiKey) {
       'Authorization': 'Bearer ' + key,
       'Content-Type': 'application/json',
     };
+    // POST 沒有這個 header，PostgREST 預設 Prefer: return=minimal，回傳空 body，
+    // adminPost 讀 inserted[0].xxx 會是 undefined（其他日期整合測試新增的建車/存檔案例
+    // 才第一次依賴讀回自動產生的 car_id，之前的 adminPost 呼叫都用已知 id，沒踩到這個坑）
+    if (method === 'POST') headers['Prefer'] = 'return=representation';
     if (bodyBuf) headers['Content-Length'] = bodyBuf.length;
     const req = https.request({
       hostname: u.hostname,
@@ -520,6 +528,111 @@ async function assertThrows(fn, messageIncludes, label) {
       await adminDelete(`event_fields?event_id=eq.${SEED.eventSlot}&field_key=eq.attend_dates`);
       const afterRows = await adminGet(`event_fields?event_id=eq.${SEED.eventSlot}&select=field_key`);
       assertTrue(!afterRows.some(r => r.field_key === 'attend_dates'), 'attend_dates 欄位應該被刪掉');
+    });
+
+    // ── 「其他日期」分頁整合測試：真正寫/讀 car_assignments.is_other_date ──────────
+    // ⚠️ 需要 sql/add_other_date_bucket.sql 已經套用到這個測試專案（events.up_slot_options／
+    // car_assignments.is_other_date／registration_bucket_overrides 都要存在），沒套用會在
+    // 第一個 adminPost car_assignments 就丟出 42703 column "is_other_date" does not exist，
+    // 先貼這支 migration 到測試專案 SQL Editor 再跑。
+    console.log('');
+    console.log('=== 「其他日期」分頁整合測試 ===');
+
+    let odDay1 = null, odDay2 = null;
+    await test('其他日期整合：準備 fixture（多日活動 + 兩筆報名，用 REST 直接自建）', async () => {
+      const now = new Date();
+      const base = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const toISO = ms => new Date(ms).toISOString().slice(0, 10);
+      odDay1 = toISO(base + 5 * 86400000);
+      odDay2 = toISO(base + 6 * 86400000);
+
+      await adminDelete(`car_assignments?event_id=eq.${SEED.eventOtherDate}`);
+      await adminDelete(`registrations?event_id=eq.${SEED.eventOtherDate}`);
+      await adminDelete(`events?event_id=eq.${SEED.eventOtherDate}`);
+
+      await adminPost('events', {
+        event_id: SEED.eventOtherDate, name: '測試活動-其他日期（run.js 自建）',
+        date_start: odDay1, date_end: odDay2, location: '普宜精舍', event_type: 'mountain',
+        status: 'active', is_dharma: false, multi_day_transport: true,
+      });
+      await adminPost('registrations', {
+        registration_id: SEED.regOtherDateA, event_id: SEED.eventOtherDate, student_id: 'TESTSTU001', is_driver: false,
+        answers: {},
+      });
+      await adminPost('registrations', {
+        registration_id: SEED.regOtherDateB, event_id: SEED.eventOtherDate, student_id: 'TESTSTU002', is_driver: false,
+        answers: {},
+      });
+      // 一台「正常日期」的車（is_other_date 預設 false），用來驗證後面刪除/查詢不會誤傷它
+      await adminPost('car_assignments', {
+        event_id: SEED.eventOtherDate, car_name: '正常車', seats: 20, car_type: 'large',
+        direction: 'up', service_date: odDay1, time_slot: null,
+      });
+
+      const rows = await adminGet(`events?event_id=eq.${SEED.eventOtherDate}&select=date_start,date_end`);
+      assertEqual(rows.length, 1, '活動應該建立成功');
+    });
+
+    let odCarId = null;
+    await test('其他日期整合：建立車輛（模擬「＋新增車輛」），service_date=NULL、is_other_date=true', async () => {
+      const inserted = await adminPost('car_assignments', {
+        event_id: SEED.eventOtherDate, car_name: '其他車 1', seats: 1, car_type: 'large',
+        direction: 'up', service_date: null, time_slot: null, is_other_date: true, note: '測試提前到',
+      });
+      odCarId = inserted[0].car_id;
+      const rows = await adminGet(`car_assignments?car_id=eq.${odCarId}&select=service_date,is_other_date,note,car_type`);
+      assertEqual(rows.length, 1, '應該查得到剛建立的車');
+      assertEqual(rows[0].service_date, null, 'service_date 應該維持 NULL');
+      assertEqual(rows[0].is_other_date, true, 'is_other_date 應該是 true');
+      assertEqual(rows[0].note, '測試提前到', 'note 應該存進去');
+    });
+
+    await test('其他日期整合：搜尋加人（模擬「＋搜尋加人」寫入 car_members）', async () => {
+      await adminPost('car_members', { car_id: odCarId, registration_id: SEED.regOtherDateA });
+      const rows = await adminGet(`car_members?car_id=eq.${odCarId}&select=registration_id`);
+      assertEqual(rows.map(r => r.registration_id), [SEED.regOtherDateA], '應該只有剛加入的這一人');
+    });
+
+    let odFinalCarId = null;
+    await test('其他日期整合：存檔讀回正確（模擬 saveOtherDateCars 先刪後插，只刪 is_other_date=true 這批，不動正常車）', async () => {
+      // 模擬 handleSave：全量取代這個方向的 is_other_date=true 車輛，這次改成只留 regOtherDateB
+      await adminDelete(`car_assignments?event_id=eq.${SEED.eventOtherDate}&direction=eq.up&is_other_date=eq.true`);
+      const inserted = await adminPost('car_assignments', {
+        event_id: SEED.eventOtherDate, car_name: '其他車 1', seats: 1, car_type: 'large',
+        direction: 'up', service_date: null, time_slot: null, is_other_date: true, note: '測試提前到',
+      });
+      odFinalCarId = inserted[0].car_id;
+      await adminPost('car_members', { car_id: odFinalCarId, registration_id: SEED.regOtherDateB });
+
+      const otherDateRows = await adminGet(`car_assignments?event_id=eq.${SEED.eventOtherDate}&direction=eq.up&is_other_date=eq.true&select=car_id,car_members(registration_id)`);
+      assertEqual(otherDateRows.length, 1, '重新存檔後應該只剩一台其他日期車');
+      assertEqual(otherDateRows[0].car_members.map(m => m.registration_id), [SEED.regOtherDateB], '車上成員應該只有 regOtherDateB');
+
+      // 正常日期分頁的車（is_other_date=false）不應該被上面的刪除動作波及
+      const normalRows = await adminGet(`car_assignments?event_id=eq.${SEED.eventOtherDate}&direction=eq.up&is_other_date=eq.false&select=car_name`);
+      assertEqual(normalRows.map(r => r.car_name), ['正常車'], '正常日期分頁的車不該被其他日期分頁的先刪後插動作誤刪');
+    });
+
+    // ── 補件：問題 1，「移到...」操作要立即把 override + car_members 清除都落地到資料庫 ──
+    // 模擬 handleMoveToBucket(regOtherDateB, odDay1, fromOtherCarIdx) 移到某個正常日期：
+    // 依序重現 upsertRegistrationBucketOverride 送出的請求 + deleteOtherDateCarMember 送出的請求，
+    // 兩步都直接對資料庫斷言，確認不是只有前端 state 改變、車輛乘客名單真的被清除
+    await test('其他日期整合：「移到...」把人從其他日期車移到正常日期，override 與 car_members 清除都立即落地資料庫', async () => {
+      await adminDelete(`registration_bucket_overrides?registration_id=eq.${SEED.regOtherDateB}&direction=eq.up`);
+      // 1) 模擬 upsertRegistrationBucketOverride
+      await adminPost('registration_bucket_overrides', {
+        registration_id: SEED.regOtherDateB, direction: 'up', target_bucket: odDay1,
+        source_stay_start: null, source_stay_end: null, source_transport: null,
+      });
+      // 2) 模擬 deleteOtherDateCarMember（不是等下次「儲存」才觸發）
+      await adminDelete(`car_members?car_id=eq.${odFinalCarId}&registration_id=eq.${SEED.regOtherDateB}`);
+
+      const overrideRows = await adminGet(`registration_bucket_overrides?registration_id=eq.${SEED.regOtherDateB}&direction=eq.up&select=target_bucket`);
+      assertEqual(overrideRows.length, 1, 'override 應該已經寫入');
+      assertEqual(overrideRows[0].target_bucket, odDay1, 'override 應該指向新的正常日期');
+
+      const memberRows = await adminGet(`car_members?car_id=eq.${odFinalCarId}&select=registration_id`);
+      assertEqual(memberRows.length, 0, '原本那台其他日期車的 car_members 應該立即清空（不留到下次「儲存」）');
     });
   }
 

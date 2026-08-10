@@ -233,6 +233,8 @@ export default function EventDetailPage() {
       multi_session: !!ev.multi_session,
       multi_day_transport: !!ev.multi_day_transport,
       multi_slot_transport: !!ev.multi_slot_transport,
+      up_slot_options: ev.up_slot_options ?? null,
+      down_slot_options: ev.down_slot_options ?? null,
       show_transport_to_public: !!ev.show_transport_to_public,
       show_dormitory_to_public: !!ev.show_dormitory_to_public,
       is_chore_event: !!ev.is_chore_event,
@@ -381,6 +383,8 @@ export default function EventDetailPage() {
         multi_session: form.multi_session,
         multi_day_transport: form.multi_day_transport,
         multi_slot_transport: form.multi_slot_transport,
+        up_slot_options: form.multi_slot_transport ? (form.up_slot_options ?? null) : null,
+        down_slot_options: form.multi_slot_transport ? (form.down_slot_options ?? null) : null,
         show_transport_to_public: form.show_transport_to_public,
         show_dormitory_to_public: form.show_dormitory_to_public,
         is_chore_event: form.is_chore_event,
@@ -411,7 +415,7 @@ export default function EventDetailPage() {
       if (form.multi_day_transport && form.date_start && form.date_end) {
         await cleanupOppositeMultiDayFields(id, form.multi_slot_transport)
         if (form.multi_slot_transport) {
-          await syncTimeSlotFields(id, form.date_start, form.date_end)
+          await syncTimeSlotFields(id, form.date_start, form.date_end, form.up_slot_options, form.down_slot_options)
         } else {
           await syncAttendDatesField(id, form.date_start, form.date_end)
         }

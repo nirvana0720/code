@@ -4,15 +4,21 @@
 import { isSmallCar, computeSmallGroups, keyFor } from './carrangeHelpers'
 import { isInSlot, isSlotBasedAnswers, resolveSlotBasedAttendSlots } from './attendDateHelpers'
 
-// 分時段活動的時段選項：去程（up）上午/中午，回程（down）中午/下午
-export function slotsForDirection(direction) {
+// 分時段活動的時段選項：後台可勾選（events.up_slot_options／down_slot_options），
+// 未設定過（NULL 或空陣列）時沿用舊預設：去程（up）上午/中午，回程（down）中午/下午
+export function slotsForDirection(direction, event) {
+  const options = direction === 'up' ? event?.up_slot_options : event?.down_slot_options
+  if (Array.isArray(options) && options.length > 0) return options
   return direction === 'up' ? ['上午', '中午'] : ['中午', '下午']
 }
 
 // 給定活動與方向，回傳這個方向排車頁要跑的時段清單
-// 非分時段活動 → [null]（維持現狀，迴圈跑一次，不影響既有單日/多日活動）
+// 非分時段活動，或該方向只設定了 0～1 個時段選項 → [null]（視同不分時段，不出現只有一個
+// 選項的 radio 題，迴圈跑一次，不影響既有單日/多日活動）
 export function timeSlotsFor(event, direction) {
-  return event?.multi_slot_transport ? slotsForDirection(direction) : [null]
+  if (!event?.multi_slot_transport) return [null]
+  const slots = slotsForDirection(direction, event)
+  return slots.length > 1 ? slots : [null]
 }
 
 // 走訪一個活動所有「日期 × 方向 × 時段」組合，回傳 [{ dateKey, direction, timeSlot, dirKey }]。

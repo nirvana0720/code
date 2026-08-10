@@ -1,5 +1,6 @@
 import { dirLabel, getName, fieldKeysFor } from '../../lib/carrangeHelpers'
 import { preceptBadgeProps } from '../../lib/registrationHelpers'
+import MoveToButton from './MoveToButton'
 
 // 小車配對：司機/乘客自動配對群組＋孤兒乘客手動指定＋法師／提前出發／延後回程
 export default function SmallCarList({
@@ -7,6 +8,7 @@ export default function SmallCarList({
   allMonks, smallCarMonks, unassignMonkAllCars, assignMonkToSmallCar,
   smallPreDeparts, smallLateReturns, toggleSmallPreDepart, toggleSmallLateReturn,
   handleSelectMainDriver, driverPickerBusy, smallOverrides, onMoveBackToLarge,
+  dates, onMoveToBucket, bucketInfoByReg,
 }) {
   return (
     <section>
@@ -119,6 +121,13 @@ export default function SmallCarList({
                         ))}
                       </select>
                     )}
+                    {dates && dates.length > 0 && onMoveToBucket && (
+                      <MoveToButton
+                        dates={dates}
+                        onMove={target => onMoveToBucket(r.registration_id, target)}
+                        isStale={bucketInfoByReg?.[r.registration_id]?.isStale}
+                      />
+                    )}
                   </div>
                 )
               })}
@@ -225,6 +234,13 @@ export default function SmallCarList({
                         <option key={g.key} value={g.key}>小車 {gi + 1}・{g.driverName}</option>
                       ))}
                     </select>
+                    {dates && dates.length > 0 && onMoveToBucket && (
+                      <MoveToButton
+                        dates={dates}
+                        onMove={target => onMoveToBucket(r.registration_id, target)}
+                        isStale={bucketInfoByReg?.[r.registration_id]?.isStale}
+                      />
+                    )}
                   </div>
                 )
               })}

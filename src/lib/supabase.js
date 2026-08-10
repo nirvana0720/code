@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { eachDateInRange, formatDateWithWeekday } from './attendDateHelpers'
+import { slotsForDirection } from './carSlotHelpers'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -560,13 +561,17 @@ export async function syncAttendDatesField(eventId, dateStart, dateEnd) {
  * 的 date_start~date_end 同步，取代 attend_dates。「是否掛單」欄位邏輯與 syncAttendDatesField
  * 相同（已有 stay_overnight 就不新增 is_lodging）。只在 multi_day_transport ＋ multi_slot_transport
  * 都開啟時，於活動存檔流程呼叫（見 EventDetailPage 存檔流程的分支判斷）。
+ * @param {string[]|null} upSlotOptions   去程時段選項（後台可勾選），未設定/長度<=1 時沿用舊預設且不出題
+ * @param {string[]|null} downSlotOptions 回程時段選項（後台可勾選），未設定/長度<=1 時沿用舊預設且不出題
  */
-export async function syncTimeSlotFields(eventId, dateStart, dateEnd) {
+export async function syncTimeSlotFields(eventId, dateStart, dateEnd, upSlotOptions = null, downSlotOptions = null) {
   if (!eventId || !dateStart || !dateEnd) return { success: true, error: null }
 
   const dates = eachDateInRange(dateStart, dateEnd)
   const validDateSet = new Set(dates)
   const slotFieldRe = /^slot_(up|down)_(\d{4}-\d{2}-\d{2})$/
+  const upOptions   = slotsForDirection('up',   { up_slot_options: upSlotOptions })
+  const downOptions = slotsForDirection('down', { down_slot_options: downSlotOptions })
 
   const { data: allFields, error: selErr } = await supabase
     .from('event_fields')
@@ -581,11 +586,18 @@ export async function syncTimeSlotFields(eventId, dateStart, dateEnd) {
   for (const d of dates) {
     const label = formatDateWithWeekday(d)
     const slotSpecs = [
-      { key: `slot_up_${d}`,   label: `${label} 去程時段`, options: ['上午', '中午'] },
-      { key: `slot_down_${d}`, label: `${label} 回程時段`, options: ['中午', '下午'] },
+      { key: `slot_up_${d}`,   label: `${label} 去程時段`, options: upOptions,   skip: upOptions.length <= 1 },
+      { key: `slot_down_${d}`, label: `${label} 回程時段`, options: downOptions, skip: downOptions.length <= 1 },
     ]
     for (const spec of slotSpecs) {
       const row = existingByKey[spec.key]
+      if (spec.skip) {
+        if (row) {
+          const { error } = await supabase.from('event_fields').delete().eq('field_id', row.field_id)
+          if (error) return { success: false, error: error.message }
+        }
+        continue
+      }
       if (row) {
         const { error } = await supabase.from('event_fields')
           .update({ field_label: spec.label, options: spec.options })
@@ -1803,6 +1815,90 @@ export async function saveCarArrangement(eventId, largeCars, smallGroups = [], d
 }
 
 /**
+ * 取得活動「其他日期」分頁的車輛（is_other_date=true，不分方向；呼叫端自行依 direction 分組）
+ * @param {string} eventId
+ */
+export async function getOtherDateCars(eventId) {
+  const { data, error } = await supabase
+    .from('car_assignments')
+    .select('car_id, car_name, note, direction, sort_order, car_members ( registration_id )')
+    .eq('event_id', eventId)
+    .eq('is_other_date', true)
+    .order('sort_order', { ascending: true })
+
+  if (error) return { cars: [], error: error.message }
+  return { cars: data || [], error: null }
+}
+
+/**
+ * 儲存「其他日期」分頁單一方向的車輛（全量取代，比照 saveCarArrangement 先刪後插）
+ * car_type 固定 'large'（這個分頁 UI 不提供切換大小車），service_date/time_slot 固定 NULL
+ * @param {string} eventId
+ * @param {'up'|'down'} direction
+ * @param {Array<{car_name:string, note:string|null, members:string[]}>} cars
+ */
+export async function saveOtherDateCars(eventId, direction, cars) {
+  const { error: delErr } = await supabase
+    .from('car_assignments')
+    .delete()
+    .eq('event_id', eventId)
+    .eq('direction', direction)
+    .eq('is_other_date', true)
+  if (delErr) return { success: false, error: delErr.message }
+  if (!cars || cars.length === 0) return { success: true, error: null }
+
+  const carRows = cars.map((c, i) => ({
+    event_id: eventId,
+    car_name: c.car_name,
+    seats: Math.max(c.members.length, 1),
+    car_type: 'large',
+    direction,
+    service_date: null,
+    time_slot: null,
+    is_other_date: true,
+    note: c.note || null,
+    sort_order: i,
+  }))
+
+  const { data: inserted, error: insErr } = await supabase
+    .from('car_assignments')
+    .insert(carRows)
+    .select('car_id, sort_order')
+  if (insErr) return { success: false, error: insErr.message }
+
+  const idBySort = Object.fromEntries(inserted.map(c => [c.sort_order, c.car_id]))
+  const memberRows = []
+  cars.forEach((c, i) => {
+    const carId = idBySort[i]
+    if (!carId) return
+    for (const rid of c.members) memberRows.push({ car_id: carId, registration_id: rid })
+  })
+  if (memberRows.length > 0) {
+    const { error: mErr } = await supabase.from('car_members').insert(memberRows)
+    if (mErr) return { success: false, error: mErr.message }
+  }
+
+  return { success: true, error: null }
+}
+
+/**
+ * 立即從某台「其他日期」車移除單一乘客（不用整批 saveOtherDateCars 先刪後插，
+ * 避免「移到...」跨分頁 override 生效的同時，車輛 car_id 因為全量取代而改變）
+ * @param {string} carId 該台其他日期車的 car_id（真正 DB id，不是前端還沒存檔的暫時 id）
+ * @param {string} registrationId
+ */
+export async function deleteOtherDateCarMember(carId, registrationId) {
+  const { error } = await supabase
+    .from('car_members')
+    .delete()
+    .eq('car_id', carId)
+    .eq('registration_id', registrationId)
+
+  if (error) return { success: false, error: error.message }
+  return { success: true, error: null }
+}
+
+/**
  * 取得指定報名者清單目前的「大車移小車」持久化紀錄
  * @param {string[]} registrationIds 這個活動所有報名者的 registration_id
  */
@@ -1831,6 +1927,34 @@ export async function replaceCarSmallOverridesForEvent(registrationIds, rows) {
     const { error: insErr } = await supabase.from('car_small_overrides').insert(rows)
     if (insErr) return { success: false, error: insErr.message }
   }
+  return { success: true, error: null }
+}
+
+/**
+ * 取得指定報名者清單目前的「跨分頁（正常日期／其他日期）」手動 override 紀錄
+ * @param {string[]} registrationIds 這個活動所有報名者的 registration_id
+ */
+export async function getRegistrationBucketOverrides(registrationIds) {
+  if (!registrationIds || registrationIds.length === 0) return { overrides: [], error: null }
+  const { data, error } = await supabase
+    .from('registration_bucket_overrides')
+    .select('registration_id, direction, target_bucket, source_stay_start, source_stay_end, source_transport')
+    .in('registration_id', registrationIds)
+
+  if (error) return { overrides: [], error: error.message }
+  return { overrides: data || [], error: null }
+}
+
+/**
+ * 新增/更新單一報名者在單一方向的跨分頁 override（PK = registration_id + direction）
+ * @param {{registration_id:string, direction:'up'|'down', target_bucket:string, source_stay_start:string|null, source_stay_end:string|null, source_transport:string|null}} row
+ */
+export async function upsertRegistrationBucketOverride(row) {
+  const { error } = await supabase
+    .from('registration_bucket_overrides')
+    .upsert(row, { onConflict: 'registration_id,direction' })
+
+  if (error) return { success: false, error: error.message }
   return { success: true, error: null }
 }
 

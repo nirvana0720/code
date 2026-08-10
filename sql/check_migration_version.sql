@@ -151,7 +151,13 @@ WITH checks(seq, migration_file, note, ok) AS (
   (87, 'add_multi_slot_transport.sql',
    'events.multi_slot_transport／car_assignments.time_slot 欄位存在（多日回山活動分時段，2026-08-09）',
    EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='multi_slot_transport')
-   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='car_assignments' AND column_name='time_slot'))
+   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='car_assignments' AND column_name='time_slot')),
+
+  (88, 'add_other_date_bucket.sql',
+   'events.up_slot_options／car_assignments.is_other_date／registration_bucket_overrides 表存在（排車其他日期分頁＋分時段彈性選項，2026-08-10）',
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='up_slot_options')
+   AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='car_assignments' AND column_name='is_other_date')
+   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='registration_bucket_overrides'))
 )
 SELECT
   seq AS "順序",

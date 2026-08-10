@@ -1,4 +1,4 @@
-import { DIRECTIONS, keyFor } from '../../lib/carrangeHelpers'
+import { DIRECTIONS, keyFor, OTHER_DATE_KEY } from '../../lib/carrangeHelpers'
 import { formatDateWithWeekday } from '../../lib/attendDateHelpers'
 import { slotsForDirection } from '../../lib/carSlotHelpers'
 
@@ -8,15 +8,16 @@ export default function DateDirectionTabs({
   dates, selectedDate, setSelectedDate,
   direction, setDirection, carsByDir,
   multiSlot = false, selectedTimeSlot, setSelectedTimeSlot,
+  event,
 }) {
   const carCountFor = dir => {
     if (!multiSlot) return (carsByDir[keyFor(selectedDate, dir)] ?? []).length
-    return slotsForDirection(dir).reduce((sum, slot) => sum + (carsByDir[keyFor(selectedDate, dir, slot)] ?? []).length, 0)
+    return slotsForDirection(dir, event).reduce((sum, slot) => sum + (carsByDir[keyFor(selectedDate, dir, slot)] ?? []).length, 0)
   }
 
   return (
     <div className="space-y-2">
-      {dates.length > 0 && (
+      {(dates.length > 0 || event?.multi_day_transport) && (
         <div className="flex gap-2 flex-wrap">
           {dates.map(d => (
             <button
@@ -31,6 +32,18 @@ export default function DateDirectionTabs({
               📅 {formatDateWithWeekday(d)}
             </button>
           ))}
+          {event?.multi_day_transport && (
+            <button
+              onClick={() => setSelectedDate(OTHER_DATE_KEY)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg border transition-colors ${
+                selectedDate === OTHER_DATE_KEY
+                  ? 'bg-teal-600 text-white border-teal-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-teal-400'
+              }`}
+            >
+              🗓️ 其他日期
+            </button>
+          )}
         </div>
       )}
 
@@ -57,9 +70,9 @@ export default function DateDirectionTabs({
         })}
       </div>
 
-      {multiSlot && (
+      {multiSlot && selectedDate !== OTHER_DATE_KEY && (
         <div className="flex gap-2 flex-wrap">
-          {slotsForDirection(direction).map(slot => (
+          {slotsForDirection(direction, event).map(slot => (
             <button
               key={slot}
               onClick={() => setSelectedTimeSlot(slot)}

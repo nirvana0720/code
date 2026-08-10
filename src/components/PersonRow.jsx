@@ -1,7 +1,8 @@
 import { getName, getClasses } from '../lib/carrangeHelpers'
 import { preceptBadgeProps } from '../lib/registrationHelpers'
+import MoveToButton from './carrange/MoveToButton'
 
-export default function PersonRow({ reg, carIdx, cars, smallGroups, onMove, onToggleLeader, guestInfo, seq }) {
+export default function PersonRow({ reg, carIdx, cars, smallGroups, onMove, onToggleLeader, guestInfo, seq, dates, onMoveToBucket, bucketInfo }) {
   const name     = getName(reg)
   const cls      = getClasses(reg).map(c => [c.class_name, c.group_name].filter(Boolean).join(' ')).join('／')
   const isLeader = carIdx >= 0 && (cars[carIdx]?.leaders.includes(reg.registration_id) ?? false)
@@ -82,6 +83,13 @@ export default function PersonRow({ reg, carIdx, cars, smallGroups, onMove, onTo
           </>
         )}
       </select>
+      {dates && dates.length > 0 && onMoveToBucket && (
+        <MoveToButton
+          dates={dates}
+          onMove={target => onMoveToBucket(reg.registration_id, target)}
+          isStale={bucketInfo?.isStale}
+        />
+      )}
     </div>
   )
 }

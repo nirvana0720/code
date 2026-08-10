@@ -1,7 +1,35 @@
 import { toggleEventLock, uploadEventCoverImage } from '../lib/supabase'
+import { slotsForDirection } from '../lib/carSlotHelpers'
 import ImagePositionEditor from './ImagePositionEditor'
 import EventSessionFieldsPanel from './EventSessionFieldsPanel'
 import EventSessionsPanel from './EventSessionsPanel'
+
+const SLOT_CHOICES = ['上午', '中午', '下午']
+
+function SlotOptionsCheckboxes({ label, direction, form, setForm }) {
+  const field = direction === 'up' ? 'up_slot_options' : 'down_slot_options'
+  const checked = slotsForDirection(direction, form)
+  function toggle(slot) {
+    const next = checked.includes(slot) ? checked.filter(s => s !== slot) : [...checked, slot]
+    setForm(f => ({ ...f, [field]: SLOT_CHOICES.filter(s => next.includes(s)) }))
+  }
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <span className="text-sm text-gray-600 w-16 shrink-0">{label}</span>
+      {SLOT_CHOICES.map(slot => (
+        <label key={slot} className="inline-flex items-center gap-1 text-sm text-gray-700 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={checked.includes(slot)}
+            onChange={() => toggle(slot)}
+            className="w-4 h-4 accent-teal-600"
+          />
+          {slot}
+        </label>
+      ))}
+    </div>
+  )
+}
 
 export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, event, setEvent, id, locking, setLocking, setSaveMsg, deleting, handleDeleteEvent, registrations, volunteers, eventVolunteerIds, setEventVolunteerIds, sessions, setSessions, setSessionTab }) {
   return (
@@ -126,15 +154,23 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
               <span className="text-xs text-gray-500 ml-1">（開啟後報名表單會要求填參加日期與是否掛單，排車頁可依日期分別安排）</span>
             </label>
             {form.multi_day_transport && (
-              <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none mt-2 ml-6">
-                <input
-                  type="checkbox"
-                  checked={!!form.multi_slot_transport}
-                  onChange={e => setForm(f => ({ ...f, multi_slot_transport: e.target.checked }))}
-                  className="w-4 h-4 accent-teal-600"
-                />
-                分時段（同一天可能有不同出發/回程時段，例如上午/中午梯次）
-              </label>
+              <>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none mt-2 ml-6">
+                  <input
+                    type="checkbox"
+                    checked={!!form.multi_slot_transport}
+                    onChange={e => setForm(f => ({ ...f, multi_slot_transport: e.target.checked }))}
+                    className="w-4 h-4 accent-teal-600"
+                  />
+                  分時段（同一天可能有不同出發/回程時段，例如上午/中午梯次）
+                </label>
+                {form.multi_slot_transport && (
+                  <div className="ml-6 mt-2 space-y-2 border border-teal-200 rounded-lg p-3 bg-teal-50">
+                    <SlotOptionsCheckboxes label="去程時段" direction="up" form={form} setForm={setForm} />
+                    <SlotOptionsCheckboxes label="回程時段" direction="down" form={form} setForm={setForm} />
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}

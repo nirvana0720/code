@@ -165,6 +165,12 @@
 |------|------|------|
 | 87 | `add_multi_slot_transport.sql` | 新增 `events.multi_slot_transport`（巢狀在 `multi_day_transport` 底下的分時段開關，預設 false，與 attend_dates 模式互斥）、`car_assignments.time_slot`（上午/中午/下午，NULL=非分時段活動沿用舊行為）。只套用到之後新建的活動，不回填舊資料 |
 
+## 第十二階段：排車其他日期分頁＋分時段彈性選項（2026-08-10）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 88 | `add_other_date_bucket.sql` | 新增 `events.up_slot_options`／`down_slot_options`（分時段選項改後台可勾選，NULL=沿用舊寫死預設）、`car_assignments.is_other_date`（「其他日期」分頁車輛標記，service_date 固定 NULL）、新表 `registration_bucket_overrides`（跨分頁手動 override，含 isStale 判斷用的答案快照）。只套用到之後使用此功能的活動，不回填舊資料 |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、

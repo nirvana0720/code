@@ -74,7 +74,7 @@ const guestsOfHost = (host, pool) => {
   })
 }
 
-export function exportCarrangement({ event, regs, regMap, allMonks, choreLocations, dateKeysAll, carsByDir, orphanByDir, smallOverridesByDir }) {
+export function exportCarrangement({ event, regs, regMap, allMonks, choreLocations, dateKeysAll, carsByDir, orphanByDir, smallOverridesByDir, otherDateCarsByDir = {} }) {
   const clsOf = r => getClasses(r).map(c => c.class_name).join('/')
   const grpOf = r => getClasses(r).map(c => c.group_name).filter(Boolean).join('/')
   const idOf  = r => r.answers?.identity ?? (r.student_id ? '' : '訪客')
@@ -271,6 +271,29 @@ export function exportCarrangement({ event, regs, regMap, allMonks, choreLocatio
     return XLSX.utils.aoa_to_sheet([headers, ...data])
   }
 
+  // 「其他日期」分頁：提前掛單回山／延後回家的少數人，另外用獨立分組區塊呈現，不跟正常日期資料混在一起
+  function buildOtherDateSheet(direction, cars) {
+    if (!cars || cars.length === 0) return null
+    const headers = ['序號', '車次', '說明', '姓名', '班級', '組別', '身份別', '電話', '寮號', '備註', ...choreColHeaders]
+    const data = []
+    let seq = 1
+    for (const car of cars) {
+      for (const regId of car.members) {
+        const r = regMap[regId]
+        if (!r) continue
+        const origNote = getGuestNote(r)
+        const pTxt = preceptText(r)
+        const parts = []
+        if (pTxt) parts.push(pTxt)
+        if (idOf(r) === '義工' && r.answers?.volunteer_group) parts.push(r.answers.volunteer_group)
+        if (origNote) parts.push(origNote)
+        const phone = r.student_id ? '' : (r.answers?.guest_phone ?? '')
+        data.push([seq++, car.car_name, car.note ?? '', getName(r), clsOf(r), grpOf(r), idOf(r), phone, r.dormitory_room ?? '', parts.join('/'), ...choreColsFor(r.registration_id)])
+      }
+    }
+    return data.length > 0 ? XLSX.utils.aoa_to_sheet([headers, ...data]) : null
+  }
+
   const wb = XLSX.utils.book_new()
 
   for (const dateKey of dateKeysAll) {
@@ -293,6 +316,12 @@ export function exportCarrangement({ event, regs, regMap, allMonks, choreLocatio
 
     const smallWs = buildSmallCarSheet(dateKey)
     if (smallWs) XLSX.utils.book_append_sheet(wb, smallWs, safeSheetName(`${datePrefix}小車`))
+  }
+
+  // 「其他日期」分頁（獨立於上方逐日 sheet 之外的分組區塊）
+  for (const dir of ['up', 'down']) {
+    const otherDateWs = buildOtherDateSheet(dir, otherDateCarsByDir[dir] ?? [])
+    if (otherDateWs) XLSX.utils.book_append_sheet(wb, otherDateWs, safeSheetName(`其他日期・${dir === 'up' ? '去程' : '回程'}`))
   }
 
   // 其他交通不分日期（依報名答案判斷，跟原本單日行為一致）

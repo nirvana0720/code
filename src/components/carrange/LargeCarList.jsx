@@ -11,6 +11,7 @@ export default function LargeCarList({
   allMonks, smallCarMonks, finalSmallGroups, unassigned,
   movePerson, toggleLeader, unassignMonkAllCars, assignMonkToLargeCar, updateCarName,
   onMoveManyToSmall, copyLink,
+  dates, onMoveToBucket, bucketInfoByReg,
 }) {
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -346,6 +347,7 @@ export default function LargeCarList({
                           onToggleLeader={toggleLeader}
                           guestInfo={guestInfoMap[regId]}
                           seq={mi + 1}
+                          dates={dates} onMoveToBucket={onMoveToBucket} bucketInfo={bucketInfoByReg?.[regId]}
                         />
                       </div>
                     </div>
@@ -427,6 +429,7 @@ export default function LargeCarList({
                     onMove={movePerson}
                     onToggleLeader={() => {}}
                     guestInfo={guestInfoMap[r.registration_id]}
+                    dates={dates} onMoveToBucket={onMoveToBucket} bucketInfo={bucketInfoByReg?.[r.registration_id]}
                   />
                 </div>
               </div>

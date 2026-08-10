@@ -23,7 +23,8 @@ import {
   getVisibleRequiredFields,
 } from '../src/lib/attendDateHelpers.js'
 import { keyFor } from '../src/lib/carrangeHelpers.js'
-import { timeSlotsFor, overrideStateKey } from '../src/lib/carSlotHelpers.js'
+import { timeSlotsFor, overrideStateKey, slotsForDirection } from '../src/lib/carSlotHelpers.js'
+import { resolveOtherDateSlots, resolveFinalBucket, filterByFinalBucket, pendingOtherDateRegs } from '../src/lib/otherDateHelpers.js'
 
 let pass = 0, fail = 0
 function test(name, fn) {
@@ -186,6 +187,126 @@ test('overrideStateKey：分時段答案，反推出這個人實際所在的時�
 test('overrideStateKey：分時段答案但查無對應 date+direction（理論上不該發生），退回不含時段的 key', () => {
   const reg = { answers: { 'slot_up_2026-08-06': '上午' } }
   assert.equal(overrideStateKey(reg, 'down', '2026-08-06'), '2026-08-06::down')
+})
+
+// ── slotsForDirection / timeSlotsFor（分時段彈性選項，2026-08-10）─────────────
+test('slotsForDirection：後台設定 up_slot_options=[上午]，去程回傳單一選項', () => {
+  const ev = { up_slot_options: ['上午'], down_slot_options: ['中午', '下午'] }
+  assert.deepEqual(slotsForDirection('up', ev), ['上午'])
+  assert.deepEqual(slotsForDirection('down', ev), ['中午', '下午'])
+})
+test('slotsForDirection：未設定（NULL/空陣列）沿用舊預設', () => {
+  assert.deepEqual(slotsForDirection('up', {}), ['上午', '中午'])
+  assert.deepEqual(slotsForDirection('down', { up_slot_options: [] }), ['中午', '下午'])
+})
+test('timeSlotsFor：某方向只設定 1 個選項時視同不分時段（[null]，不出現單選項 radio 題）', () => {
+  const ev = { multi_slot_transport: true, up_slot_options: ['上午'], down_slot_options: ['中午', '下午'] }
+  assert.deepEqual(timeSlotsFor(ev, 'up'), [null])
+  assert.deepEqual(timeSlotsFor(ev, 'down'), ['中午', '下午'])
+})
+
+// ── resolveOtherDateSlots（其他日期分頁自動判斷，2026-08-10）─────────────────
+const otherDateEvent = { date_start: '2026-08-06', date_end: '2026-08-10' }
+test('resolveOtherDateSlots：掛單開始日期早於活動官方開始日期＋交通方式是精舍（大車）→ up=true', () => {
+  const reg = { student_id: 's1', answers: { stay_start: '2026-08-05', transport_up: '精舍' } }
+  assert.equal(resolveOtherDateSlots(reg, otherDateEvent).up, true)
+})
+test('resolveOtherDateSlots：同上但交通方式是其他交通 → up 應為 false（不自動歸類，這些人不用系統排車）', () => {
+  const reg = { student_id: 's1', answers: { stay_start: '2026-08-05', transport_up: '其他方式' } }
+  assert.equal(resolveOtherDateSlots(reg, otherDateEvent).up, false)
+})
+test('resolveOtherDateSlots：掛單日期在活動官方範圍內（相等不算超出）→ 都是 false', () => {
+  const reg = { student_id: 's1', answers: { stay_start: '2026-08-06', stay_end: '2026-08-10', transport_up: '精舍', transport_down: '精舍' } }
+  const result = resolveOtherDateSlots(reg, otherDateEvent)
+  assert.equal(result.up, false)
+  assert.equal(result.down, false)
+})
+test('resolveOtherDateSlots：掛單結束日期晚於活動官方結束日期＋精舍 → down=true', () => {
+  const reg = { student_id: 's1', answers: { stay_end: '2026-08-11', transport_down: '精舍' } }
+  assert.equal(resolveOtherDateSlots(reg, otherDateEvent).down, true)
+})
+test('resolveOtherDateSlots：answers 完全沒有 stay_start/stay_end → 都是 false', () => {
+  const reg = { student_id: 's1', answers: { transport_up: '精舍' } }
+  const result = resolveOtherDateSlots(reg, otherDateEvent)
+  assert.equal(result.up, false)
+  assert.equal(result.down, false)
+})
+
+// ── resolveFinalBucket（跨分頁手動 override + isStale 判斷，2026-08-10）───────
+test('resolveFinalBucket：無 override，走自動判斷', () => {
+  const reg = { registration_id: 'r1', student_id: 's1', answers: { stay_start: '2026-08-05', transport_up: '精舍' } }
+  const result = resolveFinalBucket(reg, 'up', otherDateEvent, {})
+  assert.equal(result.bucket, 'other')
+  assert.equal(result.isStale, false)
+})
+test('resolveFinalBucket：有 override 且答案未異動 → 沿用 override 指定的 bucket，isStale=false', () => {
+  const reg = { registration_id: 'r1', student_id: 's1', answers: { stay_start: '2026-08-05', transport_up: '精舍' } }
+  const overridesMap = {
+    r1: { up: { target_bucket: '2026-08-07', source_stay_start: '2026-08-05', source_stay_end: null, source_transport: '精舍' } },
+  }
+  const result = resolveFinalBucket(reg, 'up', otherDateEvent, overridesMap)
+  assert.equal(result.bucket, '2026-08-07')
+  assert.equal(result.isStale, false)
+})
+test('resolveFinalBucket：建立 override 後答案異動（stay_start 改變）→ isStale=true，但 bucket 仍維持 override 指定的值', () => {
+  const reg = { registration_id: 'r1', student_id: 's1', answers: { stay_start: '2026-08-04', transport_up: '精舍' } }
+  const overridesMap = {
+    r1: { up: { target_bucket: 'other', source_stay_start: '2026-08-05', source_stay_end: null, source_transport: '精舍' } },
+  }
+  const result = resolveFinalBucket(reg, 'up', otherDateEvent, overridesMap)
+  assert.equal(result.bucket, 'other')
+  assert.equal(result.isStale, true)
+})
+
+// ── filterByFinalBucket（正常日期分頁排除掉歸進其他日期的人，2026-08-10）───────
+test('filterByFinalBucket：自動判斷為 other 的人不出現在正常日期分頁清單', () => {
+  const regs = [
+    { registration_id: 'r1', student_id: 's1', answers: { stay_start: '2026-08-05', transport_up: '精舍', attend_dates: ['2026-08-06'] } },
+    { registration_id: 'r2', student_id: 's2', answers: { transport_up: '精舍', attend_dates: ['2026-08-06'] } },
+  ]
+  const result = filterByFinalBucket(regs, '2026-08-06', 'up', null, otherDateEvent, {})
+  assert.equal(result.length, 1)
+  assert.equal(result[0].registration_id, 'r2')
+})
+test('filterByFinalBucket：override 指定回某個正常日期的人，改用該日期比對（不是 answers 反推的日期）', () => {
+  const regs = [
+    { registration_id: 'r1', student_id: 's1', answers: { transport_up: '精舍', attend_dates: ['2026-08-06'] } },
+  ]
+  const overridesMap = { r1: { up: { target_bucket: '2026-08-07', source_stay_start: null, source_stay_end: null, source_transport: '精舍' } } }
+  // 原本 attend_dates 只在 08-06 命中，override 後應該改在 08-07 才出現，08-06 不再出現
+  assert.equal(filterByFinalBucket(regs, '2026-08-06', 'up', null, otherDateEvent, overridesMap).length, 0)
+  assert.equal(filterByFinalBucket(regs, '2026-08-07', 'up', null, otherDateEvent, overridesMap).length, 1)
+})
+
+// ── pendingOtherDateRegs（其他日期分頁「待處理」清單，2026-08-10 補件）───────
+test('pendingOtherDateRegs：bucket 判定為 other、且沒有任何 car_members 紀錄 → 出現在待處理清單', () => {
+  const regs = [
+    { registration_id: 'r1', student_id: 's1', answers: { stay_start: '2026-08-05', transport_up: '精舍' } },
+  ]
+  const result = pendingOtherDateRegs(regs, 'up', otherDateEvent, {}, new Set())
+  assert.equal(result.length, 1)
+  assert.equal(result[0].registration_id, 'r1')
+})
+test('pendingOtherDateRegs：一旦被加進某台其他日期車（在 assignedRegIds 內）→ 從待處理清單消失', () => {
+  const regs = [
+    { registration_id: 'r1', student_id: 's1', answers: { stay_start: '2026-08-05', transport_up: '精舍' } },
+  ]
+  const result = pendingOtherDateRegs(regs, 'up', otherDateEvent, {}, new Set(['r1']))
+  assert.equal(result.length, 0)
+})
+test('pendingOtherDateRegs：bucket 不是 other 的人不出現在待處理清單', () => {
+  const regs = [
+    { registration_id: 'r1', student_id: 's1', answers: { transport_up: '精舍' } },
+  ]
+  assert.equal(pendingOtherDateRegs(regs, 'up', otherDateEvent, {}, new Set()).length, 0)
+})
+test('pendingOtherDateRegs：手動 override 指定回 other 但還沒排進車 → 也出現在待處理清單', () => {
+  const regs = [
+    { registration_id: 'r1', student_id: 's1', answers: { transport_up: '精舍' } },
+  ]
+  const overridesMap = { r1: { up: { target_bucket: 'other', source_stay_start: null, source_stay_end: null, source_transport: '精舍' } } }
+  const result = pendingOtherDateRegs(regs, 'up', otherDateEvent, overridesMap, new Set())
+  assert.equal(result.length, 1)
 })
 
 console.log('')

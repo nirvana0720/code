@@ -114,3 +114,31 @@
    專案（events.multi_slot_transport／car_assignments.time_slot 兩個欄位都要
    存在），沒套用會在第一個 POST 就丟出 42703 column does not exist，先貼這支
    migration 到測試專案 SQL Editor 再跑。
+
+「其他日期」分頁 + 分時段彈性選項測試（2026-08-10 建立）
+------------------------------------------------------------------
+一樣分兩支檔案：
+
+1. test/unit_slot_logic.mjs 同一支檔案追加：slotsForDirection／timeSlotsFor
+   （分時段選項改後台可勾選）、resolveOtherDateSlots／resolveFinalBucket／
+   filterByFinalBucket（src/lib/otherDateHelpers.js 的純判斷邏輯：掛單日期超出
+   活動官方範圍的自動判斷、isOtherTransport 強制不歸類、override 疊加與 isStale
+   偵測、正常日期分頁排除歸進其他日期的人）。跟前面分時段的單元測試一樣不連線
+   Supabase，執行方式相同（node test/run_unit.mjs）。
+
+2. test/run.js 的「其他日期分頁整合測試」區塊（分時段整合測試後面）—— 一樣用
+   service_role key 自建 fixture（event_id 尾碼 f1，報名 f2/f3），涵蓋：
+   - 建立車輛：service_date 維持 NULL、is_other_date=true 正確寫入
+   - 搜尋加人：car_members 正確寫入
+   - 存檔讀回：模擬 saveOtherDateCars 先刪後插（只刪 is_other_date=true 這批），
+     驗證正常日期分頁的車（is_other_date=false）不會被誤刪
+   - 2026-08-10 補件：「移到...」把人從其他日期車移到正常日期時，依序重現
+     upsertRegistrationBucketOverride + deleteOtherDateCarMember 送出的請求，驗證
+     override 與原本車輛的 car_members 清除都「立即」落地資料庫，不是只改前端 state、
+     留到下次按「儲存」才生效（避免沒存檔就離開頁面時，同一人同時出現在兩個分頁）
+   ⚠️ 需要 sql/add_other_date_bucket.sql 已經套用到測試專案（events.up_slot_options／
+   car_assignments.is_other_date／registration_bucket_overrides 都要存在），沒套用
+   會在第一個 adminPost car_assignments 就丟出「Could not find the 'is_other_date'
+   column」，先貼這支 migration 到測試專案 SQL Editor 再跑。2026-08-10 寫完當下
+   測試專案還沒貼這支 migration，這三項測試預期會失敗，屬已知狀態，不是程式碼的
+   bug——等這支 migration 貼過去之後應該全綠燈。

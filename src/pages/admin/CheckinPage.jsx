@@ -134,6 +134,14 @@ export default function CheckinPage() {
 
   useEffect(() => { refreshStats() }, [refreshStats])
 
+  // ── 閒置時定期重載（確保程式碼與資料保持最新）──────────────
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (status === 'idle') window.location.reload()
+    }, 10 * 60 * 1000) // 閒置 10 分鐘自動重載
+    return () => clearInterval(timer)
+  }, [status])
+
   // 載入完整報名清單（給手動搜尋用）
   const loadAllRegs = useCallback(async () => {
     const { registrations } = await getRegistrationsWithStudents(id)

@@ -157,7 +157,16 @@ WITH checks(seq, migration_file, note, ok) AS (
    'events.up_slot_options／car_assignments.is_other_date／registration_bucket_overrides 表存在（排車其他日期分頁＋分時段彈性選項，2026-08-10）',
    EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='up_slot_options')
    AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='car_assignments' AND column_name='is_other_date')
-   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='registration_bucket_overrides'))
+   AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='registration_bucket_overrides')),
+
+  (89, 'add_evening_down_slot.sql',
+   'car_assignments.time_slot CHECK 限制已放寬允許「晚上」（分時段回程新增時段選項，2026-08-12）',
+   EXISTS (
+     SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'car_assignments'::regclass
+     AND conname = 'car_assignments_time_slot_check'
+     AND pg_get_constraintdef(oid) LIKE '%晚上%'
+   ))
 )
 SELECT
   seq AS "順序",

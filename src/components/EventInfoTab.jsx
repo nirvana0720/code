@@ -4,19 +4,21 @@ import ImagePositionEditor from './ImagePositionEditor'
 import EventSessionFieldsPanel from './EventSessionFieldsPanel'
 import EventSessionsPanel from './EventSessionsPanel'
 
-const SLOT_CHOICES = ['上午', '中午', '下午']
+const UP_SLOT_CHOICES = ['上午', '中午', '下午']
+const DOWN_SLOT_CHOICES = ['上午', '中午', '下午', '晚上']
 
 function SlotOptionsCheckboxes({ label, direction, form, setForm }) {
   const field = direction === 'up' ? 'up_slot_options' : 'down_slot_options'
+  const choices = direction === 'up' ? UP_SLOT_CHOICES : DOWN_SLOT_CHOICES
   const checked = slotsForDirection(direction, form)
   function toggle(slot) {
     const next = checked.includes(slot) ? checked.filter(s => s !== slot) : [...checked, slot]
-    setForm(f => ({ ...f, [field]: SLOT_CHOICES.filter(s => next.includes(s)) }))
+    setForm(f => ({ ...f, [field]: choices.filter(s => next.includes(s)) }))
   }
   return (
     <div className="flex items-center gap-3 flex-wrap">
       <span className="text-sm text-gray-600 w-16 shrink-0">{label}</span>
-      {SLOT_CHOICES.map(slot => (
+      {choices.map(slot => (
         <label key={slot} className="inline-flex items-center gap-1 text-sm text-gray-700 cursor-pointer select-none">
           <input
             type="checkbox"

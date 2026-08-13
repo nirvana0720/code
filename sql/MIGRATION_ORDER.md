@@ -171,6 +171,12 @@
 |------|------|------|
 | 88 | `add_other_date_bucket.sql` | 新增 `events.up_slot_options`／`down_slot_options`（分時段選項改後台可勾選，NULL=沿用舊寫死預設）、`car_assignments.is_other_date`（「其他日期」分頁車輛標記，service_date 固定 NULL）、新表 `registration_bucket_overrides`（跨分頁手動 override，含 isStale 判斷用的答案快照）。只套用到之後使用此功能的活動，不回填舊資料 |
 
+## 第十三階段：分時段回程新增「晚上」選項（2026-08-12）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 89 | `add_evening_down_slot.sql` | 放寬 `car_assignments.time_slot` 的 CHECK 限制，允許回程新增『晚上』時段選項，2026-08-12 |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、

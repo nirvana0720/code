@@ -1,3 +1,6 @@
+-- ⚠️ 2026-08-12 補記：本檔已作廢，touch_registrations_updated_at 現行主檔是
+-- sql/schema.sql，改函式一律去該檔改，不要回這支改。這支檔案只剩歷史紀錄用途。
+--
 -- ============================================================
 -- Phase 2 補強 — Migration
 -- 在 Supabase Dashboard → SQL Editor 執行一次

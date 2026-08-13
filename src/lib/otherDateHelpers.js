@@ -1,7 +1,7 @@
 // 職責單一：判斷報名者是否該被歸進「其他日期」分頁（提前掛單回山 / 延後回家），
 // 以及跨分頁手動 override 的疊加邏輯
 
-import { isOtherTransport } from './carrangeHelpers'
+import { isOtherTransport, genId } from './carrangeHelpers'
 import { isInSlot } from './attendDateHelpers'
 
 // 純判斷：這個人是否因為掛單日期超出活動官方範圍，該被自動歸進其他日期
@@ -65,4 +65,16 @@ export function pendingOtherDateRegs(registrations, direction, event, overridesM
   return registrations.filter(r =>
     resolveFinalBucket(r, direction, event, overridesMap).bucket === 'other' && !assigned.has(r.registration_id)
   )
+}
+
+// 其他日期分頁「建議共乘分組」：從 computeSmallGroups 的 matchedGroups 其中一組，
+// 一次建立一台其他日期車輛物件（司機＋乘客都已加入 members），車輛命名優先用司機姓名，
+// 司機姓名缺失（理論上不會）才退回車牌或「其他車」。純資料轉換，不觸碰 state／DB。
+export function buildOtherDateCarFromGroup(group) {
+  return {
+    tempId: genId(),
+    car_name: group.driverName ? `${group.driverName}的車` : (group.plate || '其他車'),
+    note: '',
+    members: group.members.map(r => r.registration_id),
+  }
 }

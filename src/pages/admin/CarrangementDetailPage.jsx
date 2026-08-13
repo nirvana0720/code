@@ -28,7 +28,7 @@ import { preceptBadgeProps } from '../../lib/registrationHelpers'
 import { genId, dirLabel, getName, getGuestNote, findGuestHost, fieldKeysFor, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, keyFor, OTHER_DATE_KEY } from '../../lib/carrangeHelpers'
 import { eachDateInRange } from '../../lib/attendDateHelpers'
 import { timeSlotsFor, restoreCarDirection, overrideStateKey, allDateDirectionSlots } from '../../lib/carSlotHelpers'
-import { filterByFinalBucket, resolveFinalBucket, pendingOtherDateRegs as computePendingOtherDateRegs } from '../../lib/otherDateHelpers'
+import { filterByFinalBucket, resolveFinalBucket, pendingOtherDateRegs as computePendingOtherDateRegs, buildOtherDateCarFromGroup } from '../../lib/otherDateHelpers'
 import autoArrange from '../../lib/autoArrange'
 import { getChoreLocationsByEvent } from '../../lib/choreAssignment'
 import { formatEventDate } from '../../lib/eventDetailHelpers'
@@ -211,6 +211,24 @@ export default function CarrangementDetailPage() {
   const pendingOtherDateRegs = useMemo(
     () => computePendingOtherDateRegs(regs, direction, event, overridesMap, otherDateAssignedSet),
     [regs, direction, event, overridesMap, otherDateAssignedSet]
+  )
+  // 待處理名單再切分：有填「自行開車／搭學員的車」的人 → 套用共乘自動配對；
+  // 其餘（大車／其他交通／未填）維持原本平面清單
+  const pendingOtherDateSmallRegs = useMemo(
+    () => pendingOtherDateRegs.filter(r => isSmallCar(r.answers, direction)),
+    [pendingOtherDateRegs, direction]
+  )
+  const pendingOtherDateRestRegs = useMemo(
+    () => pendingOtherDateRegs.filter(r => !isSmallCar(r.answers, direction)),
+    [pendingOtherDateRegs, direction]
+  )
+  const { matchedGroups: otherDatePendingGroups, orphans: otherDatePendingOrphans } = useMemo(
+    () => computeSmallGroups(pendingOtherDateSmallRegs, direction),
+    [pendingOtherDateSmallRegs, direction]
+  )
+  const otherDatePendingFlat = useMemo(
+    () => [...otherDatePendingOrphans, ...pendingOtherDateRestRegs],
+    [otherDatePendingOrphans, pendingOtherDateRestRegs]
   )
 
   // ── 載入 ──
@@ -418,6 +436,11 @@ export default function CarrangementDetailPage() {
   }
   function addOtherDateMember(idx, regId) {
     setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, members: [...c.members, regId] } : c))
+  }
+  // 「建議共乘分組」一鍵建立：新增一台其他日期車＋整組成員（司機＋乘客）一次加入，
+  // 不用先新增車輛再逐一手動加人
+  function addOtherDateCarFromGroup(group) {
+    setOtherDateCars(prev => [...prev, buildOtherDateCarFromGroup(group)])
   }
   function removeOtherDateMember(idx, regId) {
     setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, members: c.members.filter(id => id !== regId) } : c))
@@ -760,7 +783,9 @@ export default function CarrangementDetailPage() {
             onAddMember={addOtherDateMember} onRemoveMember={removeOtherDateMember}
             onAddCar={addOtherDateCar} onRemoveCar={removeOtherDateCar}
             dates={dates} onMoveToBucket={handleMoveToBucket} bucketInfoByReg={bucketInfoByReg}
-            pendingRegs={pendingOtherDateRegs}
+            pendingRegs={otherDatePendingFlat}
+            pendingGroups={otherDatePendingGroups}
+            onCreateCarFromGroup={addOtherDateCarFromGroup}
           />
         ) : (
         <>

@@ -22,9 +22,9 @@ import {
   isFieldVisible,
   getVisibleRequiredFields,
 } from '../src/lib/attendDateHelpers.js'
-import { keyFor } from '../src/lib/carrangeHelpers.js'
+import { keyFor, computeSmallGroups, isSmallCar } from '../src/lib/carrangeHelpers.js'
 import { timeSlotsFor, overrideStateKey, slotsForDirection } from '../src/lib/carSlotHelpers.js'
-import { resolveOtherDateSlots, resolveFinalBucket, filterByFinalBucket, pendingOtherDateRegs } from '../src/lib/otherDateHelpers.js'
+import { resolveOtherDateSlots, resolveFinalBucket, filterByFinalBucket, pendingOtherDateRegs, buildOtherDateCarFromGroup } from '../src/lib/otherDateHelpers.js'
 
 let pass = 0, fail = 0
 function test(name, fn) {
@@ -307,6 +307,92 @@ test('pendingOtherDateRegs：手動 override 指定回 other 但還沒排進車 
   const overridesMap = { r1: { up: { target_bucket: 'other', source_stay_start: null, source_stay_end: null, source_transport: '精舍' } } }
   const result = pendingOtherDateRegs(regs, 'up', otherDateEvent, overridesMap, new Set())
   assert.equal(result.length, 1)
+})
+
+// ── 其他日期分頁「建議共乘分組」（2026-08-13 新增）─────────────────────────
+test('其他日期待處理切分＋共乘配對：driver+passenger 都是 bucket=other 且未排進任何其他日期車 → computeSmallGroups 能配成一組', () => {
+  const driver = {
+    registration_id: 'd1', student_id: 's1', students: { name: '王小明' },
+    answers: { stay_start: '2026-08-05', transport_up: '自行開車', plate_up: 'ABC-1234' },
+  }
+  const passenger = {
+    registration_id: 'p1', student_id: 's2', students: { name: '李小華' },
+    answers: { stay_start: '2026-08-05', transport_up: '搭學員的車', carpool_up: '王小明' },
+  }
+  const regs = [driver, passenger]
+
+  const pending = pendingOtherDateRegs(regs, 'up', otherDateEvent, {}, new Set())
+  assert.equal(pending.length, 2, '兩人都該進待處理清單')
+
+  const smallSubset = pending.filter(r => isSmallCar(r.answers, 'up'))
+  assert.equal(smallSubset.length, 2)
+  const { matchedGroups, orphans } = computeSmallGroups(smallSubset, 'up')
+  assert.equal(matchedGroups.length, 1, '應該配成一組')
+  assert.equal(matchedGroups[0].driverName, '王小明')
+  assert.deepEqual(matchedGroups[0].members.map(m => m.registration_id), ['d1', 'p1'])
+  assert.equal(orphans.length, 0)
+})
+
+test('其他日期「建立這台車」：buildOtherDateCarFromGroup 把整組（司機＋乘客）一次建成新車，建立後從待處理清單消失', () => {
+  const driver = {
+    registration_id: 'd1', student_id: 's1', students: { name: '王小明' },
+    answers: { stay_start: '2026-08-05', transport_up: '自行開車', plate_up: 'ABC-1234' },
+  }
+  const passenger = {
+    registration_id: 'p1', student_id: 's2', students: { name: '李小華' },
+    answers: { stay_start: '2026-08-05', transport_up: '搭學員的車', carpool_up: '王小明' },
+  }
+  const regs = [driver, passenger]
+  const { matchedGroups } = computeSmallGroups(regs, 'up')
+  assert.equal(matchedGroups.length, 1)
+
+  const car = buildOtherDateCarFromGroup(matchedGroups[0])
+  assert.equal(car.car_name, '王小明的車')
+  assert.deepEqual(car.members, ['d1', 'p1'], '司機＋乘客都要在新車的 members 裡')
+  assert.ok(car.tempId, '應該有 tempId 供前端 React key／存檔用')
+
+  // 建立後：這兩人已是其他日期車的 car_members → 從待處理清單（含建議分組來源）消失
+  const assignedRegIds = new Set(car.members)
+  const stillPending = pendingOtherDateRegs(regs, 'up', otherDateEvent, {}, assignedRegIds)
+  assert.equal(stillPending.length, 0, '建立車輛後兩人都不該再出現在待處理清單')
+})
+
+test('其他日期待處理切分：配不到司機的孤兒乘客／大車／其他交通／未填交通 仍留在平面清單，不誤入建議分組', () => {
+  const orphanPassenger = {
+    registration_id: 'o1', student_id: 's3', students: { name: '陳小美' },
+    answers: { stay_start: '2026-08-05', transport_up: '搭學員的車', carpool_up: '查無此人' },
+  }
+  const largeCarReg = {
+    registration_id: 'l1', student_id: 's4', students: { name: '林大同' },
+    answers: { stay_start: '2026-08-05', transport_up: '精舍' },
+  }
+  const otherTransportReg = {
+    registration_id: 'ot1', student_id: 's5', students: { name: '張小天' },
+    answers: { transport_up: '其他交通' },
+  }
+  const noTransportReg = {
+    registration_id: 'n1', student_id: 's6', students: { name: '劉小安' },
+    answers: {},
+  }
+  const regs = [orphanPassenger, largeCarReg, otherTransportReg, noTransportReg]
+  // 其他交通／未填交通方式不會被自動判斷歸進 other，這裡模擬師父用「移到...」手動指定回其他日期
+  const overridesMap = {
+    ot1: { up: { target_bucket: 'other', source_stay_start: null, source_stay_end: null, source_transport: '其他交通' } },
+    n1:  { up: { target_bucket: 'other', source_stay_start: null, source_stay_end: null, source_transport: null } },
+  }
+
+  const pending = pendingOtherDateRegs(regs, 'up', otherDateEvent, overridesMap, new Set())
+  assert.equal(pending.length, 4)
+
+  const smallSubset = pending.filter(r => isSmallCar(r.answers, 'up'))
+  const restSubset   = pending.filter(r => !isSmallCar(r.answers, 'up'))
+  assert.deepEqual(smallSubset.map(r => r.registration_id), ['o1'])
+  assert.deepEqual(restSubset.map(r => r.registration_id).sort(), ['l1', 'n1', 'ot1'])
+
+  const { matchedGroups, orphans } = computeSmallGroups(smallSubset, 'up')
+  assert.equal(matchedGroups.length, 0, '沒有司機，不該配成任何建議分組')
+  assert.equal(orphans.length, 1)
+  assert.equal(orphans[0].registration_id, 'o1')
 })
 
 console.log('')

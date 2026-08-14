@@ -1,4 +1,4 @@
-import { dirLabel, getName, getClasses } from '../../lib/carrangeHelpers'
+import { dirLabel, getName, getClasses, fieldKeysFor } from '../../lib/carrangeHelpers'
 import { preceptBadgeProps } from '../../lib/registrationHelpers'
 import SearchableSelect from '../SearchableSelect'
 import MoveToButton from './MoveToButton'
@@ -9,8 +9,9 @@ export default function OtherDateCarList({
   direction, cars, regMap, searchableRegs,
   onUpdateCarName, onUpdateCarNote, onAddMember, onRemoveMember, onAddCar, onRemoveCar,
   dates, onMoveToBucket, bucketInfoByReg,
-  pendingRegs = [],
+  pendingRegs = [], pendingGroups = [], onCreateCarFromGroup,
 }) {
+  const carpoolHint = r => (r.answers?.[fieldKeysFor(direction).carpool] ?? '').trim()
   return (
     <section>
       <h2 className="text-base font-bold text-gray-700 mb-2">
@@ -22,42 +23,80 @@ export default function OtherDateCarList({
         不分時段、不分大小車。可用下方「＋搜尋加人」把任何報名者手動加進車輛。
       </p>
 
-      {pendingRegs.length > 0 && (
-        <div className="mb-4 bg-orange-50 border border-orange-300 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 bg-orange-100 border-b border-orange-200 text-sm font-semibold text-orange-800">
-            ⚠️ 待處理（{pendingRegs.length} 人）— 系統判斷該歸其他日期，但還沒被排進任何車輛
-          </div>
-          <div className="divide-y divide-orange-100">
-            {pendingRegs.map(r => {
-              const cls = getClasses(r).map(c => c.class_name).join('/')
-              const badges = preceptBadgeProps(r)
-              return (
-                <div key={r.registration_id} className="flex items-center gap-2 px-4 py-2 text-sm">
-                  <span className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
-                    <span className="font-medium">{getName(r)}</span>
-                    {badges.map((b, i) => (
-                      <span key={i} className={b.className} title={b.title}>{b.children}</span>
-                    ))}
-                  </span>
-                  {cls && <span className="text-xs text-gray-400">{cls}</span>}
-                  {cars.length === 0 ? (
-                    <span className="text-xs text-gray-400">請先「＋ 新增車輛」</span>
-                  ) : (
-                    <select
-                      value=""
-                      onChange={e => { const idx = e.target.value; if (idx !== '') onAddMember(Number(idx), r.registration_id) }}
-                      className="text-xs border rounded px-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
-                    >
-                      <option value="">+ 加入車輛</option>
-                      {cars.map((c, ci) => (
-                        <option key={c.tempId} value={ci}>{c.car_name}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+      {(pendingGroups.length > 0 || pendingRegs.length > 0) && (
+        <div className="mb-4 space-y-3">
+          {pendingGroups.length > 0 && (
+            <div className="bg-teal-50 border border-teal-300 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-teal-100 border-b border-teal-200 text-sm font-semibold text-teal-800">
+                🚗 建議共乘分組（{pendingGroups.length} 組）— 依報名填寫的共乘者姓名自動配對，可一鍵建立車輛
+              </div>
+              <div className="divide-y divide-teal-100">
+                {pendingGroups.map(g => {
+                  const passengers = g.members.filter(m => m.registration_id !== g.key)
+                  return (
+                    <div key={g.key} className="flex items-start gap-2 px-4 py-2.5 text-sm">
+                      <span className="flex-1 min-w-0">
+                        <span className="font-medium">{g.driverName}</span>
+                        {g.plate && <span className="text-xs text-gray-400 ml-1.5">{g.plate}</span>}
+                        {passengers.length > 0 && (
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            共乘：{passengers.map(m => getName(m)).join('、')}
+                          </div>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => onCreateCarFromGroup(g)}
+                        className="text-xs px-2.5 py-1 rounded-lg border border-teal-400 text-teal-700 bg-white hover:bg-teal-100 font-medium shrink-0"
+                      >
+                        ＋ 建立這台車
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {pendingRegs.length > 0 && (
+            <div className="bg-orange-50 border border-orange-300 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-orange-100 border-b border-orange-200 text-sm font-semibold text-orange-800">
+                ⚠️ 待處理（{pendingRegs.length} 人）— 系統判斷該歸其他日期，但還沒被排進任何車輛
+              </div>
+              <div className="divide-y divide-orange-100">
+                {pendingRegs.map(r => {
+                  const cls = getClasses(r).map(c => c.class_name).join('/')
+                  const badges = preceptBadgeProps(r)
+                  const hint = carpoolHint(r)
+                  return (
+                    <div key={r.registration_id} className="flex items-center gap-2 px-4 py-2 text-sm">
+                      <span className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium">{getName(r)}</span>
+                        {badges.map((b, i) => (
+                          <span key={i} className={b.className} title={b.title}>{b.children}</span>
+                        ))}
+                        {hint && <span className="text-xs text-gray-400">原填共乘：{hint}</span>}
+                      </span>
+                      {cls && <span className="text-xs text-gray-400">{cls}</span>}
+                      {cars.length === 0 ? (
+                        <span className="text-xs text-gray-400">請先「＋ 新增車輛」</span>
+                      ) : (
+                        <select
+                          value=""
+                          onChange={e => { const idx = e.target.value; if (idx !== '') onAddMember(Number(idx), r.registration_id) }}
+                          className="text-xs border rounded px-1.5 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-orange-400"
+                        >
+                          <option value="">+ 加入車輛</option>
+                          {cars.map((c, ci) => (
+                            <option key={c.tempId} value={ci}>{c.car_name}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -98,6 +137,7 @@ export default function OtherDateCarList({
                     if (!r) return null
                     const cls = getClasses(r).map(c => c.class_name).join('/')
                     const badges = preceptBadgeProps(r)
+                    const hint = carpoolHint(r)
                     return (
                       <div key={regId} className="flex items-center gap-2 px-4 py-2 text-sm">
                         <span className="shrink-0 inline-flex items-center justify-center min-w-6 h-6 px-1.5 rounded-full bg-gray-100 text-gray-500 text-xs font-mono tabular-nums">
@@ -108,6 +148,7 @@ export default function OtherDateCarList({
                           {badges.map((b, i) => (
                             <span key={i} className={b.className} title={b.title}>{b.children}</span>
                           ))}
+                          {hint && <span className="text-xs text-gray-400">原填共乘：{hint}</span>}
                         </span>
                         {cls && <span className="text-xs text-gray-400">{cls}</span>}
                         <button

@@ -22,14 +22,14 @@ export default function SmallCarList({
       <div className="space-y-2">
         {/* 有配對的小車群組 */}
         {finalSmallGroups.map((g, idx) => (
-          <div key={g.key} className={`bg-white rounded-xl shadow-sm overflow-hidden border ${g.needsDriverChoice ? 'border-2 border-red-400 ring-2 ring-red-100' : ''}`}>
+          <div key={g.key} className={`bg-white rounded-xl shadow-sm overflow-visible border ${g.needsDriverChoice ? 'border-2 border-red-400 ring-2 ring-red-100' : ''}`}>
             {g.needsDriverChoice && (
-              <div className="px-4 py-2 bg-red-50 text-red-700 text-xs font-medium border-b border-red-200 flex items-center gap-2">
+              <div className="px-4 py-2 bg-red-50 text-red-700 text-xs font-medium border-b border-red-200 flex items-center gap-2 rounded-t-xl">
                 <span className="animate-pulse">⚠️</span>
                 <span>同車號有多位填了車號的「自行開車」乘客，請從下方下拉選單指定誰是主司機</span>
               </div>
             )}
-            <div className="flex items-center gap-2 px-4 py-3 border-b bg-gray-50 text-sm font-semibold text-gray-700">
+            <div className={`flex items-center gap-2 px-4 py-3 border-b bg-gray-50 text-sm font-semibold text-gray-700 ${!g.needsDriverChoice ? 'rounded-t-xl' : ''}`}>
               <span className="text-green-700 bg-green-100 rounded-full px-2 py-0.5 text-xs">
                 小車 {idx + 1}
               </span>
@@ -134,7 +134,7 @@ export default function SmallCarList({
             </div>
 
             {/* 小車法師選擇 + 提前出發／延後回程 */}
-            <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-100 flex items-center gap-3 flex-wrap">
+            <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-100 flex items-center gap-3 flex-wrap rounded-b-xl">
               {allMonks.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-xs text-purple-600 font-medium shrink-0">🏯 法師：</span>
@@ -200,8 +200,8 @@ export default function SmallCarList({
 
         {/* 找不到司機、尚未指定小車的乘客 */}
         {unassignedOrphans.length > 0 && (
-          <div className="bg-orange-50 border border-orange-300 rounded-xl overflow-hidden">
-            <div className="px-4 py-3 bg-orange-100 border-b border-orange-200 text-sm font-semibold text-orange-800">
+          <div className="bg-orange-50 border border-orange-300 rounded-xl overflow-visible">
+            <div className="px-4 py-3 bg-orange-100 border-b border-orange-200 text-sm font-semibold text-orange-800 rounded-t-xl">
               ⚠️ 找不到司機（{unassignedOrphans.length} 人）— 請手動指定搭哪台小車
             </div>
             <div className="divide-y">

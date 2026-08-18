@@ -1594,7 +1594,7 @@ function OverviewScreen({
             const bReg = statuses[b.event.event_id] ? 1 : 0
             return aReg - bReg
           })
-          .map(({ event, fields, sessions = [] }) => {
+          .map(({ event, fields, sessions = [], sessionFields = [] }) => {
           const reg = statuses[event.event_id]
           const registered = !!reg
           const confirming = cancellingEventId === event.event_id
@@ -1744,7 +1744,7 @@ function OverviewScreen({
                       )}
                       {!registered && event.kiosk_open !== false && event.status === 'active' && (
                         <button
-                          onClick={() => onSelectEvent({ event, fields, sessions })}
+                          onClick={() => onSelectEvent({ event, fields, sessions, sessionFields })}
                           className="px-4 py-2 bg-blue-600 text-white rounded-xl text-kiosk-sm font-bold shadow active:scale-95 transition-transform"
                         >
                           立即報名
@@ -1757,7 +1757,7 @@ function OverviewScreen({
                       )}
                       {registered && !confirming && (
                         <button
-                          onClick={() => onSelectEvent({ event, fields, sessions })}
+                          onClick={() => onSelectEvent({ event, fields, sessions, sessionFields })}
                           className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
                         >
                           ✓ 已報名<br/>

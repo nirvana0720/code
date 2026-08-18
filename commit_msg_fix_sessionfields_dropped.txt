@@ -1,0 +1,15 @@
+修正：學員自行報名多場次活動時，「場次共用子欄位」自訂設定沒被帶入，一律變成內建預設題目（停車／午齋）
+
+- 根因：OverviewScreen 內「立即報名」／「已報名．點此修改」兩顆按鈕組資料呼叫
+  onSelectEvent({ event, fields, sessions }) 時漏帶 sessionFields，
+  對應的 .map(({ event, fields, sessions = [] }) => ...) 解構也沒有取出 sessionFields
+- 資料庫、getActiveEvents() 撈資料、後台編輯器（SessionFieldsEditor／
+  EventSessionFieldsPanel）都正常，純粹是這兩個按鈕組資料時漏了這個欄位，
+  導致 handleSelectEvent() 收到的 item.sessionFields 永遠是 undefined，
+  所以永遠走 FALLBACK_SESSION_FIELDS（內建「停車」＋僅上午顯示的「午齋」），
+  管理者在後台設定的自訂場次子欄位（例如「是否需要午齋」）從未真正生效
+- 修法：.map 解構加上 sessionFields = []，兩處 onSelectEvent(...) 呼叫一併補上
+  sessionFields，純前端 3 行改動，不動資料庫、不影響「代人報名」流程
+  （FriendEventChooseScreen 是直接傳整個 item，本來就沒有這個問題）
+- 已用 esbuild 做語法檢查通過（device_bash 對這支大檔案跑 vite build 會逾時，
+  改用 esbuild 快速核對語法沒有問題）

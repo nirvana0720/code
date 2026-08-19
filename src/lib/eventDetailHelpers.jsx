@@ -136,7 +136,7 @@ export function exportCSV(registrations, fields, event) {
   const answerHeaders = fields.map(f => f.field_label)
   // 補基本欄位：班級、組別、報名時間（首次報名）— 排座位與後續統計常用
   const header = [
-    '學員編號', '姓名', '班級', '組別',
+    '學員編號', '姓名', '班級', '組別', '寮號',
     '報名時間', '更新時間', '報到時間',
     ...answerHeaders,
   ]
@@ -157,7 +157,7 @@ export function exportCSV(registrations, fields, event) {
       return formatted === '-' ? '' : formatted
     })
     return [
-      r.student_id ?? '訪客', name, classCol, groupCol,
+      r.student_id ?? '訪客', name, classCol, groupCol, r.dormitory_room ?? '',
       regAt, updatedAt, checkinAt,
       ...answerCols,
     ]

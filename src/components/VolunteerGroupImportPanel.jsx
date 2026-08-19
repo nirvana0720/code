@@ -3,13 +3,16 @@ import { useState } from 'react'
 import { extractPdfLines } from '../lib/pdfTextExtract'
 import { updateVolunteerGroups } from '../lib/mountainDataImport'
 
-// PDF 每列格式範例：「1 7/4 10:00 李素戀 傳素 女 0937-523964 行堂組 7/4 10:00 7/11 12:00」
-// 姓名＝整行第一段連續中文（跳過序號/日期/時間）；組別＝含「組」字的詞（電話不匯入）
+// 用完整欄位結構鎖定「真正的報到總表資料列」，避免說明文字段落被誤判、
+// 也不再要求組別一定要以「組」字結尾（例如「文教中心」「大寮煮飯區」這類命名以前會被漏掉）
+// 資料列格式：序號 抵寺時 姓名 法名 性別 手機 組別 發心起日期 發心起時間 發心迄日期 發心迄時間
+// 例：「4 10:00 黃馨慧 傳斯 女 0986-553430 文教中心 8/22 14:00 8/23 17:30」
+const ROW_RE = /^\d{1,3}\s+\d{1,2}:\d{2}\s+([一-鿿]{2,6})\s+[一-鿿]{1,6}\s+[男女]\s+\d{4}-\d{4,6}\s+(.+?)\s+\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}/
+
 function parseVolunteerLine(line) {
-  const nameMatch  = line.match(/([一-鿿]{2,6})/)
-  const groupMatch = line.match(/([一-鿿]{1,8}組)/)
-  if (!nameMatch || !groupMatch) return null
-  return { name: nameMatch[1], group: groupMatch[1] }
+  const m = line.match(ROW_RE)
+  if (!m) return null
+  return { name: m[1], group: m[2].trim() }
 }
 
 function regDisplayName(r) {

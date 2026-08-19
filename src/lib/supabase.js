@@ -743,6 +743,7 @@ export async function getRegistrationsWithStudents(eventId) {
       checked_in_at,
       terminal,
       source,
+      dormitory_room,
       students!student_id ( name, student_classes ( class_name, group_name ) )
     `)
     .eq('event_id', eventId)

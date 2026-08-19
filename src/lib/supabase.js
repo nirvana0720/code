@@ -312,9 +312,11 @@ export async function getRegistration(eventId, studentId) {
   return data
 }
 
-export async function updateRegistration(registrationId, answers, isDriver = undefined) {
+export async function updateRegistration(registrationId, answers, isDriver = undefined, dormitoryRoom = undefined) {
   const payload = { answers }
   if (typeof isDriver === 'boolean') payload.is_driver = isDriver
+  // dormitoryRoom 是 string 才處理（含空字串＝清空寮號寫回 null）；undefined 表示呼叫端沒有要動這個欄位
+  if (typeof dormitoryRoom === 'string') payload.dormitory_room = dormitoryRoom.trim() || null
   const { error } = await supabase
     .from('registrations')
     .update(payload)

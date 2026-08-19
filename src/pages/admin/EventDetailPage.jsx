@@ -593,9 +593,11 @@ export default function EventDetailPage() {
         sessions={sessions}
         sessionFields={sessionFields}
         onClose={() => setEditingReg(null)}
-        onSaved={({ registrationId, newAnswers, newChanges }) => {
+        onSaved={({ registrationId, newAnswers, newDormitoryRoom, newChanges }) => {
           setRegistrations(prev => prev.map(r =>
-            r.registration_id === registrationId ? { ...r, answers: newAnswers } : r
+            r.registration_id === registrationId
+              ? { ...r, answers: newAnswers, dormitory_room: newDormitoryRoom }
+              : r
           ))
           setChanges(newChanges)
         }}

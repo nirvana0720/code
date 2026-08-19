@@ -19,10 +19,15 @@ import { formatSessionTabLabel, getDisplayName } from '../lib/eventDetailHelpers
  *   sessions:       event_sessions 陣列（多場次活動用）
  *   sessionFields:  event_session_fields 陣列（多場次活動用）
  *   onClose:        關閉 modal callback
- *   onSaved:        儲存成功 callback({ registrationId, newAnswers, newChanges })
+ *   onSaved:        儲存成功 callback({ registrationId, newAnswers, newDormitoryRoom, newChanges })
  *
  * 從 EventDetailPage 抽出（2026-05-21）；內部維護 answers / guestName / saving，
  * 父層只需保留「目前正在編輯哪筆」的 registration state。
+ *
+ * 2026-08-19 新增「寮號」手動編輯欄位：寮號（registrations.dormitory_room）是實體欄位，不是
+ * event_fields 動態欄位，所以獨立用一個 input 處理，不透過 DynamicForm / answers。用途是山上
+ * 事後補印的「安單小單」（個人格式，跟安單總表整批匯入的表格格式不同，匯入功能解析不了）
+ * 這種個案，直接在這裡手動填寮號。
  */
 export default function EditRegistrationModal({
   registration,
@@ -36,6 +41,7 @@ export default function EditRegistrationModal({
 }) {
   const [answers, setAnswers] = useState({})
   const [guestName, setGuestName] = useState('')
+  const [dormitoryRoom, setDormitoryRoom] = useState('')
   const [saving, setSaving] = useState(false)
 
   const isGuest = !!(registration && !registration.student_id)
@@ -45,6 +51,7 @@ export default function EditRegistrationModal({
     if (registration) {
       setAnswers(registration.answers ? { ...registration.answers } : {})
       setGuestName(registration.answers?.guest_name ?? '')
+      setDormitoryRoom(registration.dormitory_room ?? '')
       setSaving(false)
     }
   }, [registration?.registration_id])
@@ -69,13 +76,24 @@ export default function EditRegistrationModal({
       newAnswers,
     })
 
-    const { success, error } = await updateRegistration(registration.registration_id, newAnswers)
+    const newDormitoryRoom = dormitoryRoom.trim()
+    const { success, error } = await updateRegistration(
+      registration.registration_id,
+      newAnswers,
+      undefined,
+      newDormitoryRoom
+    )
     setSaving(false)
     if (!success) { alert(`儲存失敗：${error}`); return }
 
     // 重新載入異動紀錄，父層拿來更新視覺標示
     const { changes: newChanges } = await getEventChanges(eventId)
-    onSaved?.({ registrationId: registration.registration_id, newAnswers, newChanges })
+    onSaved?.({
+      registrationId: registration.registration_id,
+      newAnswers,
+      newDormitoryRoom: newDormitoryRoom || null,
+      newChanges,
+    })
     onClose?.()
   }
 
@@ -103,6 +121,17 @@ export default function EditRegistrationModal({
             />
           </div>
         )}
+
+        {/* 寮號手動編輯（實體欄位，不是動態欄位，跟安單匯入共用同一個欄位） */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-gray-600 mb-1">寮號</label>
+          <input
+            value={dormitoryRoom}
+            onChange={e => setDormitoryRoom(e.target.value)}
+            placeholder="例如：敦煌苑306-5（留白表示未安單）"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
+        </div>
 
         {/* 多場次活動：依場次渲染子欄位編輯 */}
         {event?.multi_session && Array.isArray(answers?.sessions) && answers.sessions.length > 0 ? (

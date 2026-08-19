@@ -103,6 +103,8 @@ export default function EventDetailPage() {
   // 欄位顯隱切換
   const [showCheckin, setShowCheckin] = useState(false)
   const [showRegTime, setShowRegTime] = useState(false)
+  // 寮號：純後台唯讀核對用，跟「對外公開寮號資訊」開關無關（那個是控制學員/領隊端可見度）
+  const [showDormRoom, setShowDormRoom] = useState(false)
   const [hiddenFieldKeys, setHiddenFieldKeys] = useState(new Set())
 
   // 身分別欄位（dashboard_role==='identity' 或 field_key==='identity'）
@@ -813,6 +815,8 @@ export default function EventDetailPage() {
           setShowCheckin={setShowCheckin}
           showRegTime={showRegTime}
           setShowRegTime={setShowRegTime}
+          showDormRoom={showDormRoom}
+          setShowDormRoom={setShowDormRoom}
           pinnedFieldKeys={pinnedFieldKeys}
           isVolunteerField={isVolunteerField}
           isUpField={isUpField}

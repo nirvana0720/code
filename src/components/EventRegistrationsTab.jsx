@@ -15,7 +15,7 @@ import {
   isFieldApplicableToSession,
 } from '../lib/registrationHelpers'
 
-export default function EventRegistrationsTab({ event, setEvent, id, sessions, sessionTab, setSessionTab, registrations, sessionFilteredRegistrations, lastExported, totalChangeSince, newRegIds, modifiedRegIds, cancelledChangesSince, sessionFields, showSessionStatsDetail, setShowSessionStatsDetail, fields, listSearch, setListSearch, searchedRegistrations, sortedRegistrations, isAdmin, hasGuests, selectedGuestIds, allGuestsSelected, toggleSelectAllGuests, toggleGuestSelect, showCheckin, setShowCheckin, showRegTime, setShowRegTime, pinnedFieldKeys, isVolunteerField, isUpField, isDownField, hiddenFieldKeys, toggleFieldGroup, toggleFieldKey, sortKey, sortDir, handleSort, setBatchPrintOpen, setStudentModal, setGuestModal, changes, setDiffModal, effectiveCheckinAt, handleUncheckIn, setEditingReg, handleDeleteRegistration, showCancelled, setShowCancelled, cancelledChanges, setQrModal }) {
+export default function EventRegistrationsTab({ event, setEvent, id, sessions, sessionTab, setSessionTab, registrations, sessionFilteredRegistrations, lastExported, totalChangeSince, newRegIds, modifiedRegIds, cancelledChangesSince, sessionFields, showSessionStatsDetail, setShowSessionStatsDetail, fields, listSearch, setListSearch, searchedRegistrations, sortedRegistrations, isAdmin, hasGuests, selectedGuestIds, allGuestsSelected, toggleSelectAllGuests, toggleGuestSelect, showCheckin, setShowCheckin, showRegTime, setShowRegTime, showDormRoom, setShowDormRoom, pinnedFieldKeys, isVolunteerField, isUpField, isDownField, hiddenFieldKeys, toggleFieldGroup, toggleFieldKey, sortKey, sortDir, handleSort, setBatchPrintOpen, setStudentModal, setGuestModal, changes, setDiffModal, effectiveCheckinAt, handleUncheckIn, setEditingReg, handleDeleteRegistration, showCancelled, setShowCancelled, cancelledChanges, setQrModal }) {
   return (
 <div>
       {/* 多場次：場次切換 tabs */}
@@ -576,6 +576,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
             {[
               { key: 'checkin', label: '報到', val: showCheckin, set: setShowCheckin },
               { key: 'regtime', label: '更新時間', val: showRegTime, set: setShowRegTime },
+              { key: 'dormroom', label: '寮號', val: showDormRoom, set: setShowDormRoom },
             ].map(col => (
               <button
                 key={col.key}
@@ -763,6 +764,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                 })()}
                 {showCheckin && <SortTh label="報到" colKey="checked_in_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
                 {showRegTime && <SortTh label="更新時間" colKey="updated_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
+                {showDormRoom && <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">寮號</th>}
                 <th className="sticky right-0 z-20 bg-gray-50 px-3 py-2 shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.08)]" />
               </tr>
             </thead>
@@ -888,6 +890,11 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                         {(r.updated_at ?? r.registered_at)
                           ? new Date(r.updated_at ?? r.registered_at).toLocaleString('zh-TW', { hour12: false })
                           : '-'}
+                      </td>
+                    )}
+                    {showDormRoom && (
+                      <td className="px-3 py-1.5 text-gray-700">
+                        {r.dormitory_room || <span className="text-gray-300 text-xs">—</span>}
                       </td>
                     )}
                     <td className={`px-3 py-1.5 text-right sticky right-0 z-[1] shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>

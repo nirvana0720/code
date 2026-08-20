@@ -26,7 +26,7 @@ import {
 import { preceptBadgeProps } from '../../lib/registrationHelpers'
 
 import { genId, dirLabel, getName, getGuestNote, findGuestHost, fieldKeysFor, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, keyFor, OTHER_DATE_KEY } from '../../lib/carrangeHelpers'
-import { eachDateInRange, isInSlot } from '../../lib/attendDateHelpers'
+import { eachDateInRange, isInSlot, resolveAttendSlots, resolveSlotBasedAttendSlots, isSlotBasedAnswers } from '../../lib/attendDateHelpers'
 import { timeSlotsFor, restoreCarDirection, overrideStateKey, allDateDirectionSlots } from '../../lib/carSlotHelpers'
 import { filterByFinalBucket, resolveFinalBucket, pendingOtherDateRegs as computePendingOtherDateRegs, buildOtherDateCarFromGroup } from '../../lib/otherDateHelpers'
 import autoArrange from '../../lib/autoArrange'
@@ -395,56 +395,110 @@ export default function CarrangementDetailPage() {
     setAutoArrangeWarnings(warnings)
   }
 
+  // 2026-08-20 修：陳誼婕案例排查同一天發現的另一個獨立 bug——多日回山活動裡，
+  // 「複製到另一個方向」原本只檢查「這個人在對方方向是否搭精舍大車」，沒檢查
+  // 「這個人在目前這個日期＋對方方向，是不是真的有出席需求」，導致掛單留宿的人
+  // （例如 8/22 掛單住到 8/23 才回程）被整車複製成「8/22 回程」，跟他真正的
+  // 「8/23 回程」重複。第一版修法用 isInSlot() 多加一層「這天這個方向本來就該
+  // 出席」的檢查，堵住了重複排車，但只能複製到單一固定的「日期＋時段」目標，
+  // 分時段活動裡如果同一台車混雜「當天來回」跟「隔天才回」的人，會有大半的人
+  // 對不上這個單一目標而被排除，複製結果經常變得很稀疏、甚至整台是空的。
+  // 2026-08-20 續：改成「逐人分流」——每個人各自複製到他自己真正該出現的
+  // 日期＋方向＋時段（分時段活動用 resolveSlotBasedAttendSlots 讀他自己每天
+  // 填的時段答案；非分時段的多日活動用 resolveAttendSlots；單日活動維持複製到
+  // 同一天）。一個人可能同時分流到好幾個不同日期／時段的目的地車（例如連續兩天
+  // 都當日來回），一次操作就能涵蓋所有情境，不用再跑到其他分頁手動補排。
+  function targetSlotsFor(reg, otherDir) {
+    if (dates.length === 0) {
+      // 單日活動：沒有日期／時段概念，固定複製到同一天（跟原本行為一致）
+      return [{ date: null, direction: otherDir, timeSlot: null }]
+    }
+    if (isSlotBasedAnswers(reg.answers)) {
+      return resolveSlotBasedAttendSlots(reg.answers).filter(s => s.direction === otherDir)
+    }
+    return resolveAttendSlots(reg.answers)
+      .filter(s => s.direction === otherDir)
+      .map(s => ({ ...s, timeSlot: null }))
+  }
+
   function handleCopyToOtherDir() {
     const otherDir = direction === 'up' ? 'down' : 'up'
-    // 分時段活動：去程/回程的時段選項不完全相同（上午/中午 vs 中午/下午），
-    // 目前選中的時段若對方也有就沿用，否則落到對方的第一個時段
-    const otherSlots = timeSlotsFor(event, otherDir)
-    const otherSlot = otherSlots.includes(selectedTimeSlot) ? selectedTimeSlot : otherSlots[0]
-    const otherDirKey = keyFor(selectedDate, otherDir, otherSlot)
-    const otherCarsExist = (carsByDir[otherDirKey] ?? []).length > 0
-    if (otherCarsExist && !window.confirm(`會覆蓋目前「${dirLabel(otherDir)}」的所有排車結果，確定繼續？`)) return
 
-    // 2026-08-20 修：陳誼婕案例排查同一天發現的另一個獨立 bug——多日回山活動裡，
-    // 「複製到另一個方向」原本只檢查「這個人在對方方向是否搭精舍大車」，沒檢查
-    // 「這個人在目前這個日期＋對方方向，是不是真的有出席需求」，導致掛單留宿的人
-    // （例如 8/22 掛單住到 8/23 才回程）被整車複製成「8/22 回程」，跟他真正的
-    // 「8/23 回程」重複。改用 isInSlot()（跟畫面上各分頁篩名單同一套判斷）多加一層
-    // 檢查：只有這個人在目標日期＋方向本來就該出席，才會被複製過去；不掛單、當天
-    // 來回的人因為每天都算有出席需求，isInSlot 仍會回傳真，不受影響。
+    // 逐台來源車、逐人分流，累積到「目標 dirKey → 這台來源車衍生出的新車」
+    const targetCarsByKey = {}
     let removedCount = 0
-    const copiedCars = cars.map(c => {
-      const keptMembers = c.members.filter(rid => {
+    for (const c of cars) {
+      const groups = {} // dirKey -> regId[]
+      for (const rid of c.members) {
         const reg = regMap[rid]
-        if (!reg) return false
-        const keep = isLargeCar(reg, otherDir) && isInSlot(reg.answers, selectedDate, otherDir, otherSlot)
-        if (!keep) removedCount++
-        return keep
-      })
-      return {
-        tempId:   genId(),
-        car_name: c.car_name,
-        seats:    c.seats,
-        members:  keptMembers,
-        leaders:  c.leaders.filter(lid => keptMembers.includes(lid)),
-        monks:    [...(c.monks ?? [])],
+        if (!reg || !isLargeCar(reg, otherDir)) { removedCount++; continue }
+        const slots = targetSlotsFor(reg, otherDir)
+        if (slots.length === 0) { removedCount++; continue }
+        for (const s of slots) {
+          const dk = keyFor(s.date, otherDir, s.timeSlot)
+          if (!groups[dk]) groups[dk] = []
+          groups[dk].push(rid)
+        }
       }
-    })
+      for (const [dk, regIds] of Object.entries(groups)) {
+        if (!targetCarsByKey[dk]) targetCarsByKey[dk] = []
+        targetCarsByKey[dk].push({
+          tempId:   genId(),
+          car_name: c.car_name,
+          seats:    c.seats,
+          members:  regIds,
+          leaders:  c.leaders.filter(lid => regIds.includes(lid)),
+          monks:    [...(c.monks ?? [])],
+        })
+      }
+    }
 
-    setCarsByDir(prev      => ({ ...prev, [otherDirKey]: copiedCars }))
-    setCarCountByDir(prev  => ({ ...prev, [otherDirKey]: carCount }))
-    setSeatsPerCarByDir(prev => ({ ...prev, [otherDirKey]: seatsPerCar }))
-    setOrphanByDir(prev     => ({ ...prev, [otherDirKey]: {} }))
-    setSmallOverridesByDir(prev => ({ ...prev, [otherDirKey]: {} }))
-    setAutoArrangeWarningsByDir(prev => ({ ...prev, [otherDirKey]: [] }))
+    const affectedKeys = Object.keys(targetCarsByKey)
+    if (affectedKeys.length === 0) {
+      alert(`目前這幾台車裡沒有人在「${dirLabel(otherDir)}」有對應的交通需求，無法複製。`)
+      return
+    }
+    const hasExisting = affectedKeys.some(dk => (carsByDir[dk] ?? []).length > 0)
+    if (hasExisting && !window.confirm(`會覆蓋 ${affectedKeys.length} 個日期/時段分頁「${dirLabel(otherDir)}」目前的排車結果，確定繼續？`)) return
+
+    setCarsByDir(prev => {
+      const next = { ...prev }
+      for (const dk of affectedKeys) next[dk] = targetCarsByKey[dk]
+      return next
+    })
+    setCarCountByDir(prev => {
+      const next = { ...prev }
+      for (const dk of affectedKeys) next[dk] = targetCarsByKey[dk].length
+      return next
+    })
+    setSeatsPerCarByDir(prev => {
+      const next = { ...prev }
+      for (const dk of affectedKeys) next[dk] = seatsPerCar
+      return next
+    })
+    setOrphanByDir(prev => {
+      const next = { ...prev }
+      for (const dk of affectedKeys) next[dk] = {}
+      return next
+    })
+    setSmallOverridesByDir(prev => {
+      const next = { ...prev }
+      for (const dk of affectedKeys) next[dk] = {}
+      return next
+    })
+    setAutoArrangeWarningsByDir(prev => {
+      const next = { ...prev }
+      for (const dk of affectedKeys) next[dk] = []
+      return next
+    })
 
     setDirection(otherDir)
     const fromLabel = dirLabel(direction)
     const toLabel   = dirLabel(otherDir)
     setMsg(
       removedCount > 0
-        ? `已從「${fromLabel}」複製到「${toLabel}」（自動排除 ${removedCount} 位另一方向不搭精舍車、或這天不需要該方向交通的人），記得按儲存`
-        : `已從「${fromLabel}」複製到「${toLabel}」，記得按儲存`
+        ? `已從「${fromLabel}」分流複製到「${toLabel}」共 ${affectedKeys.length} 個日期/時段分頁（自動排除 ${removedCount} 位另一方向不搭精舍車、或沒有對應交通需求的人），記得按儲存`
+        : `已從「${fromLabel}」分流複製到「${toLabel}」共 ${affectedKeys.length} 個日期/時段分頁，記得按儲存`
     )
     setTimeout(() => setMsg(''), 8000)
   }

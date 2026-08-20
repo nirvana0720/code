@@ -79,7 +79,7 @@ export default function LargeCarList({
             <button
               onClick={handleCopyToOtherDir}
               className="px-3 py-2 text-sm border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 self-end font-medium"
-              title={`複製目前的排法到「${dirLabel(direction === 'up' ? 'down' : 'up')}」（會依報名資料自動篩選大車人員）`}
+              title={`把這幾台車的人各自分流複製到「${dirLabel(direction === 'up' ? 'down' : 'up')}」他們自己真正該出現的日期／時段（依報名資料自動篩選、自動分流，不限同一天）`}
             >
               📋 複製到{direction === 'up' ? '回程' : '去程'}
             </button>

@@ -26,7 +26,7 @@ import {
 import { preceptBadgeProps } from '../../lib/registrationHelpers'
 
 import { genId, dirLabel, getName, getGuestNote, findGuestHost, fieldKeysFor, isSmallCar, isLargeCar, isOtherTransport, computeSmallGroups, keyFor, OTHER_DATE_KEY } from '../../lib/carrangeHelpers'
-import { eachDateInRange } from '../../lib/attendDateHelpers'
+import { eachDateInRange, isInSlot } from '../../lib/attendDateHelpers'
 import { timeSlotsFor, restoreCarDirection, overrideStateKey, allDateDirectionSlots } from '../../lib/carSlotHelpers'
 import { filterByFinalBucket, resolveFinalBucket, pendingOtherDateRegs as computePendingOtherDateRegs, buildOtherDateCarFromGroup } from '../../lib/otherDateHelpers'
 import autoArrange from '../../lib/autoArrange'
@@ -203,9 +203,37 @@ export default function CarrangementDetailPage() {
     () => new Set(otherDateCars.flatMap(c => c.members)),
     [otherDateCars]
   )
+  // 2026-08-20 修：陳誼婕案例——同一人同時出現在「正常日期」小車與「其他日期」車，
+  // root cause 是搜尋加人的候選名單之前只排除「已在其他日期車」的人，沒排除「已在正常
+  // 日期車」的人，導致 +搜尋加人 可以搜到已經有正常排車的人、再加一次造成重複排車。
+  // 這裡逐日＋逐時段重算這個方向「正常日期」大車／小車已指派的人（含孤兒手動指定、
+  // 大車移小車 override），跟畫面上各日期分頁實際顯示的指派結果保持一致。
+  const normalDateAssignedForDirection = useMemo(() => {
+    const set = new Set()
+    // 大車：carsByDir 是用 dirKey（含日期／方向／時段）索引，篩出屬於目前方向的即可
+    for (const [dk, dkCars] of Object.entries(carsByDir)) {
+      if (!dk.split('::').includes(direction)) continue
+      for (const c of dkCars) for (const id of (c.members ?? [])) set.add(id)
+    }
+    // 小車：逐日／逐時段重算共乘分組＋孤兒指定／大車移小車 override，跟各分頁小車清單同邏輯
+    for (const dateKey of dateKeysAll) {
+      for (const timeSlot of timeSlotsFor(event, direction)) {
+        const dk = keyFor(dateKey, direction, timeSlot)
+        const dateRegs = filterByFinalBucket(regs, dateKey, direction, timeSlot, event, overridesMap)
+        const dateSmallPeople = dateRegs.filter(r => isSmallCar(r.answers, direction))
+        const { matchedGroups: dateMatched, orphans: dateOrphans } = computeSmallGroups(dateSmallPeople, direction)
+        for (const g of dateMatched) for (const m of g.members) set.add(m.registration_id)
+        const dateOrphanAssignments = orphanByDir[dk] ?? {}
+        for (const o of dateOrphans) if (dateOrphanAssignments[o.registration_id]) set.add(o.registration_id)
+        const dateSmallOverrides = smallOverridesByDir[dk] ?? {}
+        for (const regId of Object.keys(dateSmallOverrides)) set.add(regId)
+      }
+    }
+    return set
+  }, [carsByDir, direction, dateKeysAll, event, regs, overridesMap, orphanByDir, smallOverridesByDir])
   const searchableOtherDateRegs = useMemo(
-    () => regs.filter(r => !otherDateAssignedSet.has(r.registration_id)),
-    [regs, otherDateAssignedSet]
+    () => regs.filter(r => !otherDateAssignedSet.has(r.registration_id) && !normalDateAssignedForDirection.has(r.registration_id)),
+    [regs, otherDateAssignedSet, normalDateAssignedForDirection]
   )
   // 系統自動判斷該歸其他日期、但還沒被排進任何其他日期車輛的人（即時衍生，不持久化）
   const pendingOtherDateRegs = useMemo(
@@ -377,12 +405,19 @@ export default function CarrangementDetailPage() {
     const otherCarsExist = (carsByDir[otherDirKey] ?? []).length > 0
     if (otherCarsExist && !window.confirm(`會覆蓋目前「${dirLabel(otherDir)}」的所有排車結果，確定繼續？`)) return
 
+    // 2026-08-20 修：陳誼婕案例排查同一天發現的另一個獨立 bug——多日回山活動裡，
+    // 「複製到另一個方向」原本只檢查「這個人在對方方向是否搭精舍大車」，沒檢查
+    // 「這個人在目前這個日期＋對方方向，是不是真的有出席需求」，導致掛單留宿的人
+    // （例如 8/22 掛單住到 8/23 才回程）被整車複製成「8/22 回程」，跟他真正的
+    // 「8/23 回程」重複。改用 isInSlot()（跟畫面上各分頁篩名單同一套判斷）多加一層
+    // 檢查：只有這個人在目標日期＋方向本來就該出席，才會被複製過去；不掛單、當天
+    // 來回的人因為每天都算有出席需求，isInSlot 仍會回傳真，不受影響。
     let removedCount = 0
     const copiedCars = cars.map(c => {
       const keptMembers = c.members.filter(rid => {
         const reg = regMap[rid]
         if (!reg) return false
-        const keep = isLargeCar(reg, otherDir)
+        const keep = isLargeCar(reg, otherDir) && isInSlot(reg.answers, selectedDate, otherDir, otherSlot)
         if (!keep) removedCount++
         return keep
       })
@@ -408,7 +443,7 @@ export default function CarrangementDetailPage() {
     const toLabel   = dirLabel(otherDir)
     setMsg(
       removedCount > 0
-        ? `已從「${fromLabel}」複製到「${toLabel}」（自動排除 ${removedCount} 位另一方向不搭精舍車的人），記得按儲存`
+        ? `已從「${fromLabel}」複製到「${toLabel}」（自動排除 ${removedCount} 位另一方向不搭精舍車、或這天不需要該方向交通的人），記得按儲存`
         : `已從「${fromLabel}」複製到「${toLabel}」，記得按儲存`
     )
     setTimeout(() => setMsg(''), 8000)

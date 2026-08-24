@@ -94,6 +94,13 @@ export function formatDateWithWeekday(dateStr) {
   return `${d.getMonth() + 1}/${d.getDate()}（${WEEKDAY_CH[d.getDay()]}）`
 }
 
+// 瀏覽器當地時間的 YYYY-MM-DD（不要用 toISOString()，會有 UTC 位移問題——同檔案
+// eachDateInRange() 的註解已經記錄過這個坑：本地午夜轉 UTC 字串會退到前一天）
+export function getLocalTodayString() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // 依活動起訖日逐日展開成 YYYY-MM-DD 陣列（含頭尾），供 attend_dates 欄位 options 產生用
 // 注意：全程用 UTC 運算，不要用「本地時區建 Date 再轉 toISOString」的寫法——
 // 在 UTC+8（台灣）環境下，本地午夜轉成 UTC 字串會退到前一天，導致整組日期少一天

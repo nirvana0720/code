@@ -18,6 +18,8 @@ import {
 } from '../lib/supabase'
 import { getMemberName, isGuest, getMemberCheckedAt, isCheckedIn, isOtherTransport, regAsMember, formatMemberClasses, sortCheckinMembers, formatDate, getAutoCheckedSet, markAutoChecked, getEffectivePreArrive, getPreArriveInfo, getEffectiveLateReturn, getLateReturnInfo, isMemberExcludedFromExpected, isVolunteerSelfReturn, isCarFullyEffectiveExcluded } from '../lib/checkinHelpers'
 import { getChoreLocationsByEvent } from '../lib/choreAssignment'
+import { eachDateInRange, getLocalTodayString, formatDateWithWeekday, isInSlot } from '../lib/attendDateHelpers'
+import { OTHER_DATE_KEY } from '../lib/carrangeHelpers'
 import ScanToast from '../components/ScanToast'
 import DirectionBadge from '../components/DirectionBadge'
 import MemberCheckinRow from '../components/checkin/MemberCheckinRow'
@@ -66,6 +68,16 @@ function TabBar({ active, onChange, showDormitory, showChore, wrapClass, activeC
   )
 }
 
+// 精舍車（大車/小車/其他日期車）是否屬於目前選定的日期分頁
+// selectedDate === null：非多日活動，不篩選（回傳 true）
+// selectedDate === OTHER_DATE_KEY：只留 is_other_date 的車
+// 其餘：只留 service_date 相符、且不是 is_other_date 的車
+function carMatchesCheckinDate(c, selectedDate) {
+  if (selectedDate == null) return true
+  if (selectedDate === OTHER_DATE_KEY) return !!c.is_other_date
+  return !c.is_other_date && c.service_date === selectedDate
+}
+
 // ─── 主頁面 ───────────────────────────────────────────────
 
 export default function CarCheckinPage() {
@@ -88,6 +100,8 @@ export default function CarCheckinPage() {
   const [expandedSmallCarId, setExpandedSmallCarId] = useState(null)
   // 總領隊看板：上山/下山 Tab（'up' / 'down'）
   const [headDirection, setHeadDirection] = useState('up')
+  // 總領隊／小車領隊看板：多日活動的日期分頁（單日活動固定 null，代表不篩選）
+  const [selectedCheckinDate, setSelectedCheckinDate] = useState(null)
 
   // 福慧出坡：{ [registration_id]: { 上午: {...}, 下午: {...} } }，只有 is_chore_event 活動才有資料
   const [choreLocations, setChoreLocations] = useState({})
@@ -170,6 +184,18 @@ export default function CarCheckinPage() {
       const leaderType = hlRes.headLeader.type ?? 'all'
       setMode(leaderType === 'small_car' ? 'small_car' : 'head')
       setHeadLeader(hlRes.headLeader)
+      const hlEvent = hlRes.headLeader.events
+      if (hlEvent?.multi_day_transport) {
+        const dates = eachDateInRange(hlEvent.date_start, hlEvent.date_end)
+        const today = getLocalTodayString()
+        const defaultDate = dates.includes(today)
+          ? today
+          : (dates.length > 0 && today < dates[0]) ? dates[0]
+          : (dates[dates.length - 1] ?? null)
+        setSelectedCheckinDate(defaultDate)
+      } else {
+        setSelectedCheckinDate(null)
+      }
       const eventId = hlRes.headLeader.events?.event_id ?? hlRes.headLeader.event_id
       setChoreLocations(
         hlRes.headLeader.events?.is_chore_event
@@ -283,6 +309,11 @@ export default function CarCheckinPage() {
           // 總領隊看板：若掃到的人在另一方向的車，自動切換 Tab
           if (mode === 'head' && c.direction && c.direction !== headDirection) {
             setHeadDirection(c.direction)
+          }
+          // 若掃到的人在另一個日期分頁的車，自動切換分頁，避免掃卡成功但畫面上看不到
+          if ((mode === 'head' || mode === 'small_car') && selectedCheckinDate != null) {
+            const targetDate = c.is_other_date ? OTHER_DATE_KEY : c.service_date
+            if (targetDate && targetDate !== selectedCheckinDate) setSelectedCheckinDate(targetDate)
           }
           break
         }
@@ -600,8 +631,10 @@ export default function CarCheckinPage() {
     const eventDate  = formatDate(dateStart)
     // 排除延後/提前者（與大車模式 isExcludedFromExpected 邏輯一致）
     const isExcludedHere = (m, c) => isMemberExcludedFromExpected(m, c, dateStart, dateEnd)
-    // 先依方向過濾（tab 控制）
-    const directionCars = allCars.filter(c => (c.direction ?? 'down') === headDirection)
+    // 先依方向過濾（tab 控制），再依日期分頁過濾
+    const directionCars = allCars
+      .filter(c => (c.direction ?? 'down') === headDirection)
+      .filter(c => carMatchesCheckinDate(c, selectedCheckinDate))
     // 寮區／坡務頁籤範圍：目前方向所有小車成員合併（不分車），跟隨 headDirection
     const dormChoreMembers = directionCars.flatMap(c => c.car_members ?? [])
     const showDormitoryTab = showDormitory && dormChoreMembers.some(m => m.registrations?.dormitory_room)
@@ -663,6 +696,34 @@ export default function CarCheckinPage() {
                 🚍 回程
               </button>
             </div>
+
+            {selectedCheckinDate != null && (
+              <div className="flex gap-1.5 mt-2 flex-wrap">
+                {eachDateInRange(dateStart, dateEnd).map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setSelectedCheckinDate(d)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                      selectedCheckinDate === d
+                        ? 'bg-white text-green-800 border-white'
+                        : 'bg-white/10 text-white/85 border-white/30 hover:bg-white/20'
+                    }`}
+                  >
+                    📅 {formatDateWithWeekday(d)}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setSelectedCheckinDate(OTHER_DATE_KEY)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    selectedCheckinDate === OTHER_DATE_KEY
+                      ? 'bg-white text-green-800 border-white'
+                      : 'bg-white/10 text-white/85 border-white/30 hover:bg-white/20'
+                  }`}
+                >
+                  🗓️ 其他日期
+                </button>
+              </div>
+            )}
 
             <div className="flex gap-5 mt-3 text-sm">
               <span>應到 <strong className="text-xl">{totalAll}</strong></span>
@@ -856,8 +917,10 @@ export default function CarCheckinPage() {
     const showChore     = !!headLeader?.events?.is_chore_event
     const eventDate  = formatDate(dateStart)
 
-    // 依方向過濾（總領隊看板分上下山 Tab，上下山資訊不再混在一起）
-    const carsInDir = allCars.filter(c => (c.direction ?? 'down') === headDirection)
+    // 依方向過濾（總領隊看板分上下山 Tab，上下山資訊不再混在一起），再依日期分頁過濾
+    const carsInDir = allCars
+      .filter(c => (c.direction ?? 'down') === headDirection)
+      .filter(c => carMatchesCheckinDate(c, selectedCheckinDate))
     const largeCars = carsInDir.filter(c => c.car_type === 'large')
     const smallCars = carsInDir.filter(c => c.car_type === 'small')
 
@@ -886,7 +949,8 @@ export default function CarCheckinPage() {
     }
     const otherAllInDir = allEventRegs.filter(r =>
       isOtherTransport(r, headDirection) &&
-      !carMemberRegIds.has(r.registration_id)
+      !carMemberRegIds.has(r.registration_id) &&
+      isInSlot(r.answers, selectedCheckinDate, headDirection)
     )
     const otherRegsInDir = otherAllInDir.filter(r => !isOtherExcluded(r))
     const otherExcluded  = otherAllInDir.filter(isOtherExcluded)
@@ -961,9 +1025,13 @@ export default function CarCheckinPage() {
       else reportCounts.信眾 += 1
     }
 
-    // Tab 標籤上顯示車數（兩方向）
-    const carCountUp   = allCars.filter(c => (c.direction ?? 'down') === 'up').length
-    const carCountDown = allCars.filter(c => (c.direction ?? 'down') === 'down').length
+    // Tab 標籤上顯示車數（兩方向，跟隨目前選定的日期分頁）
+    const carCountUp = allCars
+      .filter(c => (c.direction ?? 'down') === 'up')
+      .filter(c => carMatchesCheckinDate(c, selectedCheckinDate)).length
+    const carCountDown = allCars
+      .filter(c => (c.direction ?? 'down') === 'down')
+      .filter(c => carMatchesCheckinDate(c, selectedCheckinDate)).length
 
     return (
       <div className="min-h-screen bg-amber-50 pb-24 car-checkin-page">
@@ -998,6 +1066,34 @@ export default function CarCheckinPage() {
                 🚍 回程{carCountDown > 0 && <span className="text-xs opacity-70 ml-1">（{carCountDown}）</span>}
               </button>
             </div>
+
+            {selectedCheckinDate != null && (
+              <div className="flex gap-1.5 mt-2 flex-wrap">
+                {eachDateInRange(dateStart, dateEnd).map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setSelectedCheckinDate(d)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                      selectedCheckinDate === d
+                        ? 'bg-white text-amber-800 border-white'
+                        : 'bg-white/10 text-white/85 border-white/30 hover:bg-white/20'
+                    }`}
+                  >
+                    📅 {formatDateWithWeekday(d)}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setSelectedCheckinDate(OTHER_DATE_KEY)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    selectedCheckinDate === OTHER_DATE_KEY
+                      ? 'bg-white text-amber-800 border-white'
+                      : 'bg-white/10 text-white/85 border-white/30 hover:bg-white/20'
+                  }`}
+                >
+                  🗓️ 其他日期
+                </button>
+              </div>
+            )}
 
             <div className="flex gap-5 mt-3 text-sm">
               <span>應到 <strong className="text-xl">{totalAll}</strong></span>

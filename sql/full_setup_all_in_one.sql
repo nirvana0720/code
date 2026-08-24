@@ -4775,7 +4775,7 @@ BEGIN
   FROM (
     SELECT
       ca.car_id, ca.car_name, ca.seats, ca.sort_order, ca.car_type,
-      ca.direction, ca.pre_depart, ca.late_return,
+      ca.direction, ca.pre_depart, ca.late_return, ca.service_date, ca.is_other_date,
       (
         SELECT json_agg(json_build_object('registration_id', cl.registration_id))
         FROM car_leaders cl WHERE cl.car_id = ca.car_id

@@ -16,7 +16,7 @@ import {
   uncheckInMonk,
   isTokenExpired,
 } from '../lib/supabase'
-import { getMemberName, isGuest, getMemberCheckedAt, isCheckedIn, isOtherTransport, regAsMember, formatMemberClasses, sortCheckinMembers, formatDate, getAutoCheckedSet, markAutoChecked, getEffectivePreArrive, getPreArriveInfo, getEffectiveLateReturn, getLateReturnInfo, isMemberExcludedFromExpected, isVolunteerSelfReturn, isCarFullyEffectiveExcluded } from '../lib/checkinHelpers'
+import { getMemberName, isGuest, getMemberCheckedAt, isCheckedIn, isOtherTransport, regAsMember, formatMemberClasses, sortCheckinMembers, formatDate, getAutoCheckedSet, markAutoChecked, getEffectivePreArrive, getPreArriveInfo, getEffectiveLateReturn, getLateReturnInfo, isMemberExcludedFromExpected, isVolunteerSelfReturn, isCarFullyEffectiveExcluded, getCarDriverNames, getCarDriverDate, carHasDateMismatch } from '../lib/checkinHelpers'
 import { getChoreLocationsByEvent } from '../lib/choreAssignment'
 import { eachDateInRange, getLocalTodayString, formatDateWithWeekday, isInSlot } from '../lib/attendDateHelpers'
 import { OTHER_DATE_KEY } from '../lib/carrangeHelpers'
@@ -749,6 +749,7 @@ export default function CarCheckinPage() {
         <div className="px-4 pt-3 max-w-lg mx-auto space-y-3">
           {directionCars.map(c => {
             const members  = c.car_members ?? []
+            const driverNames = getCarDriverNames(c)
             // 排除延後/提前者
             const todayMembers = members.filter(m => !isExcludedHere(m, c))
             const monkCnt     = (c.car_monks ?? []).length
@@ -789,6 +790,9 @@ export default function CarCheckinPage() {
                       )}
                       {done && !integratedExcluded && <span className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5">全員出發 ✓</span>}
                     </div>
+                    {driverNames.length > 0 && (
+                      <div className="text-xs text-green-700 mt-0.5">領隊：{driverNames.join('、')}</div>
+                    )}
                     <div className="text-xs text-gray-500 mt-0.5">
                       {integratedExcluded
                         ? (volSelfReturn ? '（義工車自行回程，不列入今日應到）'
@@ -923,6 +927,16 @@ export default function CarCheckinPage() {
       .filter(c => carMatchesCheckinDate(c, selectedCheckinDate))
     const largeCars = carsInDir.filter(c => c.car_type === 'large')
     const smallCars = carsInDir.filter(c => c.car_type === 'small')
+
+    // 「其他日期」分頁：大車依司機日期由早到晚排序，同一天的車排在一起；
+    // 查不到司機日期的車固定排最後面，不打亂彼此原本的相對順序（穩定排序）
+    if (selectedCheckinDate === OTHER_DATE_KEY) {
+      largeCars.sort((a, b) => {
+        const da = getCarDriverDate(a) ?? '9999-99-99'
+        const db = getCarDriverDate(b) ?? '9999-99-99'
+        return da < db ? -1 : da > db ? 1 : 0
+      })
+    }
 
     const monkTotalAll   = carsInDir.reduce((s, c) => s + (c.car_monks?.length ?? 0), 0)
     const monkCheckedAll = carsInDir.reduce((s, c) => s + (c.car_monks?.filter(m => !!m.checked_in_at).length ?? 0), 0)
@@ -1152,6 +1166,15 @@ export default function CarCheckinPage() {
             const leaderRegIds = (c.car_leaders ?? []).map(l => l.registration_id)
             const sorted = sortCheckinMembers(c.car_members ?? [], leaderRegIds)
 
+            // 「其他日期」分頁專用：司機日期徽章＋日期不一致警示，其他分頁不算，維持 null
+            const otherDateInfo = selectedCheckinDate === OTHER_DATE_KEY ? (() => {
+              const d = getCarDriverDate(c)
+              if (!d) return null
+              const dt = new Date(d + 'T00:00:00')
+              const verb = headDirection === 'up' ? '出發' : '回程'
+              return { label: `${dt.getMonth() + 1}/${dt.getDate()} ${verb}`, mismatch: carHasDateMismatch(c) }
+            })() : null
+
             return (
               <div key={c.car_id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <button
@@ -1162,6 +1185,12 @@ export default function CarCheckinPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-semibold text-gray-800">{c.car_name}</span>
                       <DirectionBadge direction={c.direction} />
+                      {otherDateInfo && (
+                        <span className="text-xs bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-1.5 shrink-0">📅 {otherDateInfo.label}</span>
+                      )}
+                      {otherDateInfo?.mismatch && (
+                        <span className="text-xs bg-red-100 text-red-700 border border-red-200 rounded-full px-1.5 font-semibold shrink-0">⚠️ 此車{headDirection === 'up' ? '去程' : '回程'}日期不一致</span>
+                      )}
                       {done && <span className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5">全員到齊 ✓</span>}
                     </div>
                     {leaderNames.length > 0 && (
@@ -1270,6 +1299,7 @@ export default function CarCheckinPage() {
 
                     const innerLeaderRegIds = (c.car_leaders ?? []).map(l => l.registration_id)
                     const sorted = sortCheckinMembers(c.car_members ?? [], innerLeaderRegIds)
+                    const driverNames = getCarDriverNames(c)
 
                     // 偵測整車狀態
                     const fullyEffectiveLate = headDirection === 'down' && isCarFullyEffectiveExcluded(c, dateStart, dateEnd)
@@ -1309,6 +1339,9 @@ export default function CarCheckinPage() {
                                 <span className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5">全員出發 ✓</span>
                               )}
                             </div>
+                            {driverNames.length > 0 && (
+                              <div className="text-xs text-amber-600 mt-0.5">領隊：{driverNames.join('、')}</div>
+                            )}
                             <div className="text-xs text-gray-400 mt-0.5">
                               {integratedExcluded
                                 ? (volSelfReturn ? '（義工車自行回程，不列入今日應到）'

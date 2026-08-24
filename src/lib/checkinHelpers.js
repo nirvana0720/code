@@ -212,3 +212,48 @@ export function isCarFullyEffectiveExcluded(c, eventDateStart, eventDateEnd) {
   }
   return true
 }
+
+// 判斷這個人在指定方向是否為「自己開車」。跟 carrangeHelpers.js 的 isSmallDriver
+// 判斷邏輯一致（transport_up／transport_down 欄位值含「自行開車」），這裡自己重寫
+// 一份是為了不要額外跨檔案 import，維持這個檔案原本自成一體的風格。
+function isDriverAnswer(answers, dir) {
+  const key = dir === 'up' ? 'transport_up' : 'transport_down'
+  return (answers?.[key] ?? '').includes('自行開車')
+}
+
+// 找出這台車「自己開車」的人（司機）。小車跟「其他日期」車都沒有正式登記 car_leaders
+// （查過資料庫確認，不管哪一天全部是 NULL），用車上乘客回答的交通方式反推司機是誰，
+// 跟排車頁（CarrangementDetailPage／carrangeHelpers.computeSmallGroups）當初分組、
+// 幫這台車取名字用的判斷邏輯一致。正常情況應該只會找到 0 或 1 人，理論上不排除多人
+// 都勾自行開車的邊界情況，所以回傳陣列。
+export function getCarDriverNames(car) {
+  const dir = car?.direction ?? 'down'
+  return (car?.car_members ?? [])
+    .filter(m => isDriverAnswer(m?.registrations?.answers, dir))
+    .map(m => getMemberName(m))
+    .filter(Boolean)
+}
+
+// 找出這台車的司機，回傳他在此方向的實際日期原始字串（YYYY-MM-DD，來自 answers.stay_start
+// [去程] 或 answers.stay_end [回程]）。找不到司機、或司機沒填該欄位，回傳 null。
+// 只給「其他日期」車卡的收合摘要列用（一般排定日期的車已經用 service_date 分頁，不需要）。
+export function getCarDriverDate(car) {
+  const dir = car?.direction ?? 'down'
+  const driver = (car?.car_members ?? []).find(m => isDriverAnswer(m?.registrations?.answers, dir))
+  if (!driver) return null
+  const answers = driver?.registrations?.answers ?? {}
+  return (dir === 'up' ? answers.stay_start : answers.stay_end) ?? null
+}
+
+// 這台車除了司機以外，是否有人的實際日期跟司機不一樣。司機自己日期查不到（getCarDriverDate
+// 回傳 null）時，沒有比較基準，直接回傳 false，不誤報。
+export function carHasDateMismatch(car) {
+  const dir = car?.direction ?? 'down'
+  const driverDate = getCarDriverDate(car)
+  if (!driverDate) return false
+  const key = dir === 'up' ? 'stay_start' : 'stay_end'
+  return (car?.car_members ?? []).some(m => {
+    const d = m?.registrations?.answers?.[key]
+    return !!d && d !== driverDate
+  })
+}

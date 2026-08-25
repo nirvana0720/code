@@ -1824,7 +1824,7 @@ export async function saveCarArrangement(eventId, largeCars, smallGroups = [], d
 export async function getOtherDateCars(eventId) {
   const { data, error } = await supabase
     .from('car_assignments')
-    .select('car_id, car_name, note, direction, sort_order, car_members ( registration_id )')
+    .select('car_id, car_name, note, direction, sort_order, car_type, car_members ( registration_id )')
     .eq('event_id', eventId)
     .eq('is_other_date', true)
     .order('sort_order', { ascending: true })
@@ -1835,10 +1835,11 @@ export async function getOtherDateCars(eventId) {
 
 /**
  * 儲存「其他日期」分頁單一方向的車輛（全量取代，比照 saveCarArrangement 先刪後插）
- * car_type 固定 'large'（這個分頁 UI 不提供切換大小車），service_date/time_slot 固定 NULL
+ * car_type 由每台車自己的 car_type 決定（預設 'small'，UI 可切換大小車；
+ * 2026-08-25 前一律寫死 'large'，現已改為可個別指定），service_date/time_slot 固定 NULL
  * @param {string} eventId
  * @param {'up'|'down'} direction
- * @param {Array<{car_name:string, note:string|null, members:string[]}>} cars
+ * @param {Array<{car_name:string, note:string|null, members:string[], car_type?:'large'|'small'}>} cars
  */
 export async function saveOtherDateCars(eventId, direction, cars) {
   const { error: delErr } = await supabase
@@ -1854,7 +1855,7 @@ export async function saveOtherDateCars(eventId, direction, cars) {
     event_id: eventId,
     car_name: c.car_name,
     seats: Math.max(c.members.length, 1),
-    car_type: 'large',
+    car_type: c.car_type === 'large' ? 'large' : 'small',
     direction,
     service_date: null,
     time_slot: null,

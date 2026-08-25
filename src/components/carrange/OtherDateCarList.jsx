@@ -4,10 +4,11 @@ import SearchableSelect from '../SearchableSelect'
 import MoveToButton from './MoveToButton'
 
 // 「其他日期」分頁：安置不在正常班表的少數人（提前掛單回山／延後回家），
-// 不分時段、不分大小車，車輛 car_type 固定沿用 'large'（僅 UI 不提供切換大小車選項）
+// 不分時段；車輛 car_type 每台車可個別指定大車／小車（2026-08-25 起支援切換，
+// 預設小車——這個分頁通常安置的就是少數小車共乘的人；之前一律寫死 'large'）
 export default function OtherDateCarList({
   direction, cars, regMap, searchableRegs,
-  onUpdateCarName, onUpdateCarNote, onAddMember, onRemoveMember, onAddCar, onRemoveCar,
+  onUpdateCarName, onUpdateCarNote, onUpdateCarType, onAddMember, onRemoveMember, onAddCar, onRemoveCar,
   dates, onMoveToBucket, bucketInfoByReg,
   pendingRegs = [], pendingGroups = [], onCreateCarFromGroup,
 }) {
@@ -20,7 +21,7 @@ export default function OtherDateCarList({
       </h2>
       <p className="text-xs text-gray-400 mb-4">
         安置不在正常班表的少數人（提前掛單回山／延後回家），不受活動官方日期範圍限制，
-        不分時段、不分大小車。可用下方「＋搜尋加人」把任何報名者手動加進車輛。
+        不分時段；每台車可自行指定大車／小車。可用下方「＋搜尋加人」把任何報名者手動加進車輛。
       </p>
 
       {(pendingGroups.length > 0 || pendingRegs.length > 0) && (
@@ -120,6 +121,14 @@ export default function OtherDateCarList({
                   placeholder="說明文字，例：8/14 提前到"
                   className="flex-1 min-w-0 text-xs text-indigo-800 bg-white/60 border border-indigo-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                 />
+                <select
+                  value={car.car_type === 'large' ? 'large' : 'small'}
+                  onChange={e => onUpdateCarType(ci, e.target.value)}
+                  className="text-xs border border-indigo-300 rounded px-1.5 py-1 bg-white text-indigo-900 shrink-0 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                >
+                  <option value="small">🚙 小車</option>
+                  <option value="large">🚌 大車</option>
+                </select>
                 <span className="text-xs text-indigo-900/80 shrink-0">{car.members.length} 人</span>
                 <button
                   onClick={() => { if (window.confirm(`確定移除「${car.car_name}」？`)) onRemoveCar(ci) }}

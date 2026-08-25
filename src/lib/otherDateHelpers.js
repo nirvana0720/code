@@ -75,6 +75,7 @@ export function buildOtherDateCarFromGroup(group) {
     tempId: genId(),
     car_name: group.driverName ? `${group.driverName}的車` : (group.plate || '其他車'),
     note: '',
+    car_type: 'small',
     members: group.members.map(r => r.registration_id),
   }
 }

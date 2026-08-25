@@ -347,6 +347,7 @@ export default function CarrangementDetailPage() {
         tempId: c.car_id,
         car_name: c.car_name,
         note: c.note ?? '',
+        car_type: c.car_type === 'large' ? 'large' : 'small',
         members: (c.car_members ?? []).map(m => m.registration_id),
       })
     }
@@ -512,7 +513,7 @@ export default function CarrangementDetailPage() {
     })
   }
   function addOtherDateCar() {
-    setOtherDateCars(prev => [...prev, { tempId: genId(), car_name: `其他車 ${prev.length + 1}`, note: '', members: [] }])
+    setOtherDateCars(prev => [...prev, { tempId: genId(), car_name: `其他車 ${prev.length + 1}`, note: '', car_type: 'small', members: [] }])
   }
   function removeOtherDateCar(idx) {
     setOtherDateCars(prev => prev.filter((_, i) => i !== idx))
@@ -522,6 +523,9 @@ export default function CarrangementDetailPage() {
   }
   function updateOtherDateCarNote(idx, note) {
     setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, note } : c))
+  }
+  function updateOtherDateCarType(idx, carType) {
+    setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, car_type: carType === 'large' ? 'large' : 'small' } : c))
   }
   function addOtherDateMember(idx, regId) {
     setOtherDateCars(prev => prev.map((c, i) => i === idx ? { ...c, members: [...c.members, regId] } : c))
@@ -869,6 +873,7 @@ export default function CarrangementDetailPage() {
           <OtherDateCarList
             direction={direction} cars={otherDateCars} regMap={regMap} searchableRegs={searchableOtherDateRegs}
             onUpdateCarName={updateOtherDateCarName} onUpdateCarNote={updateOtherDateCarNote}
+            onUpdateCarType={updateOtherDateCarType}
             onAddMember={addOtherDateMember} onRemoveMember={removeOtherDateMember}
             onAddCar={addOtherDateCar} onRemoveCar={removeOtherDateCar}
             dates={dates} onMoveToBucket={handleMoveToBucket} bucketInfoByReg={bucketInfoByReg}

@@ -177,6 +177,12 @@
 |------|------|------|
 | 89 | `add_evening_down_slot.sql` | 放寬 `car_assignments.time_slot` 的 CHECK 限制，允許回程新增『晚上』時段選項，2026-08-12 |
 
+## 第十四階段：小車領隊連結限定單一天（2026-08-25）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 90 | `add_small_car_leader_service_date.sql` | 新增 `head_leader.service_date`（小車領隊限定的服務日期，NULL=不限定，維持原本行為，向下相容單日活動與舊資料）。對應的 `get_all_cars_progress_by_token`（篩選）／`get_head_leader_by_token`（吐出欄位）改動直接在各自主檔（`add_all_cars_progress_by_token_rpc.sql`／`rpc_car.sql`）原地修改，這支檔案只放 schema 變更 |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、

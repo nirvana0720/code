@@ -771,7 +771,7 @@ export default function CarrangementDetailPage() {
     const [carResults, hlRes, sclRes, overrideRes, otherDateResults] = await Promise.all([
       Promise.all(savePromises),
       headLeaderRegId ? saveHeadLeader(eventId, headLeaderRegId) : Promise.resolve({ success: true }),
-      saveSmallCarLeaders(eventId, smallCarLeaders.map(l => l.registration_id).filter(Boolean)),
+      saveSmallCarLeaders(eventId, smallCarLeaders.filter(l => l.registration_id).map(l => ({ registration_id: l.registration_id, service_date: l.service_date || null }))),
       replaceCarSmallOverridesForEvent(regIds, overrideRows),
       Promise.all(otherDateSavePromises),
     ])
@@ -1001,6 +1001,21 @@ export default function CarrangementDetailPage() {
                 return (
                   <div key={l.registration_id} className="bg-green-50 border border-green-300 rounded-lg px-2.5 py-1.5 text-sm flex items-center gap-2">
                     <span className="font-medium text-green-800">{name}</span>
+                    {dates.length > 0 && (
+                      <select
+                        value={l.service_date ?? ''}
+                        onChange={e => {
+                          const v = e.target.value || null
+                          setSmallCarLeaders(prev => prev.map(x => x.registration_id === l.registration_id ? { ...x, service_date: v } : x))
+                        }}
+                        className="text-xs border border-green-300 rounded px-1 py-0.5 bg-white text-green-800"
+                      >
+                        <option value="">全部日期</option>
+                        {dates.map(d => (
+                          <option key={d} value={d}>{d.slice(5, 7)}/{d.slice(8, 10)}</option>
+                        ))}
+                      </select>
+                    )}
                     {l.access_token ? (
                       <button onClick={() => copyLink(l.access_token, `小車領隊・${name}`)} className="text-xs text-blue-600 hover:text-blue-800 hover:underline">
                         🔗 複製連結
@@ -1026,7 +1041,7 @@ export default function CarrangementDetailPage() {
               onChange={rid => {
                 if (!rid) return
                 if (smallCarLeaders.some(l => l.registration_id === rid)) return
-                setSmallCarLeaders(prev => [...prev, { registration_id: rid, access_token: '' }])
+                setSmallCarLeaders(prev => [...prev, { registration_id: rid, access_token: '', service_date: null }])
               }}
               className="w-full max-w-xs"
               placeholder="＋ 加入小車領隊（可重複加入）"
@@ -1045,6 +1060,7 @@ export default function CarrangementDetailPage() {
           </div>
           <p className="text-xs text-gray-400 mt-2">
             小車領隊可查看並操作所有小車成員的報到狀況（含去程與回程）。可設定多位領隊分擔任務，每位都有獨立的連結。<br />
+            多日回山活動可指定某位領隊只負責活動中的某一天（下拉選單選日期），選「全部日期」則維持整場都能用。<br />
             ⚠️ 每次儲存後連結會更新，請重新複製。
           </p>
         </section>

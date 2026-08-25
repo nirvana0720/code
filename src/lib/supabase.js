@@ -1995,7 +1995,7 @@ export async function getSmallCarLeader(eventId) {
 export async function getSmallCarLeaders(eventId) {
   const { data, error } = await supabase
     .from('head_leader')
-    .select('registration_id, access_token')
+    .select('registration_id, access_token, service_date')
     .eq('event_id', eventId)
     .eq('type', 'small_car')
   if (error) return { headLeaders: [], error: error.message }
@@ -2036,15 +2036,16 @@ export async function setHeadLeader(eventId, registrationId) {
  */
 export async function setSmallCarLeader(eventId, registrationId) {
   if (!registrationId) return setSmallCarLeaders(eventId, [])
-  return setSmallCarLeaders(eventId, [registrationId])
+  return setSmallCarLeaders(eventId, [{ registration_id: registrationId, service_date: null }])
 }
 
 /**
  * 全量替換活動的小車領隊清單（多選版）
  * @param {string} eventId
- * @param {string[]} registrationIds  registration_id 陣列；空陣列代表清空
+ * @param {{registration_id: string, service_date: (string|null)}[]} leaders
+ *   registration_id 必填；service_date 選填（'YYYY-MM-DD'），null/未填＝不限定日期（原本行為）
  */
-export async function setSmallCarLeaders(eventId, registrationIds = []) {
+export async function setSmallCarLeaders(eventId, leaders = []) {
   // 全量替換：先刪後插
   const { error: delErr } = await supabase
     .from('head_leader')
@@ -2053,17 +2054,25 @@ export async function setSmallCarLeaders(eventId, registrationIds = []) {
     .eq('type', 'small_car')
   if (delErr) return { success: false, error: delErr.message }
 
-  if (!registrationIds || registrationIds.length === 0) {
+  if (!leaders || leaders.length === 0) {
     return { success: true, error: null }
   }
 
-  // 去重
-  const uniq = [...new Set(registrationIds.filter(Boolean))]
-  const rows = uniq.map(rid => ({
-    event_id: eventId,
-    registration_id: rid,
-    type: 'small_car',
-  }))
+  // 去重（同一人只留一筆）
+  const seen = new Set()
+  const rows = []
+  for (const l of leaders) {
+    const rid = l?.registration_id
+    if (!rid || seen.has(rid)) continue
+    seen.add(rid)
+    rows.push({
+      event_id: eventId,
+      registration_id: rid,
+      type: 'small_car',
+      service_date: l.service_date || null,
+    })
+  }
+  if (rows.length === 0) return { success: true, error: null }
 
   const { error: insErr } = await supabase
     .from('head_leader')

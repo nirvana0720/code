@@ -4755,12 +4755,13 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_event_id    UUID;
-  v_leader_type TEXT;
+  v_event_id     UUID;
+  v_leader_type  TEXT;
+  v_service_date DATE;
   v_cars JSON;
   v_regs JSON;
 BEGIN
-  SELECT hl.event_id, hl.type INTO v_event_id, v_leader_type
+  SELECT hl.event_id, hl.type, hl.service_date INTO v_event_id, v_leader_type, v_service_date
   FROM head_leader hl
   JOIN events e ON e.event_id = hl.event_id
   WHERE hl.access_token = p_token
@@ -4815,6 +4816,7 @@ BEGIN
     FROM car_assignments ca
     WHERE ca.event_id = v_event_id
       AND (v_leader_type <> 'small_car' OR ca.car_type = 'small')
+      AND (v_leader_type <> 'small_car' OR v_service_date IS NULL OR ca.service_date = v_service_date)
     ORDER BY ca.car_type DESC, ca.sort_order ASC
   ) t;
 
@@ -5544,7 +5546,7 @@ BEGIN
   SELECT row_to_json(t) INTO result
   FROM (
     SELECT
-      hl.id, hl.registration_id, hl.event_id, hl.type,
+      hl.id, hl.registration_id, hl.event_id, hl.type, hl.service_date,
       row_to_json(e.*) AS events,
       (
         SELECT row_to_json(r_row) FROM (
@@ -5988,3 +5990,15 @@ ALTER TABLE car_assignments DROP CONSTRAINT IF EXISTS car_assignments_time_slot_
 ALTER TABLE car_assignments
   ADD CONSTRAINT car_assignments_time_slot_check
   CHECK (time_slot IS NULL OR time_slot IN ('上午','中午','下午','晚上'));
+
+-- ------------------------------------------------------------
+-- [92/92] add_small_car_leader_service_date.sql（2026-08-25 追加，小車領隊連結限定單一天）
+-- ------------------------------------------------------------
+-- 職責：head_leader 新增可為空的 service_date 欄位（NULL＝不限定，維持原本行為，
+-- 向下相容單日活動與舊資料）。get_all_cars_progress_by_token／get_head_leader_by_token
+-- 已在本檔案上方對應區塊同步更新（篩選小車＋吐出 service_date 給前端），此處只放
+-- schema 變更。
+
+ALTER TABLE head_leader ADD COLUMN IF NOT EXISTS service_date DATE;
+COMMENT ON COLUMN head_leader.service_date IS
+  '小車領隊限定的服務日期（僅 type=small_car 時有意義）；NULL = 不限定，整場活動每天都能用（原本行為，向下相容）';

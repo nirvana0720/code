@@ -20,6 +20,9 @@
 --   避免有人竄改參數看到不該看的範圍。
 --
 -- 執行方式：貼到 Supabase Dashboard → SQL Editor → Run
+--
+-- 2026-08-25 更新：小車領隊連結若限定 service_date（見
+--   sql/add_small_car_leader_service_date.sql），只回傳那一天的小車。
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION get_all_cars_progress_by_token(p_token TEXT)
@@ -28,12 +31,13 @@ LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  v_event_id    UUID;
-  v_leader_type TEXT;
+  v_event_id     UUID;
+  v_leader_type  TEXT;
+  v_service_date DATE;
   v_cars JSON;
   v_regs JSON;
 BEGIN
-  SELECT hl.event_id, hl.type INTO v_event_id, v_leader_type
+  SELECT hl.event_id, hl.type, hl.service_date INTO v_event_id, v_leader_type, v_service_date
   FROM head_leader hl
   JOIN events e ON e.event_id = hl.event_id
   WHERE hl.access_token = p_token
@@ -88,6 +92,7 @@ BEGIN
     FROM car_assignments ca
     WHERE ca.event_id = v_event_id
       AND (v_leader_type <> 'small_car' OR ca.car_type = 'small')
+      AND (v_leader_type <> 'small_car' OR v_service_date IS NULL OR ca.service_date = v_service_date)
     ORDER BY ca.car_type DESC, ca.sort_order ASC
   ) t;
 

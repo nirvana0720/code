@@ -345,7 +345,7 @@ BEGIN
   SELECT row_to_json(t) INTO result
   FROM (
     SELECT
-      hl.id, hl.registration_id, hl.event_id, hl.type,
+      hl.id, hl.registration_id, hl.event_id, hl.type, hl.service_date,
       row_to_json(e.*) AS events,
       (
         SELECT row_to_json(r_row) FROM (

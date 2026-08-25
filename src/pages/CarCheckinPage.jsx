@@ -186,13 +186,18 @@ export default function CarCheckinPage() {
       setHeadLeader(hlRes.headLeader)
       const hlEvent = hlRes.headLeader.events
       if (hlEvent?.multi_day_transport) {
-        const dates = eachDateInRange(hlEvent.date_start, hlEvent.date_end)
-        const today = getLocalTodayString()
-        const defaultDate = dates.includes(today)
-          ? today
-          : (dates.length > 0 && today < dates[0]) ? dates[0]
-          : (dates[dates.length - 1] ?? null)
-        setSelectedCheckinDate(defaultDate)
+        // 小車領隊若連結有限定 service_date，直接鎖定那一天，不用「今天」去猜預設分頁
+        if (leaderType === 'small_car' && hlRes.headLeader.service_date) {
+          setSelectedCheckinDate(hlRes.headLeader.service_date)
+        } else {
+          const dates = eachDateInRange(hlEvent.date_start, hlEvent.date_end)
+          const today = getLocalTodayString()
+          const defaultDate = dates.includes(today)
+            ? today
+            : (dates.length > 0 && today < dates[0]) ? dates[0]
+            : (dates[dates.length - 1] ?? null)
+          setSelectedCheckinDate(defaultDate)
+        }
       } else {
         setSelectedCheckinDate(null)
       }
@@ -697,9 +702,13 @@ export default function CarCheckinPage() {
               </button>
             </div>
 
+            {headLeader?.service_date && (
+              <div className="text-xs text-white/70 mt-1">此連結僅限 {formatDateWithWeekday(headLeader.service_date)} 使用</div>
+            )}
+
             {selectedCheckinDate != null && (
               <div className="flex gap-1.5 mt-2 flex-wrap">
-                {eachDateInRange(dateStart, dateEnd).map(d => (
+                {(headLeader?.service_date ? [headLeader.service_date] : eachDateInRange(dateStart, dateEnd)).map(d => (
                   <button
                     key={d}
                     onClick={() => setSelectedCheckinDate(d)}
@@ -712,16 +721,18 @@ export default function CarCheckinPage() {
                     📅 {formatDateWithWeekday(d)}
                   </button>
                 ))}
-                <button
-                  onClick={() => setSelectedCheckinDate(OTHER_DATE_KEY)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
-                    selectedCheckinDate === OTHER_DATE_KEY
-                      ? 'bg-white text-green-800 border-white'
-                      : 'bg-white/10 text-white/85 border-white/30 hover:bg-white/20'
-                  }`}
-                >
-                  🗓️ 其他日期
-                </button>
+                {!headLeader?.service_date && (
+                  <button
+                    onClick={() => setSelectedCheckinDate(OTHER_DATE_KEY)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-full border transition-colors ${
+                      selectedCheckinDate === OTHER_DATE_KEY
+                        ? 'bg-white text-green-800 border-white'
+                        : 'bg-white/10 text-white/85 border-white/30 hover:bg-white/20'
+                    }`}
+                  >
+                    🗓️ 其他日期
+                  </button>
+                )}
               </div>
             )}
 
@@ -791,7 +802,7 @@ export default function CarCheckinPage() {
                       {done && !integratedExcluded && <span className="text-xs bg-green-100 text-green-700 border border-green-200 rounded-full px-1.5">全員出發 ✓</span>}
                     </div>
                     {driverNames.length > 0 && (
-                      <div className="text-xs text-green-700 mt-0.5">領隊：{driverNames.join('、')}</div>
+                      <div className="text-xs text-green-700 mt-0.5">司機：{driverNames.join('、')}</div>
                     )}
                     <div className="text-xs text-gray-500 mt-0.5">
                       {integratedExcluded
@@ -1340,7 +1351,7 @@ export default function CarCheckinPage() {
                               )}
                             </div>
                             {driverNames.length > 0 && (
-                              <div className="text-xs text-amber-600 mt-0.5">領隊：{driverNames.join('、')}</div>
+                              <div className="text-xs text-amber-600 mt-0.5">司機：{driverNames.join('、')}</div>
                             )}
                             <div className="text-xs text-gray-400 mt-0.5">
                               {integratedExcluded

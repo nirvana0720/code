@@ -764,6 +764,15 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
     return s
   }, [rows, regLookup])
 
+  // 「查無報名」的資料排到清單最上面，方便師父優先處理；其餘（含同名待選／
+  // 編號找不到）維持原本 Excel 順序，只用穩定排序把 noRegistration 提前
+  const sortedRows = useMemo(() => {
+    return rows
+      .map((r, i) => ({ r, i, noReg: checkNoRegistration(r, regLookup) }))
+      .sort((a, b) => (a.noReg === b.noReg ? a.i - b.i : a.noReg ? -1 : 1))
+      .map(x => x.r)
+  }, [rows, regLookup])
+
   const hasPending  = stats.ambiguous > 0 || stats.unknown_id > 0
   const importCount = rows.length - stats.noRegistration
 
@@ -821,7 +830,7 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map(r => {
+              {sortedRows.map(r => {
                 const badge = MATCH_BADGE[r.matchType]
                 const noRegistration = checkNoRegistration(r, regLookup)
                 return (

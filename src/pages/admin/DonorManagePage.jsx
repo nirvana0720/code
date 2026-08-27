@@ -133,9 +133,13 @@ function buildRegistrationLookup(registrations) {
 }
 
 // 依目前比對結果（學員型看 resolvedStudentId／訪客型看姓名）判斷是否查無本場報名紀錄
+// 2026-08-27 修復：學員型（Excel 姓名比對到學員帳號）如果只查學員 ID，會漏掉
+// 「這個人本人有學員帳號、但這場法會是被親友用代報親友報名（訪客型，student_id
+// 為 null）」的情況，導致明明有報名卻被誤判成查無報名。改成學員 ID 查不到時，
+// 退一步用姓名比對訪客型報名，兩者都查不到才算真的查無報名。
 function checkNoRegistration(row, regLookup) {
   if (row.matchType === 'student') {
-    return !regLookup.studentIds.has(row.resolvedStudentId)
+    return !regLookup.studentIds.has(row.resolvedStudentId) && !regLookup.guestNames.has(row.name.trim())
   }
   if (row.matchType === 'guest') {
     return !regLookup.guestNames.has(row.name.trim())

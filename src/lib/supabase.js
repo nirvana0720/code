@@ -2528,16 +2528,26 @@ export async function deleteEventDonor(donorId) {
  *   - 訪客型（無 student_id）：以 (event_id, name) 比對；有則 update，無則 insert
  *   不刪除 Excel 以外的既有名單。
  *
- *   回傳 { success, inserted, updated, errors: [{ row, message }] }
+ *   2026-08-25 修復：這批「要新增」的訪客型資料如果姓名彼此重複（例如多天法會
+ *   同一人分好幾筆出現在匯入的 Excel），原本會一起塞進同一個 INSERT 語句，
+ *   撞到 uq_event_donors_guest 唯一索引時整批失敗、且錯誤訊息被誤植到每一筆
+ *   身上（含完全無關、已正確配對學員編號的人）。現在改成：先抓出批次內部
+ *   姓名重複的訪客型資料，不嘗試 INSERT、直接回傳在 conflicts 讓呼叫端決定
+ *   （合併成一筆，或個別改名保留），其餘沒有撞名問題的資料照常寫入；
+ *   真正需要寫入的資料如果整批 INSERT 意外失敗，改成逐筆重試，才能準確
+ *   標出真正失敗的是哪一筆，不會牽連其他無關的資料。
+ *
+ *   回傳 { success, inserted, updated, errors: [{ row, message }], conflicts: [{ name, rows }] }
+ *   success 只有在 errors 跟 conflicts 都是空的時候才是 true。
  */
 export async function bulkUpsertEventDonors(eventId, rows) {
   if (!Array.isArray(rows) || rows.length === 0) {
-    return { success: true, inserted: 0, updated: 0, errors: [] }
+    return { success: true, inserted: 0, updated: 0, errors: [], conflicts: [] }
   }
 
   // 先撈出該活動的全部 donors 一次性比對（避免 N 次往返）
   const { donors: existing, error: listErr } = await listEventDonors(eventId)
-  if (listErr) return { success: false, inserted: 0, updated: 0, errors: [{ row: null, message: listErr }] }
+  if (listErr) return { success: false, inserted: 0, updated: 0, errors: [{ row: null, message: listErr }], conflicts: [] }
 
   // 建兩個 lookup map
   const byStudent = new Map() // student_id → donor
@@ -2586,15 +2596,46 @@ export async function bulkUpsertEventDonors(eventId, rows) {
     }
   }
 
-  // 批次 INSERT（一次 round-trip）
-  if (toInsert.length > 0) {
+  // 這批「要新增」的訪客型（student_id 為 null）如果姓名彼此重複，同一個 INSERT
+  // 語句會直接違反 uq_event_donors_guest（同活動內訪客姓名唯一）整批失敗，且無法
+  // 分辨誰是真正衝突的人 —— 先抓出來，不嘗試 INSERT，交給呼叫端（UI）讓使用者
+  // 決定「是同一人合併」還是「不同人、各自改名」，此函式不自動判斷。
+  const guestNameGroups = new Map() // name → [{ payload, raw }, ...]
+  toInsert.forEach(item => {
+    if (item.payload.student_id) return // 學員型有 student_id，唯一鍵不同，不受影響
+    const key = item.payload.name
+    if (!guestNameGroups.has(key)) guestNameGroups.set(key, [])
+    guestNameGroups.get(key).push(item)
+  })
+
+  const conflicts = []
+  const conflictItems = new Set()
+  for (const [name, items] of guestNameGroups) {
+    if (items.length > 1) {
+      conflicts.push({ name, rows: items.map(i => i.payload) })
+      items.forEach(i => conflictItems.add(i))
+    }
+  }
+  const cleanToInsert = toInsert.filter(item => !conflictItems.has(item))
+
+  // 批次 INSERT（一次 round-trip）；萬一還是失敗（例如意外撞到其他限制），
+  // 改成逐筆重試，才能準確標出真正失敗的是哪一筆，不會牽連整批
+  if (cleanToInsert.length > 0) {
     const { error } = await supabase
       .from('event_donors')
-      .insert(toInsert.map(r => r.payload))
+      .insert(cleanToInsert.map(r => r.payload))
     if (error) {
-      toInsert.forEach(r => errors.push({ row: r.raw, message: error.message }))
+      const results = await Promise.all(
+        cleanToInsert.map(r =>
+          supabase.from('event_donors').insert(r.payload)
+        )
+      )
+      results.forEach((res, i) => {
+        if (res.error) errors.push({ row: cleanToInsert[i].raw, message: res.error.message })
+        else inserted++
+      })
     } else {
-      inserted = toInsert.length
+      inserted = cleanToInsert.length
     }
   }
 
@@ -2611,7 +2652,7 @@ export async function bulkUpsertEventDonors(eventId, rows) {
     })
   }
 
-  return { success: errors.length === 0, inserted, updated, errors }
+  return { success: errors.length === 0 && conflicts.length === 0, inserted, updated, errors, conflicts }
 }
 
 /**

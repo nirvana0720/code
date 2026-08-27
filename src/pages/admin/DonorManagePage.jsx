@@ -171,6 +171,11 @@ export default function DonorManagePage() {
   const [importResult, setImportResult] = useState(null)
   const [regLookup, setRegLookup] = useState({ studentIds: new Set(), guestNames: new Set() })
   const fileInputRef = useRef(null)
+  // 匯入撞名處理：nameConflicts 為 null 代表 modal 關閉，否則是 bulkUpsertEventDonors
+  // 回傳的 conflicts 陣列（同一批訪客型資料裡姓名重複、無法自動判斷是否同一人）
+  const [nameConflicts, setNameConflicts] = useState(null)
+  const [resolvingConflicts, setResolvingConflicts] = useState(false)
+  const [conflictResult, setConflictResult] = useState(null)
 
   // 單筆新增 / 編輯
   const [formOpen, setFormOpen]   = useState(false)
@@ -342,14 +347,40 @@ export default function DonorManagePage() {
     const res = await bulkUpsertEventDonors(id, payload)
     setImporting(false)
     setImportResult(res)
+    await load()
+    if (res.conflicts && res.conflicts.length > 0) {
+      // 有姓名重複、無法自動判斷是否同一人，其餘沒問題的資料已經正常匯入了，
+      // 關閉預覽 modal、改開撞名處理 modal 讓師父逐一確認
+      setPreviewOpen(false)
+      setNameConflicts(res.conflicts)
+      return
+    }
     if (res.success) {
       setPreviewOpen(false)
-      await load()
       const base = `✅ 已匯入 ${payload.length} 筆`
       const skipMsg = skipped.length > 0
         ? `，${skipped.length} 筆因查無本場法會報名紀錄未匯入：${skipped.map(r => r.name).join('、')}⋯請先幫他們完成報名後再重新匯入這幾筆。`
         : ''
       flash(base + skipMsg)
+    }
+  }
+
+  // ── 撞名處理：師父逐一選完之後，重新送出這批已經改好名字／挑好合併對象的資料 ──
+  async function handleResolveConflicts(resolvedPayload) {
+    setResolvingConflicts(true)
+    const res = await bulkUpsertEventDonors(id, resolvedPayload)
+    setResolvingConflicts(false)
+    setConflictResult(res)
+    await load()
+    if (res.conflicts && res.conflicts.length > 0) {
+      // 理論上少見（例如改的新名字又剛好跟另一組撞到），照樣跳出來讓師父再選一次
+      setNameConflicts(res.conflicts)
+      return
+    }
+    if (res.success) {
+      setNameConflicts(null)
+      setConflictResult(null)
+      flash(`✅ 已處理姓名重複，共匯入 ${resolvedPayload.length} 筆`)
     }
   }
 
@@ -676,6 +707,18 @@ export default function DonorManagePage() {
         />
       )}
 
+      {/* 匯入撞名處理 modal */}
+      {nameConflicts && (
+        <NameConflictModal
+          conflicts={nameConflicts}
+          fields={fields}
+          resolving={resolvingConflicts}
+          result={conflictResult}
+          onClose={() => { setNameConflicts(null); setConflictResult(null) }}
+          onConfirm={handleResolveConflicts}
+        />
+      )}
+
       {/* 發送功德主通知 modal */}
       {sendModalOpen && (
         <SendNotifyModal
@@ -825,7 +868,7 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
           </table>
         </div>
 
-        {importResult && !importResult.success && (
+        {importResult && importResult.errors?.length > 0 && (
           <div className="px-5 py-3 bg-red-50 border-t border-red-200">
             <p className="text-sm text-red-700 font-semibold mb-1">❌ 匯入過程有 {importResult.errors.length} 筆失敗：</p>
             <ul className="text-xs text-red-600 space-y-1 max-h-32 overflow-y-auto">
@@ -848,6 +891,150 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
             className="px-5 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg disabled:opacity-50"
           >
             {importing ? '匯入中…' : `確認匯入 ${importCount} 筆`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── 匯入撞名處理 modal：同一批「訪客型」新增資料裡，有姓名完全相同、被
+// uq_event_donors_guest 擋下的人，讓師父決定「是同一人合併」或「不同人各自改名」
+function NameConflictModal({ conflicts, fields, resolving, result, onClose, onConfirm }) {
+  // resolutions[groupIdx] = { mode: 'merge'|'separate', selectedIdx: number|null, names: string[] }
+  const [resolutions, setResolutions] = useState(() =>
+    conflicts.map(g => ({
+      mode: 'merge',
+      selectedIdx: 0,
+      names: g.rows.map(r => r.name),
+    }))
+  )
+
+  function setMode(gi, mode) {
+    setResolutions(prev => prev.map((r, i) => i === gi
+      ? { ...r, mode, selectedIdx: mode === 'merge' ? 0 : null }
+      : r
+    ))
+  }
+  function setSelected(gi, idx) {
+    setResolutions(prev => prev.map((r, i) => i === gi ? { ...r, selectedIdx: idx } : r))
+  }
+  function setName(gi, ri, value) {
+    setResolutions(prev => prev.map((r, i) =>
+      i === gi ? { ...r, names: r.names.map((n, j) => j === ri ? value : n) } : r
+    ))
+  }
+
+  const allResolved = resolutions.every(r => {
+    if (r.mode === 'merge') return r.selectedIdx !== null
+    const trimmed = r.names.map(n => n.trim())
+    if (trimmed.some(n => !n)) return false
+    return new Set(trimmed).size === trimmed.length
+  })
+
+  function handleConfirm() {
+    const resolvedPayload = []
+    conflicts.forEach((g, gi) => {
+      const r = resolutions[gi]
+      if (r.mode === 'merge') {
+        resolvedPayload.push(g.rows[r.selectedIdx])
+      } else {
+        g.rows.forEach((row, ri) => {
+          resolvedPayload.push({ ...row, name: r.names[ri].trim() })
+        })
+      }
+    })
+    onConfirm(resolvedPayload)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto">
+      <div className="bg-white w-full max-w-3xl rounded-2xl shadow-xl flex flex-col max-h-[92vh]">
+        <div className="px-5 pt-5 pb-3 border-b">
+          <h3 className="text-lg font-bold text-gray-800">⚠️ 有 {conflicts.length} 個姓名重複，請確認</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            這幾個姓名在這批匯入資料裡出現不只一次，系統不確定是同一人填了多筆（例如多天法會分開登記），
+            還是剛好兩個不同人同名，請逐一確認。其餘沒有撞名的資料已經正常匯入。
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
+          {conflicts.map((g, gi) => {
+            const r = resolutions[gi]
+            return (
+              <div key={g.name + gi} className="border rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center justify-between gap-3 flex-wrap">
+                  <span className="font-semibold text-amber-900">「{g.name}」出現 {g.rows.length} 次</span>
+                  <div className="flex gap-3 text-xs">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input type="radio" checked={r.mode === 'merge'} onChange={() => setMode(gi, 'merge')} />
+                      是同一人，合併成一筆
+                    </label>
+                    <label className="flex items-center gap-1 cursor-pointer">
+                      <input type="radio" checked={r.mode === 'separate'} onChange={() => setMode(gi, 'separate')} />
+                      不同人，各自保留並改名
+                    </label>
+                  </div>
+                </div>
+                <div className="divide-y">
+                  {g.rows.map((row, ri) => (
+                    <div key={ri} className="px-4 py-2.5 flex items-start gap-3">
+                      {r.mode === 'merge' ? (
+                        <input
+                          type="radio"
+                          className="mt-1"
+                          checked={r.selectedIdx === ri}
+                          onChange={() => setSelected(gi, ri)}
+                        />
+                      ) : (
+                        <input
+                          value={r.names[ri]}
+                          onChange={e => setName(gi, ri, e.target.value)}
+                          placeholder="輸入不重複的姓名"
+                          className="text-sm border border-gray-300 rounded px-2 py-1 w-32 shrink-0"
+                        />
+                      )}
+                      <div className="text-xs text-gray-600 flex-1 flex flex-wrap gap-x-4 gap-y-0.5">
+                        {fields.map(f => (
+                          <span key={f.field_key}>
+                            {f.field_label}：{row.answers?.[f.field_key] || '—'}
+                          </span>
+                        ))}
+                        {fields.every(f => !row.answers?.[f.field_key]) && (
+                          <span className="text-gray-300">（無其他資料）</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {result && result.errors?.length > 0 && (
+          <div className="px-5 py-3 bg-red-50 border-t border-red-200">
+            <p className="text-sm text-red-700 font-semibold mb-1">❌ 處理過程有 {result.errors.length} 筆失敗：</p>
+            <ul className="text-xs text-red-600 space-y-1 max-h-32 overflow-y-auto">
+              {result.errors.map((e, i) => (
+                <li key={i}>{e.row?.name ?? '(無名)'}：{e.message}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <div className="px-5 py-3 border-t flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >稍後再處理</button>
+          <button
+            disabled={resolving || !allResolved}
+            onClick={handleConfirm}
+            className="px-5 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg disabled:opacity-50"
+          >
+            {resolving ? '處理中…' : '確認送出'}
           </button>
         </div>
       </div>

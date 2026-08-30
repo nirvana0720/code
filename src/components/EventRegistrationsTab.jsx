@@ -576,7 +576,8 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
             {[
               { key: 'checkin', label: '報到', val: showCheckin, set: setShowCheckin },
               { key: 'regtime', label: '更新時間', val: showRegTime, set: setShowRegTime },
-              { key: 'dormroom', label: '寮號', val: showDormRoom, set: setShowDormRoom },
+              // 2026-08-30 改：只有活動勾選「此活動需要住宿安排」（events.has_dormitory）才提供這個切換鈕
+              ...(event?.has_dormitory ? [{ key: 'dormroom', label: '寮號', val: showDormRoom, set: setShowDormRoom }] : []),
             ].map(col => (
               <button
                 key={col.key}
@@ -764,7 +765,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                 })()}
                 {showCheckin && <SortTh label="報到" colKey="checked_in_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
                 {showRegTime && <SortTh label="更新時間" colKey="updated_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
-                {showDormRoom && <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">寮號</th>}
+                {showDormRoom && event?.has_dormitory && <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">寮號</th>}
                 <th className="sticky right-0 z-20 bg-gray-50 px-3 py-2 shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.08)]" />
               </tr>
             </thead>
@@ -892,7 +893,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                           : '-'}
                       </td>
                     )}
-                    {showDormRoom && (
+                    {showDormRoom && event?.has_dormitory && (
                       <td className="px-3 py-1.5 text-gray-700">
                         {r.dormitory_room || <span className="text-gray-300 text-xs">—</span>}
                       </td>

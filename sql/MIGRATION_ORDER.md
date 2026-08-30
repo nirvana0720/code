@@ -183,6 +183,12 @@
 |------|------|------|
 | 90 | `add_small_car_leader_service_date.sql` | 新增 `head_leader.service_date`（小車領隊限定的服務日期，NULL=不限定，維持原本行為，向下相容單日活動與舊資料）。對應的 `get_all_cars_progress_by_token`（篩選）／`get_head_leader_by_token`（吐出欄位）改動直接在各自主檔（`add_all_cars_progress_by_token_rpc.sql`／`rpc_car.sql`）原地修改，這支檔案只放 schema 變更 |
 
+## 第十五階段：寮號欄位改成依活動開關顯示（2026-08-30）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 91 | `add_has_dormitory_flag.sql` | 新增 `events.has_dormitory`（此活動是否需要住宿安排，預設 false，跟既有 `show_dormitory_to_public` 獨立——後者控制學員/領隊端可見度，這個新欄位只控制後台「報名名單」／「編輯報名內容」要不要出現寮號欄位）。**含資料回填**：任何已經有寮號資料的活動自動打開此開關，避免既有已在使用寮號功能的活動升級後看不到欄位；尚未匯入安單資料但確定需要住宿的活動（例如已建立但還沒匯入的未來回山法會）不會被回填規則抓到，需要良師父自行到「活動設定」勾選 |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、
@@ -213,3 +219,9 @@
   有生效）。已在第 81 項 `rpc_car.sql` 補上線。已經 Fork 這份程式碼但還沒重新跑過 SQL 的
   分院，**若已經上線一段時間，建議提醒對方補跑第 81～84 項**，否則這個個資外洩缺口
   仍然存在於他們自己的正式環境。
+- **2026-08-30 發現：`full_setup_all_in_one.sql` 落後這份文件一項**：整理第 91 項（本次
+  `add_has_dormitory_flag.sql`）時發現，第 90 項 `add_small_car_leader_service_date.sql`
+  （2026-08-25）從來沒有被併進 `full_setup_all_in_one.sql`（該檔案目前結尾停在
+  `[91/91] add_evening_down_slot.sql`，2026-08-12）。這次先不處理這個回填，只記錄下來，
+  下次要合併 `full_setup_all_in_one.sql` 時記得把第 90、91 項一起補進去，避免用這份合併檔
+  重建的新環境漏掉這兩項。

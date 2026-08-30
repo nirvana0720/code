@@ -141,16 +141,20 @@ export default function EditRegistrationModal({
           </div>
         )}
 
-        {/* 寮號手動編輯（實體欄位，不是動態欄位，跟安單匯入共用同一個欄位） */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-600 mb-1">寮號</label>
-          <input
-            value={dormitoryRoom}
-            onChange={e => setDormitoryRoom(e.target.value)}
-            placeholder="例如：敦煌苑306-5（留白表示未安單）"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-          />
-        </div>
+        {/* 寮號手動編輯（實體欄位，不是動態欄位，跟安單匯入共用同一個欄位）
+            2026-08-30 改：只在活動勾選「此活動需要住宿安排」（events.has_dormitory）才顯示，
+            避免不需要住宿的活動（如精舍本地法會）也一律出現一個永遠用不到的寮號欄位 */}
+        {event?.has_dormitory && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-600 mb-1">寮號</label>
+            <input
+              value={dormitoryRoom}
+              onChange={e => setDormitoryRoom(e.target.value)}
+              placeholder="例如：敦煌苑306-5（留白表示未安單）"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+          </div>
+        )}
 
         {/* 多場次活動：依場次渲染子欄位編輯 */}
         {event?.multi_session && Array.isArray(answers?.sessions) && answers.sessions.length > 0 ? (

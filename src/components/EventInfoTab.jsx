@@ -257,6 +257,25 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
           </label>
         </div>
 
+        {/* 此活動需要住宿安排 — 控制後台「報名名單」／「編輯報名內容」要不要出現寮號欄位，
+            跟下面「對外公開寮號資訊」（控制學員/領隊端可見度）是兩個獨立開關 */}
+        <div className="sm:col-span-2">
+          <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!form.has_dormitory}
+              onChange={e => setForm(f => ({ ...f, has_dormitory: e.target.checked }))}
+              className="w-4 h-4 accent-blue-600 mt-0.5"
+            />
+            <span>
+              此活動需要住宿安排（勾選後，後台「報名名單」與「編輯報名內容」才會出現寮號欄位）
+              <span className="block text-xs text-gray-500 mt-0.5">
+                只影響後台看不看得到寮號欄位，跟下面「對外公開寮號資訊」（學員/領隊端）是分開的
+              </span>
+            </span>
+          </label>
+        </div>
+
         {/* 對外公開寮號資訊 — 回山法會安單掛單才有的資料，獨立於排車開關 */}
         <div className="sm:col-span-2">
           <label className="inline-flex items-start gap-2 text-sm text-gray-700 cursor-pointer select-none">

@@ -288,6 +288,7 @@ export default function KioskPage() {
   const [isUpdate, setIsUpdate] = useState(false)
   const [currentReg, setCurrentReg] = useState(null)
   const [errorMsg, setErrorMsg] = useState('')
+  const [notFoundMsg, setNotFoundMsg] = useState('') // 2026-08-30：查無學員時的提示文字，刷卡／手動輸入用不同文案
   const [successEventName, setSuccessEventName] = useState('')
   const [showSuccess, setShowSuccess] = useState(false)
 
@@ -341,6 +342,11 @@ export default function KioskPage() {
   // ── 鍵盤監聽（掃描機）────────────────────────────────────
   const handleKeyDown = useCallback((e) => {
     if (phase !== 'idle') return
+    // 2026-08-30：新增「手動輸入學員編號」輸入框後，使用者在該框打字時
+    // 這個全域監聽（模擬刷卡機）不能跟著搶收字元，否則會重複觸發查詢。
+    // 判斷方式：目前焦點是不是落在一個真的 <input>/<textarea> 上。
+    const activeTag = document.activeElement?.tagName
+    if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return
     if (e.key === 'Enter') {
       const code = scanBufferRef.current.trim()
       scanBufferRef.current = ''
@@ -381,7 +387,10 @@ export default function KioskPage() {
   }
 
   // ── 刷卡後查詢 ────────────────────────────────────────────
-  async function handleScan(code) {
+  // opts.manual：true 表示是「手動輸入學員編號」觸發的查詢（而非刷卡／掃 QR），
+  // 查無此人時要顯示不同的提示文案（提醒可能是打錯字）。
+  async function handleScan(code, opts = {}) {
+    const { manual = false } = opts
     setPhase('loading')
     const eventIds = eventItems.map(i => i.event.event_id)
 
@@ -393,7 +402,14 @@ export default function KioskPage() {
     ])
 
     const { student, classes, error } = studentResult
-    if (error === 'NOT_FOUND') { setPhase('not_found'); scheduleAutoReset(4); return }
+    if (error === 'NOT_FOUND') {
+      setNotFoundMsg(manual
+        ? '查無此學員編號，請確認輸入是否正確（可能是打錯字）'
+        : '請確認學員證是否正確，或洽現場師兄協助')
+      setPhase('not_found')
+      scheduleAutoReset(4)
+      return
+    }
     if (error) { setPhase('error'); setErrorMsg(error); scheduleAutoReset(5); return }
 
     const { map: statusMap, error: statusErr } = statusResult
@@ -1087,6 +1103,7 @@ export default function KioskPage() {
     setIsUpdate(false)
     setCurrentReg(null)
     setErrorMsg('')
+    setNotFoundMsg('')
     setShowSuccess(false)
     setCancellingEventId(null)
     setFriendMode(null)
@@ -1134,10 +1151,16 @@ export default function KioskPage() {
       </header>
 
       <main className="flex-1 flex items-center justify-center p-6">
-        {phase === 'idle' && <IdleScreen onOpenCamera={() => setCameraOpen(true)} onScanImage={handleScan} />}
+        {phase === 'idle' && (
+          <IdleScreen
+            onOpenCamera={() => setCameraOpen(true)}
+            onScanImage={handleScan}
+            onManualSubmit={(code) => handleScan(code, { manual: true })}
+          />
+        )}
         {phase === 'loading' && <LoadingScreen />}
         {phase === 'no_event' && <NoEventScreen onRefresh={loadEvents} />}
-        {phase === 'not_found' && <NotFoundScreen onReset={reset} />}
+        {phase === 'not_found' && <NotFoundScreen onReset={reset} message={notFoundMsg} />}
         {phase === 'error' && <ErrorScreen message={errorMsg} onReset={reset} />}
 
 
@@ -1281,10 +1304,42 @@ export default function KioskPage() {
 }
 
 // ── 等待刷卡 ────────────────────────────────────────────────
-function IdleScreen({ onOpenCamera, onScanImage }) {
+function IdleScreen({ onOpenCamera, onScanImage, onManualSubmit }) {
   const fileInputRef = useRef(null)
   const [scanning, setScanning] = useState(false)
   const [imgError, setImgError] = useState('')
+
+  // 2026-08-30：手動輸入學員編號（沒帶卡、或卡片刷不出來時的備援入口）
+  // 效果等同刷卡／掃 QR，只是用打字取代掃描。
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualValue, setManualValue] = useState('')
+  const manualInputRef = useRef(null)
+
+  function openManual() {
+    setManualOpen(true)
+    setTimeout(() => manualInputRef.current?.focus(), 50)
+  }
+
+  function closeManual() {
+    setManualOpen(false)
+    setManualValue('')
+  }
+
+  function handleManualChange(e) {
+    // 學員編號目前都是純數字，限制輸入避免手滑打到英文或符號
+    setManualValue(e.target.value.replace(/\D/g, ''))
+  }
+
+  function submitManual() {
+    const v = manualValue.trim()
+    if (!v) return
+    onManualSubmit(v)
+    closeManual()
+  }
+
+  function handleManualKeyDown(e) {
+    if (e.key === 'Enter') submitManual()
+  }
 
   async function handleFileChange(e) {
     const file = e.target.files?.[0]
@@ -1430,6 +1485,57 @@ function IdleScreen({ onOpenCamera, onScanImage }) {
         {imgError && (
           <p className="text-red-600 text-kiosk-sm mt-1 max-w-xs">{imgError}</p>
         )}
+
+        {/* 2026-08-30：手動輸入學員編號（沒帶卡／刷不出來時的備援入口，前台學員自己也能用） */}
+        {!manualOpen ? (
+          <button
+            onClick={openManual}
+            className="flex items-center gap-4 w-full px-6 py-4 rounded-2xl font-semibold shadow-sm active:scale-95 transition-transform"
+            style={{backgroundColor:'white', border:'2px solid #C9A96E', color:'#2E0E1F'}}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2E0E1F" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="6" width="20" height="12" rx="2"/>
+              <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12"/>
+            </svg>
+            <span className="text-kiosk-base">手動輸入學員編號</span>
+          </button>
+        ) : (
+          <div
+            className="w-full rounded-2xl p-4 flex flex-col gap-3"
+            style={{backgroundColor:'white', border:'2px solid #C9A96E'}}
+          >
+            <p className="text-kiosk-sm font-bold text-left" style={{color:'#2E0E1F'}}>手動輸入學員編號</p>
+            <input
+              ref={manualInputRef}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={manualValue}
+              onChange={handleManualChange}
+              onKeyDown={handleManualKeyDown}
+              placeholder="例如 105018901"
+              className="w-full text-center font-mono text-kiosk-lg tracking-widest rounded-xl px-3 py-3 border-2 focus:outline-none"
+              style={{borderColor:'#e5ddd0', color:'#2E0E1F', backgroundColor:'#FBF8F2'}}
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={closeManual}
+                className="flex-1 py-3 rounded-xl font-semibold text-kiosk-sm"
+                style={{backgroundColor:'#f2efe8', color:'#6b7280'}}
+              >
+                返回
+              </button>
+              <button
+                onClick={submitManual}
+                disabled={manualValue.trim().length === 0}
+                className="flex-1 py-3 rounded-xl font-semibold text-kiosk-sm text-white disabled:opacity-40"
+                style={{backgroundColor:'#2E0E1F'}}
+              >
+                確認
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1457,12 +1563,12 @@ function NoEventScreen({ onRefresh }) {
   )
 }
 
-function NotFoundScreen({ onReset }) {
+function NotFoundScreen({ onReset, message }) {
   return (
     <div className="text-center">
       <div className="text-8xl mb-6">🔍</div>
       <p className="text-kiosk-xl font-bold text-red-600 mb-3">找不到學員資料</p>
-      <p className="text-kiosk-base text-gray-500 mb-8">請確認學員證是否正確，或洽現場師兄協助</p>
+      <p className="text-kiosk-base text-gray-500 mb-8">{message || '請確認學員證是否正確，或洽現場師兄協助'}</p>
       <button onClick={onReset} className="px-8 py-4 border-2 border-gray-400 rounded-2xl text-kiosk-base text-gray-600">
         返回
       </button>

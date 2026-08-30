@@ -17,6 +17,7 @@ import { formatEventDate } from '../lib/eventDetailHelpers'
  */
 export default function GuestRegistrationModal({ open, onClose, onSuccess, event, eventId, fields }) {
   const [guestName, setGuestName] = useState('')
+  const [guestPhone, setGuestPhone] = useState('')
   const [guestAnswers, setGuestAnswers] = useState({})
   const [guestSaving, setGuestSaving] = useState(false)
   const [guestRegId, setGuestRegId] = useState(null)
@@ -24,6 +25,7 @@ export default function GuestRegistrationModal({ open, onClose, onSuccess, event
   useEffect(() => {
     if (open) {
       setGuestName('')
+      setGuestPhone('')
       setGuestAnswers({})
       setGuestRegId(null)
     }
@@ -35,7 +37,7 @@ export default function GuestRegistrationModal({ open, onClose, onSuccess, event
     e.preventDefault()
     if (!guestName.trim()) return
     setGuestSaving(true)
-    const { registrationId, error } = await createGuestRegistration(eventId, guestName.trim(), guestAnswers)
+    const { registrationId, error } = await createGuestRegistration(eventId, guestName.trim(), guestAnswers, false, guestPhone.trim())
     setGuestSaving(false)
     if (error) { alert(`新增失敗：${error}`); return }
     setGuestRegId(registrationId)
@@ -46,7 +48,11 @@ export default function GuestRegistrationModal({ open, onClose, onSuccess, event
       studentName: guestName.trim(),
       changeType: 'created',
       oldAnswers: null,
-      newAnswers: { guest_name: guestName.trim(), ...guestAnswers },
+      newAnswers: {
+        guest_name: guestName.trim(),
+        ...(guestPhone.trim() ? { guest_phone: guestPhone.trim() } : {}),
+        ...guestAnswers,
+      },
     })
     onSuccess?.()
   }
@@ -111,6 +117,15 @@ export default function GuestRegistrationModal({ open, onClose, onSuccess, event
                 onChange={e => setGuestName(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 placeholder="請輸入姓名"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-600 mb-1">電話（選填）</label>
+              <input
+                value={guestPhone}
+                onChange={e => setGuestPhone(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                placeholder="方便聯絡時填寫"
               />
             </div>
             {fields.length > 0 && (

@@ -1158,8 +1158,11 @@ export async function walkinAddSession(regId, sessionId, currentAnswers = {}) {
 /**
  * 後台手動新增訪客報名
  */
-export async function createGuestRegistration(eventId, guestName, answers, isDriver = false) {
-  const allAnswers = { guest_name: guestName, ...answers }
+export async function createGuestRegistration(eventId, guestName, answers, isDriver = false, guestPhone = '') {
+  // 2026-08-30 修：跟前台親友代報（submitFriendRegistration）的 answers 結構保持一致，
+  // 補上可選的 guest_phone——原本後台「＋新增訪客」完全沒有電話欄位，導致同樣是訪客，
+  // 資料結構卻不一致（前台代報的人有 guest_phone、後台手動加的人沒有）。
+  const allAnswers = { guest_name: guestName, ...(guestPhone ? { guest_phone: guestPhone } : {}), ...answers }
   const { data, error } = await supabase
     .from('registrations')
     .insert({

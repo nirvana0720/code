@@ -41,6 +41,7 @@ export default function EditRegistrationModal({
 }) {
   const [answers, setAnswers] = useState({})
   const [guestName, setGuestName] = useState('')
+  const [guestPhone, setGuestPhone] = useState('')
   const [dormitoryRoom, setDormitoryRoom] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -51,6 +52,7 @@ export default function EditRegistrationModal({
     if (registration) {
       setAnswers(registration.answers ? { ...registration.answers } : {})
       setGuestName(registration.answers?.guest_name ?? '')
+      setGuestPhone(registration.answers?.guest_phone ?? '')
       setDormitoryRoom(registration.dormitory_room ?? '')
       setSaving(false)
     }
@@ -61,9 +63,12 @@ export default function EditRegistrationModal({
   async function handleSave() {
     setSaving(true)
     const oldAnswers = { ...registration.answers }
+    const trimmedGuestPhone = guestPhone.trim()
     const newAnswers = isGuest
-      ? { ...answers, guest_name: guestName.trim() }
+      ? { ...answers, guest_name: guestName.trim(), ...(trimmedGuestPhone ? { guest_phone: trimmedGuestPhone } : {}) }
       : { ...answers }
+    // 電話留白表示清除（跟姓名不同，電話是選填，不能像姓名一樣直接覆寫成空字串）
+    if (isGuest && !trimmedGuestPhone) delete newAnswers.guest_phone
 
     // 記錄異動（不阻斷主流程）
     await logRegistrationChange({
@@ -117,6 +122,20 @@ export default function EditRegistrationModal({
               required
               value={guestName}
               onChange={e => setGuestName(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            />
+          </div>
+        )}
+
+        {/* 訪客電話（選填）— 對應 answers.guest_phone，跟前台親友代報／後台新增訪客共用同一個欄位，
+            2026-08-30 補上：原本這個編輯視窗完全沒帶出/存回這個欄位，訪客電話一旦建立就再也改不到 */}
+        {isGuest && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-600 mb-1">電話（選填）</label>
+            <input
+              value={guestPhone}
+              onChange={e => setGuestPhone(e.target.value)}
+              placeholder="方便聯絡時填寫"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
             />
           </div>

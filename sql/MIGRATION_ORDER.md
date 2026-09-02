@@ -3,6 +3,13 @@
 > 若要在新環境重建資料庫，依照以下順序執行。
 > 每個檔案都設計為可重複執行（`CREATE TABLE IF NOT EXISTS`、`CREATE INDEX IF NOT EXISTS`）。
 
+> ⚠️ **SOP（2026-09-02 起）：新增一筆 migration 時，以下 3 件事要在同一次改動裡一起做完，不要拆開／延後：**
+> 1. 在本文件（`MIGRATION_ORDER.md`）新增一列，指到新的 `.sql` 檔案。
+> 2. 把同一支 `.sql` 檔案的內容，比照既有格式（`-- [N/N] 檔名.sql（日期 追加，說明）` + 內容）append 進 `full_setup_all_in_one.sql` 最後面，供全新環境一次建置。
+> 3. 在 `check_migration_version.sql` 的 `VALUES` 清單裡加一列對應的健檢項目，供既有分院比對自己漏了哪些。
+>
+> 背景：2026-09-02 良師父發現「SQL 都是寫好才下載執行」跟程式碼（git push 後其他分院 Sync fork 即可拿到）比起來，多一層「還要記得同步這兩份輔助檔案」的風險，要求清查落差。清查後找到 2 筆先前漏補的（第 80、91 項，其中第 80 項 `add_session_field_target_sessions.sql` 甚至已經漏了超過一個月都沒人發現，CHANGELOG.md 2026-07-20 那則還誤寫成「已包含在 full_setup_all_in_one.sql」，其實從未真的併入），已在同一次一併補齊（見下方「⚠️ 注意事項」）。往後新增 migration 請務必照上面 3 步驟一次做完，避免同一種疏漏再發生。
+
 ## 第一階段：基礎架構
 
 | 順序 | 檔案 | 說明 |
@@ -219,9 +226,14 @@
   有生效）。已在第 81 項 `rpc_car.sql` 補上線。已經 Fork 這份程式碼但還沒重新跑過 SQL 的
   分院，**若已經上線一段時間，建議提醒對方補跑第 81～84 項**，否則這個個資外洩缺口
   仍然存在於他們自己的正式環境。
-- **2026-08-30 發現：`full_setup_all_in_one.sql` 落後這份文件一項**：整理第 91 項（本次
-  `add_has_dormitory_flag.sql`）時發現，第 90 項 `add_small_car_leader_service_date.sql`
-  （2026-08-25）從來沒有被併進 `full_setup_all_in_one.sql`（該檔案目前結尾停在
-  `[91/91] add_evening_down_slot.sql`，2026-08-12）。這次先不處理這個回填，只記錄下來，
-  下次要合併 `full_setup_all_in_one.sql` 時記得把第 90、91 項一起補進去，避免用這份合併檔
-  重建的新環境漏掉這兩項。
+- ~~2026-08-30 發現：`full_setup_all_in_one.sql` 落後這份文件一項~~ **已於 2026-09-02 補齊**：
+  整理第 91 項（`add_has_dormitory_flag.sql`）時發現第 90 項
+  `add_small_car_leader_service_date.sql`（2026-08-25）沒被併進 `full_setup_all_in_one.sql`，
+  但實際動手清查時發現第 90 項後來已經有人補上了（`[92/92]`），真正還缺的是另外兩項：
+  第 80 項 `add_session_field_target_sessions.sql`（2026-07-20，CHANGELOG 當初誤寫成「已包含
+  在 full_setup_all_in_one.sql」，其實從未併入）跟第 91 項 `add_has_dormitory_flag.sql`
+  （2026-08-30）。這次已把兩者都補進 `full_setup_all_in_one.sql`（`[93/93]`／`[94/94]`），
+  並在 `check_migration_version.sql` 補上第 90、91 項的健檢列（原本這份健檢表也只做到
+  第 89 項）。清查方式：逐一比對本文件列出的每個檔名，跟 `full_setup_all_in_one.sql`
+  裡的 `[N/N]` 標記是否一一對應，確認過現在沒有其他遺漏（測試／除錯用檔案除外，見上方
+  「不需要執行的檔案」清單）。往後怎麼避免再漏，見本文件最上方新增的 SOP 提醒。

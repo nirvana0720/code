@@ -166,7 +166,15 @@ WITH checks(seq, migration_file, note, ok) AS (
      WHERE conrelid = 'car_assignments'::regclass
      AND conname = 'car_assignments_time_slot_check'
      AND pg_get_constraintdef(oid) LIKE '%晚上%'
-   ))
+   )),
+
+  (90, 'add_small_car_leader_service_date.sql',
+   'head_leader.service_date 欄位存在（小車領隊連結限定單一天，2026-08-25）',
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='head_leader' AND column_name='service_date')),
+
+  (91, 'add_has_dormitory_flag.sql',
+   'events.has_dormitory 欄位存在（寮號欄位改成依活動開關顯示，2026-08-30）',
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='has_dormitory'))
 )
 SELECT
   seq AS "順序",

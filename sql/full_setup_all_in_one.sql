@@ -6002,3 +6002,51 @@ ALTER TABLE car_assignments
 ALTER TABLE head_leader ADD COLUMN IF NOT EXISTS service_date DATE;
 COMMENT ON COLUMN head_leader.service_date IS
   '小車領隊限定的服務日期（僅 type=small_car 時有意義）；NULL = 不限定，整場活動每天都能用（原本行為，向下相容）';
+
+-- ------------------------------------------------------------
+-- [93/93] add_session_field_target_sessions.sql（2026-07-20 追加，場次共用子欄位可鎖定只在特定場次顯示；2026-09-02 回填合併——這項當初漏掉，見下方 has_dormitory 之後的說明）
+-- ------------------------------------------------------------
+-- 職責：event_session_fields 新增 show_if_session_ids，有值時只在指定場次顯示
+-- （忽略 show_if_period）；空陣列（預設）維持原本 show_if_period 邏輯，
+-- 舊資料/舊活動不受影響。此項是 MIGRATION_ORDER.md 第 80 項，2026-07-20
+-- 就已建立並上線，但當初漏了併進本檔案，直到 2026-09-02 清查 SQL 落差
+-- 才發現並補上（詳見本檔案最下方的補記）。
+
+ALTER TABLE event_session_fields ADD COLUMN IF NOT EXISTS show_if_session_ids UUID[] DEFAULT '{}'::uuid[];
+
+-- ------------------------------------------------------------
+-- [94/94] add_has_dormitory_flag.sql（2026-08-30 追加，寮號欄位改成依活動開關顯示）
+-- ------------------------------------------------------------
+-- 職責：新增 events.has_dormitory（此活動是否需要住宿安排，預設 false），
+-- 跟既有 show_dormitory_to_public（控制學員/領隊端可見度）刻意獨立，避免
+-- 混用重現「安單資料未定案前後台也看不到寮號欄位」的問題。含資料回填：
+-- 已有寮號資料的活動自動打開這個開關，尚未匯入安單資料但確定需要住宿的
+-- 活動不會被回填規則抓到，需自行到「活動設定」勾選。
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS has_dormitory BOOLEAN NOT NULL DEFAULT false;
+COMMENT ON COLUMN events.has_dormitory IS '此活動是否需要住宿/寮房安排（控制後台「報名名單」顯示欄位、「編輯報名內容」是否出現寮號欄位；跟 show_dormitory_to_public 獨立，後者控制學員/領隊端可見度）';
+
+UPDATE events e
+SET has_dormitory = true
+WHERE EXISTS (
+  SELECT 1 FROM registrations r
+  WHERE r.event_id = e.event_id
+    AND r.dormitory_room IS NOT NULL
+    AND r.dormitory_room <> ''
+)
+AND has_dormitory = false;
+
+-- ============================================================
+-- 補記（2026-09-02）：SQL 落差清查
+-- 良師父發現「SQL 都是寫好才下載執行」的流程，跟其他分院同步抓的程式碼
+-- 比起來風險不同，要求清查落差。清查方式：把 MIGRATION_ORDER.md 列出的
+-- 每一項檔名，逐一比對本檔案內有沒有對應的 [N/N] 標記，找出兩項先前漏掉、
+-- 沒人發現的落差：
+--   1. 第 80 項 add_session_field_target_sessions.sql（2026-07-20）——
+--      漏了超過一個月都沒人發現，這次補進上面 [93/93]。
+--   2. 第 91 項 add_has_dormitory_flag.sql（2026-08-30）——當初新增時
+--      MIGRATION_ORDER.md 就已經記錄「尚未併入本檔案」，這次補進上面 [94/94]。
+-- 已確認除了測試／除錯用檔案（debug_identity_values.sql 等，MIGRATION_ORDER.md
+-- 已註明新環境不用跑）之外，MIGRATION_ORDER.md 列出的每一項現在都有對應
+-- [N/N] 標記，沒有其他遺漏。
+-- ============================================================

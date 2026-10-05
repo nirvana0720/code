@@ -173,6 +173,12 @@ export default function CheckinPage() {
   useEffect(() => {
     function onKey(e) {
       if (status === 'loading') return
+      // 游標在輸入框（例如「手動搜尋報到」的搜尋框）裡時，交給輸入框自己處理，
+      // 不攔截退格鍵、也不把打字內容當成刷卡（2026-10-05）
+      const t = e.target
+      // 勾選框／按鈕不算（點完「功德主明細」勾選框後游標會停在上面，刷卡仍要正常運作）
+      const isTextInput = t && t.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset'].includes(t.type)
+      if (t && (isTextInput || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
       if (e.key === 'Enter') {
         const val = inputRef.current.trim()
         inputRef.current = ''
@@ -588,17 +594,13 @@ export default function CheckinPage() {
         </Link>
         <span className="text-gray-300">|</span>
         <h2 className="text-lg font-bold text-gray-800">{event?.name || '現場報到'}</h2>
-        <label className="flex items-center gap-1 text-xs text-gray-500">
-          本次份數
-          <input
-            type="number"
-            min={1}
-            max={10}
-            value={printCopies}
-            onChange={e => setPrintCopies(Math.min(10, Math.max(1, parseInt(e.target.value, 10) || 1)))}
-            className="w-14 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-300"
-          />
-        </label>
+        {/* 出單份數只顯示、不可在報到頁修改（2026-10-05）：
+            原本這裡是可輸入的數字框，游標停在框內時，掃描機刷卡送出的學員編號會一起被打進框裡，
+            份數被夾到上限 10，之後每張都印 10 份（10/3 預演實際發生）。
+            份數改到後台「功德主管理」的預設出單份數設定，報到頁打開時讀取。 */}
+        <span className="text-xs text-gray-500">
+          出單份數：<strong className="text-gray-700">{printCopies}</strong> 份
+        </span>
         <label className="flex items-center gap-1 text-xs text-gray-500">
           <input
             type="checkbox"

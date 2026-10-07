@@ -2659,6 +2659,52 @@ export async function bulkUpsertEventDonors(eventId, rows) {
 }
 
 /**
+ * 覆蓋匯入用：找出「系統裡有、但這次匯入檔沒有」的功德主（2026-10-07 新增）
+ *   rows: 與 bulkUpsertEventDonors 相同格式 [{ student_id?, name }]
+ *   比對規則與 bulkUpsertEventDonors 一致：學員型用 student_id、訪客型用姓名。
+ *   回傳 stale: [{ donor_id, student_id, name, hasDayOf }]
+ *   hasDayOf = 已有午齋桌次／桌長等當天資料（刪除會一併消失，預覽時要特別標示）
+ */
+export async function findStaleEventDonors(eventId, rows) {
+  const { data, error } = await supabase
+    .from('event_donors')
+    .select('donor_id, student_id, name, lunch_table, is_table_leader')
+    .eq('event_id', eventId)
+  if (error) return { stale: [], error: error.message }
+
+  const keepStudents = new Set()
+  const keepGuests   = new Set()
+  for (const r of rows || []) {
+    const sid  = r.student_id ? String(r.student_id).trim() : null
+    const name = (r.name || '').trim()
+    if (sid) keepStudents.add(sid)
+    else if (name) keepGuests.add(name)
+  }
+
+  const stale = (data || [])
+    .filter(d => d.student_id ? !keepStudents.has(d.student_id) : !keepGuests.has(d.name))
+    .map(d => ({
+      donor_id:   d.donor_id,
+      student_id: d.student_id,
+      name:       d.name,
+      hasDayOf:   !!(d.is_table_leader || (d.lunch_table !== null && d.lunch_table !== undefined && String(d.lunch_table).trim() !== '')),
+    }))
+  return { stale, error: null }
+}
+
+/** 依 donor_id 批次刪除功德主（覆蓋匯入的第二步，必須在匯入成功之後才呼叫） */
+export async function deleteEventDonorsByIds(eventId, donorIds) {
+  if (!donorIds || donorIds.length === 0) return { deleted: 0, error: null }
+  const { error } = await supabase
+    .from('event_donors')
+    .delete()
+    .eq('event_id', eventId)
+    .in('donor_id', donorIds)
+  if (error) return { deleted: 0, error: error.message }
+  return { deleted: donorIds.length, error: null }
+}
+
+/**
  * 報到時查功德主資訊
  *   - 有 studentId 先用 (event_id, student_id) 查（學員型）
  *   - 沒有或查不到，再用 (event_id, name) 查（訪客型）

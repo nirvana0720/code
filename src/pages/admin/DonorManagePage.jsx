@@ -11,6 +11,8 @@ import {
   updateEventDonor,
   deleteEventDonor,
   bulkUpsertEventDonors,
+  findStaleEventDonors,
+  deleteEventDonorsByIds,
   listEventDonorFields,
   saveEventDonorFields,
   getRegistrationsWithStudents,
@@ -173,6 +175,10 @@ export default function DonorManagePage() {
   const [previewRows, setPreviewRows] = useState([])
   const [importing, setImporting]     = useState(false)
   const [importResult, setImportResult] = useState(null)
+  // 匯入模式：replace＝覆蓋（匯入後刪除「新檔案沒有」的舊功德主，預設）；merge＝合併（只新增／更新）
+  const [importMode, setImportMode] = useState('replace')
+  const [staleInfo, setStaleInfo] = useState({ loading: false, stale: [], error: '' })
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [regLookup, setRegLookup] = useState({ studentIds: new Set(), guestNames: new Set() })
   const fileInputRef = useRef(null)
   // 匯入撞名處理：nameConflicts 為 null 代表 modal 關閉，否則是 bulkUpsertEventDonors
@@ -337,18 +343,57 @@ export default function DonorManagePage() {
     ))
   }
 
+  // 這次真正會寫入的資料（查無本場法會報名紀錄的列排除）
+  const importPayload = useMemo(() =>
+    previewRows
+      .filter(r => !checkNoRegistration(r, regLookup))
+      .map(r => ({
+        student_id: r.matchType === 'student' ? r.resolvedStudentId : null,
+        name:       r.name,
+        answers:    r.answers,
+      })),
+    [previewRows, regLookup])
+
+  // 覆蓋模式：預先算出「會被刪除」的名單，給師父在預覽畫面確認
+  useEffect(() => {
+    setConfirmDelete(false)
+    if (!previewOpen || importMode !== 'replace') {
+      setStaleInfo({ loading: false, stale: [], error: '' })
+      return
+    }
+    if (importPayload.length === 0) {
+      setStaleInfo({ loading: false, stale: [], error: '沒有可匯入的資料，無法使用覆蓋匯入' })
+      return
+    }
+    let cancelled = false
+    setStaleInfo(s => ({ ...s, loading: true, error: '' }))
+    findStaleEventDonors(id, importPayload).then(({ stale, error }) => {
+      if (cancelled) return
+      setStaleInfo({ loading: false, stale: stale || [], error: error || '' })
+    })
+    return () => { cancelled = true }
+  }, [previewOpen, importMode, importPayload, id])
+
   // ── 匯入：執行 ───────────────────────────────────────────
   async function handleConfirmImport() {
     setImporting(true)
     // 查無本場法會報名紀錄的列直接排除，不寫入
     const skipped   = previewRows.filter(r => checkNoRegistration(r, regLookup))
-    const toImport  = previewRows.filter(r => !checkNoRegistration(r, regLookup))
-    const payload = toImport.map(r => ({
-      student_id: r.matchType === 'student' ? r.resolvedStudentId : null,
-      name:       r.name,
-      answers:    r.answers,
-    }))
+    const payload   = importPayload
+    // 覆蓋模式：先記下師父在畫面上看過、確認要刪的名單
+    const staleIds = importMode === 'replace' ? staleInfo.stale.map(d => d.donor_id) : []
     const res = await bulkUpsertEventDonors(id, payload)
+    // 先匯入、成功後才刪舊的：萬一匯入失敗，名單只會「多」不會「空」
+    let deleteMsg = ''
+    if (importMode === 'replace' && (res.errors || []).length === 0 && staleIds.length > 0) {
+      const { stale: stillStale } = await findStaleEventDonors(id, payload)
+      const stillSet = new Set((stillStale || []).map(d => d.donor_id))
+      const toDelete = staleIds.filter(x => stillSet.has(x))
+      const del = await deleteEventDonorsByIds(id, toDelete)
+      deleteMsg = del.error
+        ? `，但刪除舊名單失敗：${del.error}`
+        : `，並刪除舊名單 ${del.deleted} 位（新檔案沒有的人）`
+    }
     setImporting(false)
     setImportResult(res)
     await load()
@@ -357,11 +402,12 @@ export default function DonorManagePage() {
       // 關閉預覽 modal、改開撞名處理 modal 讓師父逐一確認
       setPreviewOpen(false)
       setNameConflicts(res.conflicts)
+      if (deleteMsg) flash(`✅ 已匯入${deleteMsg.replace(/^，/, '')}`)
       return
     }
     if (res.success) {
       setPreviewOpen(false)
-      const base = `✅ 已匯入 ${payload.length} 筆`
+      const base = `✅ 已匯入 ${payload.length} 筆${deleteMsg}`
       const skipMsg = skipped.length > 0
         ? `，${skipped.length} 筆因查無本場法會報名紀錄未匯入：${skipped.map(r => r.name).join('、')}⋯請先幫他們完成報名後再重新匯入這幾筆。`
         : ''
@@ -703,6 +749,11 @@ export default function DonorManagePage() {
           regLookup={regLookup}
           importing={importing}
           importResult={importResult}
+          importMode={importMode}
+          onModeChange={setImportMode}
+          staleInfo={staleInfo}
+          confirmDelete={confirmDelete}
+          onConfirmDeleteChange={setConfirmDelete}
           onClose={() => { setPreviewOpen(false); setImportResult(null) }}
           onPick={pickCandidate}
           onFallback={fallbackToGuest}
@@ -754,7 +805,7 @@ export default function DonorManagePage() {
 
 
 // ── 匯入 preview modal ─────────────────────────────────────
-function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
+function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, importMode, onModeChange, staleInfo, confirmDelete, onConfirmDeleteChange, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
   const stats = useMemo(() => {
     const s = { student: 0, guest: 0, ambiguous: 0, unknown_id: 0, noRegistration: 0 }
     rows.forEach(r => {
@@ -775,6 +826,9 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
 
   const hasPending  = stats.ambiguous > 0 || stats.unknown_id > 0
   const importCount = rows.length - stats.noRegistration
+  const staleCount  = importMode === 'replace' ? staleInfo.stale.length : 0
+  const replaceBlocked = importMode === 'replace' &&
+    (staleInfo.loading || !!staleInfo.error || (staleCount > 0 && !confirmDelete))
 
   return (
     <div className="fixed inset-0 z-40 bg-black/50 flex items-start sm:items-center justify-center p-3 sm:p-6 overflow-y-auto">
@@ -814,6 +868,50 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
             <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
               下方紅色標記的 {stats.noRegistration} 筆查無本場法會報名紀錄，確認匯入時將自動排除、不會寫入名單
             </p>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-b bg-gray-50">
+          <div className="flex flex-wrap gap-4 text-sm">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="importMode" checked={importMode === 'replace'} onChange={() => onModeChange('replace')} />
+              <span className="font-semibold text-gray-800">覆蓋匯入</span>
+              <span className="text-xs text-gray-500">（匯入後，刪除「新檔案沒有」的舊功德主）</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="importMode" checked={importMode === 'merge'} onChange={() => onModeChange('merge')} />
+              <span className="font-semibold text-gray-800">合併匯入</span>
+              <span className="text-xs text-gray-500">（只新增、更新，不刪除任何人）</span>
+            </label>
+          </div>
+          {importMode === 'replace' && (
+            <div className="mt-2 text-xs">
+              {staleInfo.loading && <p className="text-gray-500">正在比對系統裡的舊名單…</p>}
+              {staleInfo.error && <p className="text-red-700">❌ {staleInfo.error}</p>}
+              {!staleInfo.loading && !staleInfo.error && staleCount === 0 && (
+                <p className="text-emerald-700">✅ 系統裡沒有多出來的功德主，不會刪除任何人。</p>
+              )}
+              {!staleInfo.loading && !staleInfo.error && staleCount > 0 && (
+                <div className="border border-red-300 bg-red-50 rounded-lg px-3 py-2">
+                  <p className="text-red-700 font-semibold mb-1">
+                    ⚠️ 匯入成功後，將刪除以下 {staleCount} 位（系統有、新檔案沒有）：
+                  </p>
+                  <p className="text-gray-800 leading-relaxed">
+                    {staleInfo.stale.map((d, i) => (
+                      <span key={d.donor_id}>
+                        {i > 0 && '、'}
+                        {d.name}{d.student_id ? '' : '（訪客）'}
+                        {d.hasDayOf && <span className="text-red-600 font-semibold">（已有桌次／桌長資料）</span>}
+                      </span>
+                    ))}
+                  </p>
+                  <label className="flex items-center gap-1.5 mt-2 cursor-pointer text-red-800 font-semibold">
+                    <input type="checkbox" checked={confirmDelete} onChange={e => onConfirmDeleteChange(e.target.checked)} />
+                    我確認要刪除上面這 {staleCount} 位
+                  </label>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -899,11 +997,11 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
             className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
           >取消</button>
           <button
-            disabled={importing}
+            disabled={importing || replaceBlocked}
             onClick={onConfirm}
             className="px-5 py-2 text-sm bg-purple-600 hover:bg-purple-700 text-white rounded-lg disabled:opacity-50"
           >
-            {importing ? '匯入中…' : `確認匯入 ${importCount} 筆`}
+            {importing ? '匯入中…' : `${importMode === 'replace' ? '覆蓋匯入' : '確認匯入'} ${importCount} 筆${staleCount > 0 ? `、刪除 ${staleCount} 位` : ''}`}
           </button>
         </div>
       </div>

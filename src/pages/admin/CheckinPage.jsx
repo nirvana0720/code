@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import AdminLayout from '../../components/AdminLayout'
 import {
   getAllEvents, getRegistrationForCheckin, getGuestRegistrationForCheckin,
-  checkIn, uncheckIn, getCheckinStats, getRegistrationsWithStudents, getDonorForRegistration,
+  checkIn, uncheckIn, getCheckinStats, getRegistrationsWithStudents, getDonorForRegistration, getDonorForGuestRegistration,
   getEventSessions, getSessionCheckinStats, getRegistrationForSessionCheckin,
   checkInSession, uncheckInSession,
   walkinRegister, walkinAddSession, getStudentById,
@@ -58,6 +58,39 @@ function DonorCard({ donor, donorFields, showDetail }) {
   )
 }
 
+// 親友報名遇到同名功德主、系統無法確定是誰時，讓工作人員點選正確的那位（2026-10-07）
+function DonorChoicePanel({ choice, donorFields, onPick }) {
+  if (!choice) return null
+  return (
+    <div className="mt-6 mx-auto max-w-md bg-amber-50 border-2 border-amber-400 rounded-2xl p-5 text-left shadow-sm">
+      <p className="text-base font-bold text-amber-800 mb-1">
+        ⚠️ 有同名功德主，請選擇「{choice.ticketName}」是哪一位
+      </p>
+      <p className="text-xs text-amber-700 mb-3">選了之後才會出單；如果都不是，按「立即重置」。</p>
+      <div className="space-y-2">
+        {choice.candidates.map(c => {
+          const summary = (donorFields || [])
+            .map(f => ({ label: f.field_label, value: c.answers?.[f.field_key] }))
+            .filter(f => f.value && String(f.value).trim())
+            .slice(0, 4)
+            .map(f => `${f.label}：${f.value}`)
+            .join('　')
+          return (
+            <button
+              key={c.donor_id}
+              onClick={() => onPick(c)}
+              className="w-full text-left bg-white border border-amber-300 hover:bg-amber-100 active:scale-[0.99] rounded-xl px-4 py-3 transition-colors"
+            >
+              <span className="block text-base font-semibold text-gray-800 break-words">{summary || '（沒有其他資料）'}</span>
+              <span className="block text-xs text-gray-500 mt-0.5">{c.student_id ? `學員編號 ${c.student_id}` : '訪客型功德主'}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function CheckinPage() {
   const { id } = useParams()
   const [event, setEvent]           = useState(null) // 活動完整資訊（含 multi_session）
@@ -67,6 +100,8 @@ export default function CheckinPage() {
   const [status, setStatus] = useState('idle') // idle | loading | success | already | not_found | not_in_session | error
   const [result, setResult] = useState(null) // { name, checkedInAt, registrationId, regId }
   const [donor, setDonor]   = useState(null) // 功德主紀錄（紫色卡片）
+  const [donorChoice, setDonorChoice] = useState(null) // 親友同名功德主待選：{ ticketName, candidates }
+  const donorChoiceRef = useRef(null) // 給 startCountdown 判斷「有待選就先不要倒數重置」
   const [donorFields, setDonorFields] = useState([]) // 該活動的功德主動態欄位（有序）
   const [countdown, setCountdown] = useState(IDLE_SECONDS)
   const [todayCount, setTodayCount] = useState(0)
@@ -202,12 +237,36 @@ export default function CheckinPage() {
     setStatus('idle')
     setResult(null)
     setDonor(null)
+    donorChoiceRef.current = null
+    setDonorChoice(null)
     setCountdown(IDLE_SECONDS)
   }, [])
+
+  function setChoice(v) {
+    donorChoiceRef.current = v
+    setDonorChoice(v)
+  }
+
+  // 套用功德主查詢結果：確定的 → 紫色卡片；同名分不出來的 → 跳選單（此時不出單）
+  function applyDonorLookup(donorRec, candidates, ticketName) {
+    setDonor(donorRec || null)
+    setChoice(candidates && candidates.length > 1 ? { ticketName, candidates } : null)
+  }
+
+  // 工作人員在選單點選了正確的功德主 → 顯示紫色卡片並出單
+  function handlePickDonor(c) {
+    const ticketName = donorChoiceRef.current?.ticketName ?? ''
+    setDonor(c)
+    setChoice(null)
+    printDonorTicket({ name: ticketName, donor: c, donorFields, eventName: event?.name, copies: printCopies })
+    startCountdown()
+  }
 
   function startCountdown() {
     setCountdown(IDLE_SECONDS)
     clearInterval(countdownRef.current)
+    // 有同名功德主待選時先不倒數重置，等工作人員選完（或按「立即重置」）
+    if (donorChoiceRef.current) return
     countdownRef.current = setInterval(() => {
       setCountdown(prev => {
         if (prev <= 1) {
@@ -223,6 +282,7 @@ export default function CheckinPage() {
   async function handleScan(scanned) {
     setStatus('loading')
     clearInterval(countdownRef.current)
+    setChoice(null)
 
     // ── 多場次活動：走 getRegistrationForSessionCheckin（三狀態 + 強制報到）──
     if (isMulti) {
@@ -270,21 +330,24 @@ export default function CheckinPage() {
       }
 
       // 查功德主紀錄（多場次活動目前不一定有，但保留邏輯）
-      const { donor: donorRec } = await getDonorForRegistration(
-        id,
-        res.isGuest ? null : res.registration.student_id,
-        res.isGuest ? res.name : null,
-      )
-      setDonor(donorRec || null)
+      // 親友（訪客型）：用親友本人姓名比對，小單也只印本人姓名（不含「（XX 親友）」）
+      const ticketName = res.isGuest
+        ? ((res.registration.answers?.guest_name || '').trim() || '訪客')
+        : res.name
+      const { donor: donorRec, candidates: donorCandidates } = res.isGuest
+        ? await getDonorForGuestRegistration(id, res.registration.answers?.guest_name)
+        : await getDonorForRegistration(id, res.registration.student_id, null)
+      applyDonorLookup(donorRec, donorCandidates, ticketName)
 
       if (res.state === 'already') {
         setStatus('already')
         setResult({
           name: res.name,
+          ticketName,
           checkedInAt: res.checkedInAt,
           regId: res.registration.registration_id,
         })
-        printDonorTicket({ name: res.name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
+        printDonorTicket({ name: ticketName, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
         startCountdown()
         return
       }
@@ -305,8 +368,8 @@ export default function CheckinPage() {
         setTodayCount(c => c + 1)
         refreshStats()
         setStatus('success')
-        setResult({ name: res.name, regId: res.registration.registration_id })
-        printDonorTicket({ name: res.name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
+        setResult({ name: res.name, ticketName, regId: res.registration.registration_id })
+        printDonorTicket({ name: ticketName, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
         startCountdown()
       } else {
         setStatus('error')
@@ -375,18 +438,20 @@ export default function CheckinPage() {
           : (registration.answers?.guest_name ?? '訪客'))
       : (registration.students?.name ?? scanned)
 
-    // 查功德主紀錄（學員型用 student_id、訪客型用 name；查不到回 null）
-    const { donor: donorRec } = await getDonorForRegistration(
-      id,
-      isGuest ? null : registration.student_id,
-      isGuest ? name : null,
-    )
-    setDonor(donorRec || null)
+    // 查功德主紀錄（學員型用 student_id；親友型用親友本人姓名，同名分不出來時跳選單）
+    // 小單只印本人姓名，不含「（XX 親友）」
+    const ticketName = isGuest
+      ? ((registration.answers?.guest_name || '').trim() || '訪客')
+      : name
+    const { donor: donorRec, candidates: donorCandidates } = isGuest
+      ? await getDonorForGuestRegistration(id, registration.answers?.guest_name)
+      : await getDonorForRegistration(id, registration.student_id, null)
+    applyDonorLookup(donorRec, donorCandidates, ticketName)
 
     if (registration.checked_in_at) {
       setStatus('already')
-      setResult({ name, checkedInAt: registration.checked_in_at, registrationId: registration.registration_id })
-      printDonorTicket({ name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
+      setResult({ name, ticketName, checkedInAt: registration.checked_in_at, registrationId: registration.registration_id })
+      printDonorTicket({ name: ticketName, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
       startCountdown()
       return
     }
@@ -396,8 +461,8 @@ export default function CheckinPage() {
       setTodayCount(c => c + 1)
       refreshStats()
       setStatus('success')
-      setResult({ name, registrationId: registration.registration_id })
-      printDonorTicket({ name, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
+      setResult({ name, ticketName, registrationId: registration.registration_id })
+      printDonorTicket({ name: ticketName, donor: donorRec, donorFields, eventName: event?.name, copies: printCopies })
       startCountdown()
     } else {
       setStatus('error')
@@ -691,11 +756,12 @@ export default function CheckinPage() {
             <p className="text-4xl font-bold text-green-700 mb-2">{result.name}</p>
             <p className="text-xl text-green-600">報到成功！</p>
             <DonorCard donor={donor} donorFields={donorFields} showDetail={showDonorDetail} />
-            <p className="text-sm text-gray-400 mt-4">{countdown} 秒後自動重置</p>
+            <DonorChoicePanel choice={donorChoice} donorFields={donorFields} onPick={handlePickDonor} />
+            <p className="text-sm text-gray-400 mt-4">{donorChoice ? '請先選擇上方功德主，或按「立即重置」' : `${countdown} 秒後自動重置`}</p>
             <div className="flex items-center justify-center gap-4 mt-2">
               {donor && (
                 <button
-                  onClick={() => printDonorTicket({ name: result.name, donor, donorFields, eventName: event?.name, copies: printCopies })}
+                  onClick={() => printDonorTicket({ name: result.ticketName ?? result.name, donor, donorFields, eventName: event?.name, copies: printCopies })}
                   className="text-xs text-gray-400 hover:text-gray-600 underline"
                 >
                   🖨 重新列印
@@ -717,10 +783,11 @@ export default function CheckinPage() {
             <p className="text-4xl font-bold text-amber-700 mb-2">{result.name}</p>
             <p className="text-xl text-amber-600">已於 {new Date(result.checkedInAt).toLocaleTimeString('zh-TW', { hour12: false })} 報到過</p>
             <DonorCard donor={donor} donorFields={donorFields} showDetail={showDonorDetail} />
+            <DonorChoicePanel choice={donorChoice} donorFields={donorFields} onPick={handlePickDonor} />
             <div className="flex gap-3 justify-center mt-5">
               {donor && (
                 <button
-                  onClick={() => printDonorTicket({ name: result.name, donor, donorFields, eventName: event?.name, copies: printCopies })}
+                  onClick={() => printDonorTicket({ name: result.ticketName ?? result.name, donor, donorFields, eventName: event?.name, copies: printCopies })}
                   className="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-lg transition-colors"
                 >
                   🖨 重新列印
@@ -736,7 +803,7 @@ export default function CheckinPage() {
                 onClick={resetToIdle}
                 className="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-lg transition-colors"
               >
-                返回（{countdown}s）
+                {donorChoice ? '返回' : `返回（${countdown}s）`}
               </button>
             </div>
           </div>

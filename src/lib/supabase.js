@@ -2696,6 +2696,52 @@ export async function getDonorForRegistration(eventId, studentId, guestName) {
   return { donor: null, error: null }
 }
 
+/**
+ * 親友（訪客型）報名刷卡報到時，找對應的功德主紀錄。（2026-10-07 新增）
+ *
+ * 為什麼不沿用 getDonorForRegistration：報到頁顯示的姓名是「陳春雄（李秀雲 親友）」這種組合字串，
+ * 拿去比對 event_donors.name（只有「陳春雄」）永遠對不上，而且舊寫法只比對 student_id 為空的功德主，
+ * 漏掉「功德主本人有學員帳號、但這場被親友用代報親友報名」的人。9/20 加了「沒有功德主紀錄就不出單」
+ * 之後，這些親友功德主就完全不會出單。
+ *
+ * 做法：只用親友本人的姓名（answers.guest_name）比對，不管功德主有沒有學員帳號；
+ * 同名時先排除「學員型功德主、且該學員本人在這場已有自己的報名」（他會用自己的學員證報到，
+ * 這張親友報名不太可能是他）；剩 1 位 → 直接用；剩多位 → 不猜，交給前端跳選單讓工作人員選。
+ * 回傳 { donor, candidates, error }：donor 有值＝確定是誰；candidates 長度>1＝需要人工選擇。
+ */
+export async function getDonorForGuestRegistration(eventId, guestName) {
+  const name = (guestName || '').trim()
+  if (!eventId || !name) return { donor: null, candidates: [], error: null }
+
+  const { data, error } = await supabase
+    .from('event_donors')
+    .select(DONOR_COLS)
+    .eq('event_id', eventId)
+    .eq('name', name)
+  if (error) return { donor: null, candidates: [], error: error.message }
+
+  let list = data || []
+  if (list.length === 0) return { donor: null, candidates: [], error: null }
+
+  const studentIds = list.filter(d => d.student_id).map(d => d.student_id)
+  if (studentIds.length > 0) {
+    const { data: regs, error: regErr } = await supabase
+      .from('registrations')
+      .select('student_id')
+      .eq('event_id', eventId)
+      .in('student_id', studentIds)
+    // 查不到「本人是否已報名」時不擅自排除，保留所有候選人（寧可請工作人員選，也不要猜錯）
+    if (!regErr) {
+      const own = new Set((regs || []).map(r => r.student_id))
+      list = list.filter(d => !(d.student_id && own.has(d.student_id)))
+    }
+  }
+
+  if (list.length === 0) return { donor: null, candidates: [], error: null }
+  if (list.length === 1) return { donor: list[0], candidates: [], error: null }
+  return { donor: null, candidates: list, error: null }
+}
+
 // trim 後空字串 → null（DB 端統一 null 表示「沒填」，報到時整列不顯示）
 function emptyToNull(v) {
   if (v === undefined || v === null) return null

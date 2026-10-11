@@ -7,7 +7,7 @@ import {
   getEventSessions, getSessionCheckinStats, getRegistrationForSessionCheckin,
   checkInSession, uncheckInSession,
   walkinRegister, walkinAddSession, getStudentById,
-  listEventDonorFields, listEventDonors, createGuestRegistration,
+  listEventDonorFields, listEventDonors, createGuestRegistration, getAllStudents,
 } from '../../lib/supabase'
 import CameraScanner from '../../components/CameraScanner'
 import { printDonorTicket } from '../../lib/printAgent'
@@ -115,6 +115,7 @@ export default function CheckinPage() {
   const [manualOpen, setManualOpen]     = useState(false)
   const [manualQuery, setManualQuery]   = useState('')
   const [allRegs, setAllRegs]           = useState([])
+  const [allStudents, setAllStudents]   = useState([]) // 全部學員（手動搜尋時列出「尚未報名」的學員，忘記帶學員證用）
   const [allDonors, setAllDonors]       = useState([]) // 本場功德主名單（手動搜尋時列出「尚未報名」的功德主）
 
   const inputRef = useRef('')
@@ -193,6 +194,10 @@ export default function CheckinPage() {
   useEffect(() => { loadAllDonors() }, [loadAllDonors])
   // 每次打開手動搜尋都重抓，確保看到最新名單
   useEffect(() => { if (manualOpen) { loadAllRegs(); loadAllDonors() } }, [manualOpen]) // eslint-disable-line
+  useEffect(() => {
+    if (!manualOpen || allStudents.length > 0) return
+    getAllStudents().then(({ students }) => setAllStudents(students || []))
+  }, [manualOpen]) // eslint-disable-line
 
   // 手動搜尋：功德主名單中「這場還沒有報名紀錄」的人（學員型比 student_id、訪客型比姓名）
   const unregisteredDonors = useMemo(() => {
@@ -236,6 +241,21 @@ export default function CheckinPage() {
     loadAllRegs()
     handleScan(registrationId)
   }
+
+  // 尚未報名的學員（忘記帶學員證）：搜尋後最多列 20 位，點選走刷卡流程（自由刷卡自動補報名／紅卡按鈕）
+  const unregisteredStudents = useMemo(() => {
+    const q = manualQuery.trim().toLowerCase()
+    if (!q) return []
+    const regStudentIds = new Set(allRegs.map(r => r.student_id).filter(Boolean))
+    const donorStudentIds = new Set(unregisteredDonors.map(d => d.student_id).filter(Boolean))
+    return allStudents
+      .filter(st => st.active !== false && !regStudentIds.has(st.student_id) && !donorStudentIds.has(st.student_id))
+      .filter(st => {
+        const cls = (st.student_classes ?? []).map(c => `${c.class_name}${c.group_name ?? ''}`).join(' ')
+        return `${st.name} ${st.student_id} ${cls}`.toLowerCase().includes(q)
+      })
+      .slice(0, 20)
+  }, [allStudents, allRegs, unregisteredDonors, manualQuery])
 
   function pickManual(reg) {
     setManualOpen(false)
@@ -642,7 +662,27 @@ export default function CheckinPage() {
                   ))}
                 </div>
               )}
-              {filteredRegs.length === 0 && unregisteredDonors.length === 0 ? (
+              {unregisteredStudents.length > 0 && (
+                <div className="bg-rose-50/50">
+                  <div className="px-4 pt-2 pb-1 text-xs text-rose-700 font-semibold">學員・尚未報名本活動（點選後現場報名並報到）</div>
+                  {unregisteredStudents.map(st => (
+                    <button
+                      key={st.student_id}
+                      onClick={() => { setManualOpen(false); setManualQuery(''); handleScan(st.student_id) }}
+                      className="w-full text-left px-4 py-3 hover:bg-rose-100 active:bg-rose-200 transition-colors border-t border-rose-100"
+                    >
+                      <span className="font-semibold text-gray-800">{st.name}</span>
+                      <div className="text-xs text-gray-500 mt-0.5 flex flex-wrap gap-2">
+                        <span>編號：{st.student_id}</span>
+                        {(st.student_classes ?? []).length > 0 && (
+                          <span>{st.student_classes.map(c => c.class_name + (c.group_name ? ' ' + c.group_name : '')).join(' / ')}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {filteredRegs.length === 0 && unregisteredDonors.length === 0 && unregisteredStudents.length === 0 ? (
                 <div className="text-center text-gray-400 py-12 text-sm">無符合的報名紀錄</div>
               ) : filteredRegs.length === 0 ? null : (
                 filteredRegs.map(r => {

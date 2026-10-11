@@ -7,7 +7,7 @@ import {
   getEventSessions, getSessionCheckinStats, getRegistrationForSessionCheckin,
   checkInSession, uncheckInSession,
   walkinRegister, walkinAddSession, getStudentById,
-  listEventDonorFields,
+  listEventDonorFields, listEventDonors, createGuestRegistration,
 } from '../../lib/supabase'
 import CameraScanner from '../../components/CameraScanner'
 import { printDonorTicket } from '../../lib/printAgent'
@@ -115,6 +115,7 @@ export default function CheckinPage() {
   const [manualOpen, setManualOpen]     = useState(false)
   const [manualQuery, setManualQuery]   = useState('')
   const [allRegs, setAllRegs]           = useState([])
+  const [allDonors, setAllDonors]       = useState([]) // 本場功德主名單（手動搜尋時列出「尚未報名」的功德主）
 
   const inputRef = useRef('')
   const countdownRef = useRef(null)
@@ -185,6 +186,27 @@ export default function CheckinPage() {
 
   useEffect(() => { loadAllRegs() }, [loadAllRegs])
 
+  const loadAllDonors = useCallback(async () => {
+    const { donors } = await listEventDonors(id)
+    setAllDonors(donors || [])
+  }, [id])
+  useEffect(() => { loadAllDonors() }, [loadAllDonors])
+  // 每次打開手動搜尋都重抓，確保看到最新名單
+  useEffect(() => { if (manualOpen) { loadAllRegs(); loadAllDonors() } }, [manualOpen]) // eslint-disable-line
+
+  // 手動搜尋：功德主名單中「這場還沒有報名紀錄」的人（學員型比 student_id、訪客型比姓名）
+  const unregisteredDonors = useMemo(() => {
+    const q = manualQuery.trim().toLowerCase()
+    if (!q) return []
+    const regStudentIds = new Set(allRegs.map(r => r.student_id).filter(Boolean))
+    const regNames = new Set(allRegs.map(r => (r.students?.name ?? r.answers?.guest_name ?? '').trim()).filter(Boolean))
+    return allDonors.filter(d => {
+      const registered = d.student_id ? regStudentIds.has(d.student_id) : regNames.has((d.name || '').trim())
+      if (registered) return false
+      return `${d.name} ${d.student_id ?? ''}`.toLowerCase().includes(q)
+    })
+  }, [allDonors, allRegs, manualQuery])
+
   // 篩選清單
   const filteredRegs = useMemo(() => {
     const q = manualQuery.trim().toLowerCase()
@@ -196,6 +218,24 @@ export default function CheckinPage() {
       return `${name} ${sid} ${cls}`.toLowerCase().includes(q)
     })
   }, [allRegs, manualQuery])
+
+  // 尚未報名的功德主：學員型 → 走刷卡流程（自由刷卡自動補報名／紅卡按鈕）；
+  // 非學員型 → 先建立訪客報名（多場次一併勾本場次），再走訪客報到流程，兩者都會出單
+  async function pickUnregisteredDonor(d) {
+    setManualOpen(false)
+    setManualQuery('')
+    if (d.student_id) { handleScan(d.student_id); return }
+    setStatus('loading')
+    const answers = isMulti && currentSessionId ? { sessions: [{ session_id: currentSessionId }] } : {}
+    const { registrationId, error } = await createGuestRegistration(id, d.name, answers)
+    if (error || !registrationId) {
+      console.error('[pickUnregisteredDonor]', error)
+      setStatus('error'); setResult(null); startCountdown()
+      return
+    }
+    loadAllRegs()
+    handleScan(registrationId)
+  }
 
   function pickManual(reg) {
     setManualOpen(false)
@@ -279,6 +319,13 @@ export default function CheckinPage() {
     }, 1000)
   }
 
+  // 現場補報名（自由刷卡／紅卡按鈕）完成後：查功德主、有就出單
+  async function donorTicketAfterWalkin(studentId, name) {
+    const { donor: d, candidates } = await getDonorForRegistration(id, studentId, null)
+    applyDonorLookup(d, candidates, name)
+    printDonorTicket({ name, donor: d, donorFields, eventName: event?.name, copies: printCopies })
+  }
+
   async function handleScan(scanned) {
     setStatus('loading')
     clearInterval(countdownRef.current)
@@ -311,6 +358,7 @@ export default function CheckinPage() {
             refreshStats()
             setStatus('success')
             setResult({ name })
+            await donorTicketAfterWalkin(scanned, name)
           } else {
             setStatus('error')
             setResult(null)
@@ -356,6 +404,7 @@ export default function CheckinPage() {
         setStatus('not_in_session')
         setResult({
           name: res.name,
+          ticketName,
           regId: res.registration.registration_id,
           currentAnswers: res.registration.answers || {},
         })
@@ -396,6 +445,7 @@ export default function CheckinPage() {
           refreshStats()
           setStatus('success')
           setResult({ name })
+          await donorTicketAfterWalkin(scanned, name)
         } else {
           setStatus('error')
           setResult(null)
@@ -485,7 +535,8 @@ export default function CheckinPage() {
       setTodayCount(c => c + 1)
       refreshStats()
       setStatus('success')
-      // result.name 沿用
+      // result.name 沿用；功德主在刷卡當下已查過（donor state），補報名成功後出單
+      printDonorTicket({ name: result.ticketName ?? result.name, donor, donorFields, eventName: event?.name, copies: printCopies })
       startCountdown()
     } else {
       console.error('[walkinAddSession]', error)
@@ -509,6 +560,7 @@ export default function CheckinPage() {
       refreshStats()
       setStatus('success')
       // result.name 沿用
+      await donorTicketAfterWalkin(result.studentId, result.name)
       startCountdown()
     } else {
       console.error('[walkinRegister]', error)
@@ -571,9 +623,28 @@ export default function CheckinPage() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto divide-y">
-              {filteredRegs.length === 0 ? (
+              {unregisteredDonors.length > 0 && (
+                <div className="bg-purple-50/60">
+                  <div className="px-4 pt-2 pb-1 text-xs text-purple-700 font-semibold">功德主・尚未報名（點選後補報名、報到並出單）</div>
+                  {unregisteredDonors.map(d => (
+                    <button
+                      key={d.donor_id}
+                      onClick={() => pickUnregisteredDonor(d)}
+                      className="w-full text-left px-4 py-3 hover:bg-purple-100 active:bg-purple-200 transition-colors border-t border-purple-100"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-gray-800">{d.name}</span>
+                        <span className="text-xs bg-purple-100 text-purple-700 border border-purple-200 rounded-full px-1.5">功德主</span>
+                        {!d.student_id && <span className="text-xs bg-blue-100 text-blue-600 rounded-full px-1.5">非學員</span>}
+                      </div>
+                      {d.student_id && <div className="text-xs text-gray-500 mt-0.5">編號：{d.student_id}</div>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {filteredRegs.length === 0 && unregisteredDonors.length === 0 ? (
                 <div className="text-center text-gray-400 py-12 text-sm">無符合的報名紀錄</div>
-              ) : (
+              ) : filteredRegs.length === 0 ? null : (
                 filteredRegs.map(r => {
                   const guestNameLabel = r.answers?.host_name
                     ? `${r.answers?.guest_name ?? '訪客'}（${r.answers.host_name} 親友）`

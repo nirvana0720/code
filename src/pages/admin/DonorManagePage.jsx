@@ -179,6 +179,8 @@ export default function DonorManagePage() {
   const [importMode, setImportMode] = useState('replace')
   const [staleInfo, setStaleInfo] = useState({ loading: false, stale: [], error: '' })
   const [confirmDelete, setConfirmDelete] = useState(false)
+  // 勾選後，查無本場報名紀錄的功德主也會匯入（刷卡／手動搜尋時才補報名並出單）
+  const [keepUnregistered, setKeepUnregistered] = useState(false)
   const [regLookup, setRegLookup] = useState({ studentIds: new Set(), guestNames: new Set() })
   const fileInputRef = useRef(null)
   // 匯入撞名處理：nameConflicts 為 null 代表 modal 關閉，否則是 bulkUpsertEventDonors
@@ -346,13 +348,13 @@ export default function DonorManagePage() {
   // 這次真正會寫入的資料（查無本場法會報名紀錄的列排除）
   const importPayload = useMemo(() =>
     previewRows
-      .filter(r => !checkNoRegistration(r, regLookup))
+      .filter(r => keepUnregistered || !checkNoRegistration(r, regLookup))
       .map(r => ({
         student_id: r.matchType === 'student' ? r.resolvedStudentId : null,
         name:       r.name,
         answers:    r.answers,
       })),
-    [previewRows, regLookup])
+    [previewRows, regLookup, keepUnregistered])
 
   // 覆蓋模式：預先算出「會被刪除」的名單，給師父在預覽畫面確認
   useEffect(() => {
@@ -378,7 +380,7 @@ export default function DonorManagePage() {
   async function handleConfirmImport() {
     setImporting(true)
     // 查無本場法會報名紀錄的列直接排除，不寫入
-    const skipped   = previewRows.filter(r => checkNoRegistration(r, regLookup))
+    const skipped   = keepUnregistered ? [] : previewRows.filter(r => checkNoRegistration(r, regLookup))
     const payload   = importPayload
     // 覆蓋模式：先記下師父在畫面上看過、確認要刪的名單
     const staleIds = importMode === 'replace' ? staleInfo.stale.map(d => d.donor_id) : []
@@ -752,6 +754,8 @@ export default function DonorManagePage() {
           importMode={importMode}
           onModeChange={setImportMode}
           staleInfo={staleInfo}
+          keepUnregistered={keepUnregistered}
+          onKeepUnregisteredChange={setKeepUnregistered}
           confirmDelete={confirmDelete}
           onConfirmDeleteChange={setConfirmDelete}
           onClose={() => { setPreviewOpen(false); setImportResult(null) }}
@@ -805,7 +809,7 @@ export default function DonorManagePage() {
 
 
 // ── 匯入 preview modal ─────────────────────────────────────
-function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, importMode, onModeChange, staleInfo, confirmDelete, onConfirmDeleteChange, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
+function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, importMode, onModeChange, keepUnregistered, onKeepUnregisteredChange, staleInfo, confirmDelete, onConfirmDeleteChange, onClose, onPick, onFallback, onAllToGuest, onConfirm }) {
   const stats = useMemo(() => {
     const s = { student: 0, guest: 0, ambiguous: 0, unknown_id: 0, noRegistration: 0 }
     rows.forEach(r => {
@@ -825,7 +829,7 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
   }, [rows, regLookup])
 
   const hasPending  = stats.ambiguous > 0 || stats.unknown_id > 0
-  const importCount = rows.length - stats.noRegistration
+  const importCount = keepUnregistered ? rows.length : rows.length - stats.noRegistration
   const staleCount  = importMode === 'replace' ? staleInfo.stale.length : 0
   const replaceBlocked = importMode === 'replace' &&
     (staleInfo.loading || !!staleInfo.error || (staleCount > 0 && !confirmDelete))
@@ -865,9 +869,13 @@ function ImportPreviewModal({ rows, fields, regLookup, importing, importResult, 
             </p>
           )}
           {stats.noRegistration > 0 && (
-            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
-              下方紅色標記的 {stats.noRegistration} 筆查無本場法會報名紀錄，確認匯入時將自動排除、不會寫入名單
-            </p>
+            <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mt-3">
+              <p>下方紅色標記的 {stats.noRegistration} 筆查無本場法會報名紀錄，{keepUnregistered ? '已勾選保留，將一併匯入' : '確認匯入時將自動排除、不會寫入名單'}</p>
+              <label className="flex items-center gap-1.5 mt-1.5 cursor-pointer font-semibold">
+                <input type="checkbox" checked={keepUnregistered} onChange={e => onKeepUnregisteredChange(e.target.checked)} />
+                保留查無報名的功德主（他們來報到時，刷卡或手動搜尋才會補報名並出單）
+              </label>
+            </div>
           )}
         </div>
 

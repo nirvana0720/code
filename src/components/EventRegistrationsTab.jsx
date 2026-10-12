@@ -21,6 +21,16 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
       {/* 多場次：場次切換 tabs */}
       {event?.multi_session && sessions.length > 0 && (
         <div className="flex gap-1.5 mb-4 flex-wrap items-center border-b border-gray-100 pb-3">
+          <button
+            onClick={() => setSessionTab('all')}
+            className={`text-xs px-3 py-1.5 rounded-full font-medium border transition-colors ${
+              sessionTab === 'all'
+                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            全部（{registrations.length}）
+          </button>
           {sessions.map(s => {
             const cnt = registrations.filter(r =>
               r.answers?.sessions?.some(ss => ss.session_id === s.session_id)
@@ -694,7 +704,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
             {(!event?.multi_session || sessionTab === 'all') && registrations.length > 0 && (
               <button
                 onClick={async () => {
-                  exportCSV(registrations, fields, event)
+                  exportCSV(registrations, fields, event, sessions)
                   await recordExportTime(id)
                   const now = new Date().toISOString()
                   setEvent(ev => ({ ...ev, last_exported_at: now }))

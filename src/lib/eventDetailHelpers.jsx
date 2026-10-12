@@ -80,14 +80,19 @@ export function resolveSessionAns(field, ssAns) {
 
 // 單一場次 CSV 匯出（動態欄位：依 event_session_fields × show_if_period）
 export function exportSessionCSV(sessionRegs, session, event, sessionFields = []) {
+  // 報到時間：讀該場次的 session_checkins（多場次的 registrations.checked_in_at 永遠是 null）
   const sessionLabel = formatSessionTabLabel(session)
   const fieldsHere = sessionFieldsForPeriod(sessionFields, session)
-  const header = ['學員編號', '姓名', ...fieldsHere.map(f => f.field_label), '更新時間']
+  const header = ['學員編號', '姓名', '班級', '組別', '寮號', '報名時間', '更新時間', '報到', '報到時間', ...fieldsHere.map(f => f.field_label)]
 
   const rows = sessionRegs.map(r => {
     const name = getDisplayName(r)
-    const stamp = r.updated_at ?? r.registered_at
-    const regAt = stamp ? new Date(stamp).toLocaleString('zh-TW') : ''
+    // 班級／組別：學員可能屬多班，逐項以 / 串接（訪客為空）；欄位順序與「全部匯出」一致
+    const classes = (r.students?.student_classes ?? [])
+    const classCol = classes.map(c => c.class_name ?? '').filter(Boolean).join('/')
+    const groupCol = classes.map(c => c.group_name ?? '').filter(Boolean).join('/')
+    const regAt     = r.registered_at ? new Date(r.registered_at).toLocaleString('zh-TW') : ''
+    const updatedAt = r.updated_at    ? new Date(r.updated_at).toLocaleString('zh-TW')    : ''
     const ssAns = r.answers?.sessions?.find(ss => ss.session_id === session.session_id) ?? {}
     const fieldCells = fieldsHere.map(f => {
       const v = resolveSessionAns(f, ssAns)
@@ -96,7 +101,9 @@ export function exportSessionCSV(sessionRegs, session, event, sessionFields = []
       if (Array.isArray(v)) return v.join('、')
       return String(v)
     })
-    return [r.student_id ?? '訪客', name, ...fieldCells, regAt]
+    const chk = r.session_checkins?.find(c => c.session_id === session.session_id)?.checked_in_at || null
+    const chkAt = chk ? new Date(chk).toLocaleString('zh-TW') : ''
+    return [r.student_id ?? '訪客', name, classCol, groupCol, r.dormitory_room ?? '', regAt, updatedAt, chk ? '已報到' : '', chkAt, ...fieldCells]
   })
 
   const csv = [header, ...rows]
@@ -132,12 +139,27 @@ export function SortTh({ label, colKey, current, dir, onSort, className = '' }) 
 }
 
 // ── CSV 匯出 ───────────────────────────────────────────────
-export function exportCSV(registrations, fields, event) {
+export function exportCSV(registrations, fields, event, sessions = []) {
   const answerHeaders = fields.map(f => f.field_label)
+  // 多場次活動：報到時間改讀各場次的刷卡紀錄（registrations.checked_in_at 永遠是 null），
+  // 並多兩欄「報到場次數」「缺席場次數」。缺席＝報名了、場次已結束、卻沒有報到紀錄的場次；
+  // 還沒到的場次不算缺席。（2026-10-12）
+  const isMulti = !!event?.multi_session
+  const nowTaipei = new Date(Date.now() + 8 * 3600 * 1000).toISOString() // 以台灣時間比較
+  const todayStr = nowTaipei.slice(0, 10)
+  const nowTimeStr = nowTaipei.slice(11, 19)
+  const sessionEnded = (ss) => {
+    if (!ss?.date) return false
+    if (ss.date < todayStr) return true
+    if (ss.date > todayStr) return false
+    return !!ss.time_end && String(ss.time_end).slice(0, 8) <= nowTimeStr
+  }
+  const sessionById = new Map((sessions || []).map(x => [x.session_id, x]))
   // 補基本欄位：班級、組別、報名時間（首次報名）— 排座位與後續統計常用
   const header = [
     '學員編號', '姓名', '班級', '組別', '寮號',
     '報名時間', '更新時間', '報到時間',
+    ...(isMulti ? ['報到場次數', '缺席場次數', '缺席場次'] : []),
     ...answerHeaders,
   ]
 
@@ -150,7 +172,23 @@ export function exportCSV(registrations, fields, event) {
     // 報名時間：首次報名（registered_at）；更新時間：最後編輯（updated_at）
     const regAt     = r.registered_at ? new Date(r.registered_at).toLocaleString('zh-TW') : ''
     const updatedAt = r.updated_at    ? new Date(r.updated_at).toLocaleString('zh-TW')    : ''
-    const checkinAt = r.checked_in_at ? new Date(r.checked_in_at).toLocaleString('zh-TW') : ''
+    let checkinAtRaw = r.checked_in_at || null
+    let multiCols = []
+    if (isMulti) {
+      const regSessionIds = (Array.isArray(r.answers?.sessions) ? r.answers.sessions : []).map(x => x.session_id)
+      const checks = Array.isArray(r.session_checkins) ? r.session_checkins : []
+      const checkedIds = new Set(checks.map(c => c.session_id))
+      // 報到時間：多場次顯示「最近一次報到」的時間
+      checkinAtRaw = checks.map(c => c.checked_in_at).filter(Boolean).sort().pop() || null
+      const attended = regSessionIds.filter(sid => checkedIds.has(sid)).length
+      const absentSessions = regSessionIds
+        .filter(sid => !checkedIds.has(sid) && sessionEnded(sessionById.get(sid)))
+        .map(sid => sessionById.get(sid))
+        .sort((a, b) => `${a.date}${a.time_start ?? ''}`.localeCompare(`${b.date}${b.time_start ?? ''}`))
+      // 缺席場次：列出是哪幾場沒到，例如「10/11 下午、10/12 晚上」
+      multiCols = [attended, absentSessions.length, absentSessions.map(x => formatSessionTabLabel(x)).join('、')]
+    }
+    const checkinAt = checkinAtRaw ? new Date(checkinAtRaw).toLocaleString('zh-TW') : ''
     const answerCols = fields.map(f => {
       const val = r.answers?.[f.field_key]
       const formatted = formatFieldValue(f, val)
@@ -159,6 +197,7 @@ export function exportCSV(registrations, fields, event) {
     return [
       r.student_id ?? '訪客', name, classCol, groupCol, r.dormitory_room ?? '',
       regAt, updatedAt, checkinAt,
+      ...multiCols,
       ...answerCols,
     ]
   })

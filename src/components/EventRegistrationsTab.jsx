@@ -883,6 +883,19 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                       </>
                     })()}
                     {showCheckin && (() => {
+                      // 多場次「全部」視圖：不顯示整體時間，改顯示「已報到 X/Y 場」（逐場統計，與匯出一致）
+                      if (event?.multi_session && sessionTab === 'all') {
+                        const regIds = (Array.isArray(r.answers?.sessions) ? r.answers.sessions : []).map(x => x.session_id)
+                        const doneIds = new Set((r.session_checkins ?? []).map(c => c.session_id))
+                        const done = regIds.filter(sid => doneIds.has(sid)).length
+                        return (
+                          <td className="px-3 py-1.5">
+                            <span className={`${done > 0 ? 'text-green-600' : 'text-gray-300'} text-xs font-medium whitespace-nowrap`}>
+                              {done > 0 ? `✓ 已報到 ${done}/${regIds.length} 場` : '—'}
+                            </span>
+                          </td>
+                        )
+                      }
                       const chk = effectiveCheckinAt(r)
                       return (
                         <td className="px-3 py-1.5">
@@ -911,7 +924,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                     <td className={`px-3 py-1.5 text-right sticky right-0 z-[1] shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                       {isAdmin && (
                         <div className="flex gap-2 justify-end">
-                          {effectiveCheckinAt(r) && (
+                          {effectiveCheckinAt(r) && !(event?.multi_session && sessionTab === 'all') && (
                             <button
                               onClick={() => handleUncheckIn(r.registration_id, getDisplayName(r))}
                               className="text-xs text-orange-500 hover:text-orange-700 border border-orange-200 hover:border-orange-400 px-2 py-1 rounded transition-colors"

@@ -347,6 +347,16 @@ export default function CheckinPage() {
   }
 
   async function handleScan(scanned) {
+    // 活動資料尚未載入完（例如頁面剛重新載入）時 isMulti 會誤判為 false，
+    // 導致多場次活動的報到被寫進舊的整體欄位。載入完成前一律不處理刷卡。（2026-10-13）
+    if (!event) {
+      clearInterval(countdownRef.current)
+      setChoice(null)
+      setStatus('error')
+      setResult({ message: '頁面還在載入，請稍等幾秒後再刷一次' })
+      startCountdown()
+      return
+    }
     setStatus('loading')
     clearInterval(countdownRef.current)
     setChoice(null)
@@ -990,6 +1000,7 @@ export default function CheckinPage() {
           <div className="text-center">
             <div className="text-8xl mb-6">🔴</div>
             <p className="text-2xl font-bold text-red-500 mb-2">發生錯誤</p>
+            {result?.message && <p className="text-lg text-gray-600">{result.message}</p>}
             <p className="text-sm text-gray-400 mt-4">{countdown} 秒後自動重置</p>
             <button onClick={resetToIdle} className="mt-2 text-xs text-gray-400 hover:text-gray-600 underline">立即重置</button>
           </div>

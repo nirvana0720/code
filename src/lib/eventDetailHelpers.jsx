@@ -180,7 +180,8 @@ export function exportCSV(registrations, fields, event, sessions = []) {
       const checkedIds = new Set(checks.map(c => c.session_id))
       // 報到時間：多場次顯示「最近一次報到」的時間
       checkinAtRaw = checks.map(c => c.checked_in_at).filter(Boolean).sort().pop() || null
-      const attended = regSessionIds.filter(sid => checkedIds.has(sid)).length
+      // 報到場次數：有刷卡就算，與是否先報名該場無關（2026-10-13）
+      const attended = checkedIds.size
       const absentSessions = regSessionIds
         .filter(sid => !checkedIds.has(sid) && sessionEnded(sessionById.get(sid)))
         .map(sid => sessionById.get(sid))

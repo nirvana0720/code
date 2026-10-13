@@ -326,8 +326,21 @@ export default function EventDetailPage() {
       aVal = getDisplayName(a)
       bVal = getDisplayName(b)
     } else if (sortKey === 'checked_in_at') {
-      aVal = a.checked_in_at ?? ''
-      bVal = b.checked_in_at ?? ''
+      // 多場次「全部」視圖：依已報到場次數（多的在前；升冪＝多→少，降冪＝少→多）
+      if (event?.multi_session && sessionTab === 'all') {
+        const ca = new Set((a.session_checkins ?? []).map(c => c.session_id)).size
+        const cb = new Set((b.session_checkins ?? []).map(c => c.session_id)).size
+        const d = cb - ca
+        return sortDir === 'asc' ? d : -d
+      }
+      // 多場次「場次」視圖：依該場刷卡時間（早到的在前，沒刷卡的排最後；降冪相反但沒刷卡仍在最後）
+      const ta = effectiveCheckinAt(a) || ''
+      const tb = effectiveCheckinAt(b) || ''
+      if (!ta && !tb) return 0
+      if (!ta) return 1
+      if (!tb) return -1
+      const d = String(ta).localeCompare(String(tb))
+      return sortDir === 'asc' ? d : -d
     } else if (sortKey === 'updated_at' || sortKey === 'registered_at') {
       // 統一用 updated_at（registered_at 為舊鍵向後相容）
       aVal = a.updated_at ?? a.registered_at ?? ''

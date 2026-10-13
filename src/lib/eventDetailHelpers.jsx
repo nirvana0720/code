@@ -159,7 +159,7 @@ export function exportCSV(registrations, fields, event, sessions = []) {
   const header = [
     '學員編號', '姓名', '班級', '組別', '寮號',
     '報名時間', '更新時間', '報到時間',
-    ...(isMulti ? ['報到場次數', '缺席場次數', '缺席場次'] : []),
+    ...(isMulti ? ['報到場次數', '缺席場次數', '缺席場次', '報名場次數'] : []),
     ...answerHeaders,
   ]
 
@@ -182,12 +182,13 @@ export function exportCSV(registrations, fields, event, sessions = []) {
       checkinAtRaw = checks.map(c => c.checked_in_at).filter(Boolean).sort().pop() || null
       // 報到場次數：有刷卡就算，與是否先報名該場無關（2026-10-13）
       const attended = checkedIds.size
-      const absentSessions = regSessionIds
-        .filter(sid => !checkedIds.has(sid) && sessionEnded(sessionById.get(sid)))
-        .map(sid => sessionById.get(sid))
-        .sort((a, b) => `${a.date}${a.time_start ?? ''}`.localeCompare(`${b.date}${b.time_start ?? ''}`))
-      // 缺席場次：列出是哪幾場沒到，例如「10/11 下午、10/12 晚上」
-      multiCols = [attended, absentSessions.length, absentSessions.map(x => formatSessionTabLabel(x)).join('、')]
+      // 以「總場次」計：所有已結束的場次中，沒有刷卡紀錄的就算缺席（不管有沒有先報名該場）
+      // 因此 報到場次數 + 缺席場次數 = 已結束的總場次數（2026-10-13）
+      const absentSessions = (sessions || [])
+        .filter(ss => !checkedIds.has(ss.session_id) && sessionEnded(ss))
+        .sort((x, y) => `${x.date}${x.time_start ?? ''}`.localeCompare(`${y.date}${y.time_start ?? ''}`))
+      // 缺席場次：列出是哪幾場沒到，例如「10/11 下午、10/12 晚上」；最後附報名場次數供對照
+      multiCols = [attended, absentSessions.length, absentSessions.map(x => formatSessionTabLabel(x)).join('、'), regSessionIds.length]
     }
     const checkinAt = checkinAtRaw ? new Date(checkinAtRaw).toLocaleString('zh-TW') : ''
     const answerCols = fields.map(f => {

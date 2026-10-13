@@ -759,7 +759,7 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                 ))}
                 {/* 多場次：全部視圖 → 場次欄；場次視圖 → 午齋/停車 */}
                 {event?.multi_session && sessionTab === 'all' && (
-                  <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">參加場次</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">報名場次</th>
                 )}
                 {event?.multi_session && sessionTab !== 'all' && (() => {
                   const curS = sessions.find(s => s.session_id === sessionTab)

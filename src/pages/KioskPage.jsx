@@ -17,6 +17,7 @@ import {
 } from '../lib/supabase'
 import DynamicForm from '../components/DynamicForm'
 import CameraScanner from '../components/CameraScanner'
+import StudentApprovalNote, { ApprovalRejectedChip, isApprovalRejected } from '../components/approval/StudentApprovalNote'
 import { isDriverFromAnswers } from '../lib/registrationHelpers'
 import { getVisibleRequiredFields } from '../lib/attendDateHelpers'
 
@@ -1706,6 +1707,7 @@ function OverviewScreen({
           const confirming = cancellingEventId === event.event_id
 
           const isVolunteerOnly = !!event.locked && !!event.volunteer_open
+          const approvalRejected = isApprovalRejected(event, reg) // 山上審核未核准：不顯示「✓ 已報名」
           return (
             <div
               key={event.event_id}
@@ -1807,6 +1809,8 @@ function OverviewScreen({
                       </details>
                     )
                   })()}
+                  {/* 山上審核狀態（只在需審核的活動顯示） */}
+                  {registered && !confirming && <StudentApprovalNote event={event} reg={reg} />}
                   {/* 取消確認提示 */}
                   {confirming && (
                     <p className="mt-2 text-kiosk-sm text-red-600 font-medium">確定要取消此活動的報名嗎？</p>
@@ -1821,7 +1825,7 @@ function OverviewScreen({
                     </span>
                   ) : event.locked && !isVolunteerOnly ? (
                     /* 活動鎖定（非義工開放）：只顯示狀態，不提供任何操作 */
-                    registered ? (
+                    registered ? (approvalRejected ? <ApprovalRejectedChip /> :
                       <span className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 inline-block text-center">
                         ✓ 已報名
                       </span>
@@ -1832,7 +1836,7 @@ function OverviewScreen({
                     )
                   ) : event.walkin_mode ? (
                     /* 自由刷卡參加：不需報名，只顯示提示，不提供報名操作 */
-                    registered ? (
+                    registered ? (approvalRejected ? <ApprovalRejectedChip /> :
                       <span className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 inline-block text-center">
                         ✓ 已報名
                       </span>
@@ -1861,7 +1865,8 @@ function OverviewScreen({
                           尚未開放報名
                         </span>
                       )}
-                      {registered && !confirming && (
+                      {registered && !confirming && approvalRejected && <ApprovalRejectedChip />}
+                      {registered && !confirming && !approvalRejected && (
                         <button
                           onClick={() => onSelectEvent({ event, fields, sessions, sessionFields })}
                           className="px-4 py-2 border-2 border-green-400 text-green-700 rounded-xl text-kiosk-sm font-medium bg-green-50 active:scale-95 transition-transform"
@@ -1988,6 +1993,7 @@ function OverviewScreen({
                 <div className="mt-3 space-y-2">
                   {Object.entries(friendsByEvent).map(([eventId, friends]) => {
                     const evName = eventNameMap[eventId] || '（未知活動）'
+                    const evObj = eventItems.find(it => it.event.event_id === eventId)?.event
                     const evFields = eventFieldsMap[eventId] || []
                     return (
                       <div key={eventId} className="bg-white border border-purple-200 rounded-xl p-3">
@@ -2013,6 +2019,7 @@ function OverviewScreen({
                             return (
                               <div key={fr.registration_id} className="bg-purple-50 rounded-lg px-3 py-2">
                                 <p className="text-kiosk-sm font-bold text-purple-800 mb-1">{guestName}</p>
+                                <StudentApprovalNote event={evObj} reg={fr} className="!mt-0 mb-1" />
                                 <div className="flex gap-1 flex-wrap mb-1">
                                     <button
                                       onClick={() => openFriendQR(fr)}

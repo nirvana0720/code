@@ -3,6 +3,7 @@ import { slotsForDirection } from '../lib/carSlotHelpers'
 import ImagePositionEditor from './ImagePositionEditor'
 import EventSessionFieldsPanel from './EventSessionFieldsPanel'
 import EventSessionsPanel from './EventSessionsPanel'
+import ApprovalSettings from './approval/ApprovalSettings'
 
 const UP_SLOT_CHOICES = ['上午', '中午', '下午']
 const DOWN_SLOT_CHOICES = ['上午', '中午', '下午', '晚上']
@@ -317,6 +318,11 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
 
             // 切換時同步設定底層三個欄位
             function handleRegMode(mode) {
+              // 山上審核與自由刷卡互斥（另一邊的防呆在 ApprovalSettings）
+              if (mode === 'walkin' && form.needs_mountain_approval) {
+                window.alert('此活動已開啟「需山上審核」，不能改成自由刷卡參加。\n請先關閉山上審核。')
+                return
+              }
               setForm(f => ({
                 ...f,
                 kiosk_open: mode === 'kiosk' || mode === 'walkin',
@@ -402,6 +408,9 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
             )
           })()}
         </div>
+
+        {/* ── 山上審核（禪七／護七）─────────────────────── */}
+        <ApprovalSettings form={form} setForm={setForm} />
 
         {/* ── 活動介紹頁設定 ─────────────────────────────── */}
         <div className="sm:col-span-2 mt-2">

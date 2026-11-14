@@ -31,7 +31,8 @@ async function fetchAllRows(makeQuery, pageSize = 1000) {
   return { data: all, error: null }
 }
 
-const chunk = (arr, n) => {
+// 分批工具：approvalApi.js 也沿用（export 出去，不另寫一份）
+export const chunk = (arr, n) => {
   const out = []
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
   return out
@@ -746,6 +747,7 @@ export async function getRegistrationsWithStudents(eventId) {
       terminal,
       source,
       dormitory_room,
+      approval_status,
       students!student_id ( name, student_classes ( class_name, group_name ) )
     `)
     .eq('event_id', eventId)
@@ -763,7 +765,7 @@ export async function getRegistrationsWithStudents(eventId) {
 export async function getRegistrationForCheckin(eventId, studentId) {
   const { data, error } = await supabase
     .from('registrations')
-    .select('registration_id, student_id, answers, checked_in_at, students!student_id(name)')
+    .select('registration_id, student_id, answers, checked_in_at, approval_status, students!student_id(name)')
     .eq('event_id', eventId)
     .eq('student_id', studentId)
     .single()
@@ -781,7 +783,7 @@ export async function getRegistrationForCheckin(eventId, studentId) {
 export async function getGuestRegistrationForCheckin(eventId, registrationId) {
   const { data, error } = await supabase
     .from('registrations')
-    .select('registration_id, answers, checked_in_at')
+    .select('registration_id, answers, checked_in_at, approval_status')
     .eq('registration_id', registrationId)
     .eq('event_id', eventId)
     .single()
@@ -953,7 +955,7 @@ export async function getRegistrationForSessionCheckin(eventId, scanned, session
   // 先用學員編號查 registration
   let { data: reg, error } = await supabase
     .from('registrations')
-    .select('registration_id, student_id, answers, students!student_id(name)')
+    .select('registration_id, student_id, answers, approval_status, students!student_id(name)')
     .eq('event_id', eventId)
     .eq('student_id', scanned)
     .maybeSingle()
@@ -968,7 +970,7 @@ export async function getRegistrationForSessionCheckin(eventId, scanned, session
   if (!reg && !error && UUID_RE.test(String(scanned))) {
     const guest = await supabase
       .from('registrations')
-      .select('registration_id, student_id, answers')
+      .select('registration_id, student_id, answers, approval_status')
       .eq('event_id', eventId)
       .eq('registration_id', scanned)
       .maybeSingle()
@@ -1637,6 +1639,7 @@ export async function getEventRegistrationsDetail(eventId) {
       pre_depart_override,
       late_return_override,
       dormitory_room,
+      approval_status,
       students!student_id ( name, student_classes(class_name, group_name) )
     `)
     .eq('event_id', eventId)
@@ -3014,7 +3017,7 @@ export async function getPublicActivities() {
   const today = new Date().toISOString().slice(0, 10)
   const { data, error } = await supabase
     .from('events')
-    .select('event_id, name, date_start, date_end, location, location_tag, status, locked, volunteer_open, offline_registration, cover_image_url, cover_image_position, description, related_links, show_on_activities')
+    .select('event_id, name, date_start, date_end, location, location_tag, status, locked, volunteer_open, offline_registration, cover_image_url, cover_image_position, description, related_links, show_on_activities, needs_mountain_approval, approval_rejected_text')
     .eq('show_on_activities', true)
     .neq('event_id', CANARY_EVENT_ID) // 排除 canary 監控假活動，防呆（canary 目前預設不會勾 show_on_activities，但保險起見一併排除）
     .or(`date_end.is.null,date_end.gte.${today}`)
@@ -3027,7 +3030,7 @@ export async function getPublicActivities() {
 export async function getPublicActivity(eventId) {
   const { data, error } = await supabase
     .from('events')
-    .select('event_id, name, date_start, date_end, location, location_tag, status, locked, volunteer_open, offline_registration, cover_image_url, cover_image_position, description, related_links')
+    .select('event_id, name, date_start, date_end, location, location_tag, status, locked, volunteer_open, offline_registration, cover_image_url, cover_image_position, description, related_links, needs_mountain_approval, approval_rejected_text')
     .eq('event_id', eventId)
     .single()
   if (error) return { data: null, error: error.message }

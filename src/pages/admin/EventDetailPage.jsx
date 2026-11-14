@@ -251,6 +251,8 @@ export default function EventDetailPage() {
       kiosk_open: ev.kiosk_open !== false,  // 預設 true；僅明確設為 false 才關閉刷卡報名
       walkin_mode: !!ev.walkin_mode,
       offline_registration: !!ev.offline_registration,
+      needs_mountain_approval: !!ev.needs_mountain_approval,
+      approval_rejected_text: ev.approval_rejected_text ?? '',
       location_tag: ev.location_tag ?? 'zhongtai',
       cover_image_url: ev.cover_image_url ?? '',
       cover_image_position: ev.cover_image_position ?? '50% 50%',
@@ -415,6 +417,8 @@ export default function EventDetailPage() {
         kiosk_open: form.kiosk_open,
         walkin_mode: form.walkin_mode,
         offline_registration: form.offline_registration,
+        needs_mountain_approval: !!form.needs_mountain_approval,
+        approval_rejected_text: (form.approval_rejected_text ?? '').trim() || null,
         location_tag: form.location_tag,
         cover_image_url: form.cover_image_url || null,
         cover_image_position: form.cover_image_position || '50% 50%',
@@ -857,6 +861,10 @@ export default function EventDetailPage() {
           setShowCancelled={setShowCancelled}
           cancelledChanges={cancelledChanges}
           setQrModal={setQrModal}
+          onApprovalApplied={updates => setRegistrations(prev => prev.map(r => {
+            const u = updates.find(x => x.ids.includes(r.registration_id))
+            return u ? { ...r, approval_status: u.status } : r
+          }))}
         />
       )}
 

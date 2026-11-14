@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { recordExportTime } from '../lib/supabase'
+import ApprovalToolbar from './approval/ApprovalToolbar'
+import ApprovalBadge from './approval/ApprovalBadge'
 import {
   formatFieldValue, getDisplayName,
   timePeriodLabel, formatSessionTabLabel,
@@ -15,7 +18,14 @@ import {
   isFieldApplicableToSession,
 } from '../lib/registrationHelpers'
 
-export default function EventRegistrationsTab({ event, setEvent, id, sessions, sessionTab, setSessionTab, registrations, sessionFilteredRegistrations, lastExported, totalChangeSince, newRegIds, modifiedRegIds, cancelledChangesSince, sessionFields, showSessionStatsDetail, setShowSessionStatsDetail, fields, listSearch, setListSearch, searchedRegistrations, sortedRegistrations, isAdmin, hasGuests, selectedGuestIds, allGuestsSelected, toggleSelectAllGuests, toggleGuestSelect, showCheckin, setShowCheckin, showRegTime, setShowRegTime, showDormRoom, setShowDormRoom, pinnedFieldKeys, isVolunteerField, isUpField, isDownField, hiddenFieldKeys, toggleFieldGroup, toggleFieldKey, sortKey, sortDir, handleSort, setBatchPrintOpen, setStudentModal, setGuestModal, changes, setDiffModal, effectiveCheckinAt, handleUncheckIn, setEditingReg, handleDeleteRegistration, showCancelled, setShowCancelled, cancelledChanges, setQrModal }) {
+export default function EventRegistrationsTab({ event, setEvent, id, sessions, sessionTab, setSessionTab, registrations, sessionFilteredRegistrations, lastExported, totalChangeSince, newRegIds, modifiedRegIds, cancelledChangesSince, sessionFields, showSessionStatsDetail, setShowSessionStatsDetail, fields, listSearch, setListSearch, searchedRegistrations, sortedRegistrations, isAdmin, hasGuests, selectedGuestIds, allGuestsSelected, toggleSelectAllGuests, toggleGuestSelect, showCheckin, setShowCheckin, showRegTime, setShowRegTime, showDormRoom, setShowDormRoom, pinnedFieldKeys, isVolunteerField, isUpField, isDownField, hiddenFieldKeys, toggleFieldGroup, toggleFieldKey, sortKey, sortDir, handleSort, setBatchPrintOpen, setStudentModal, setGuestModal, changes, setDiffModal, effectiveCheckinAt, handleUncheckIn, setEditingReg, handleDeleteRegistration, showCancelled, setShowCancelled, cancelledChanges, setQrModal, onApprovalApplied }) {
+  // 山上審核：只有活動開啟 needs_mountain_approval 才出現；篩選所有人可用，勾選／批次操作僅管理員
+  const approvalOn = !!event?.needs_mountain_approval
+  const [approvalFilter, setApprovalFilter] = useState('all')
+  const [approvalSelected, setApprovalSelected] = useState(new Set())
+  const visibleRegs = approvalOn && approvalFilter !== 'all'
+    ? sortedRegistrations.filter(r => (r.approval_status || 'registered') === approvalFilter)
+    : sortedRegistrations
   return (
 <div>
       {/* 多場次：場次切換 tabs */}
@@ -718,6 +728,15 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
         )}
       </div>
 
+      {approvalOn && registrations.length > 0 && (
+        <ApprovalToolbar
+          event={event} registrations={registrations} fields={fields} visibleRegs={visibleRegs}
+          filter={approvalFilter} setFilter={setApprovalFilter}
+          selectedIds={approvalSelected} setSelectedIds={setApprovalSelected}
+          isAdmin={isAdmin} onApplied={updates => onApprovalApplied?.(updates)}
+        />
+      )}
+
       {registrations.length === 0 ? (
         <p className="text-gray-400 text-sm text-center py-12">尚無報名紀錄</p>
       ) : (
@@ -776,11 +795,12 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                 {showCheckin && <SortTh label="報到" colKey="checked_in_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
                 {showRegTime && <SortTh label="更新時間" colKey="updated_at" current={sortKey} dir={sortDir} onSort={handleSort} />}
                 {showDormRoom && event?.has_dormitory && <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">寮號</th>}
+                {approvalOn && <th className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap">審核狀態</th>}
                 <th className="sticky right-0 z-20 bg-gray-50 px-3 py-2 shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.08)]" />
               </tr>
             </thead>
             <tbody>
-              {sortedRegistrations.map(r => {
+              {visibleRegs.map(r => {
                 const isGuest = !r.student_id
                 const isSelected = isGuest && selectedGuestIds.has(r.registration_id)
                 return (
@@ -919,6 +939,25 @@ export default function EventRegistrationsTab({ event, setEvent, id, sessions, s
                     {showDormRoom && event?.has_dormitory && (
                       <td className="px-3 py-1.5 text-gray-700">
                         {r.dormitory_room || <span className="text-gray-300 text-xs">—</span>}
+                      </td>
+                    )}
+                    {approvalOn && (
+                      <td className="px-3 py-1.5 whitespace-nowrap">
+                        <span className="flex items-center gap-1.5">
+                          {isAdmin && (
+                            <input
+                              type="checkbox"
+                              checked={approvalSelected.has(r.registration_id)}
+                              onChange={() => setApprovalSelected(prev => {
+                                const next = new Set(prev)
+                                next.has(r.registration_id) ? next.delete(r.registration_id) : next.add(r.registration_id)
+                                return next
+                              })}
+                              className="accent-indigo-600 cursor-pointer w-4 h-4"
+                            />
+                          )}
+                          <ApprovalBadge status={r.approval_status} />
+                        </span>
                       </td>
                     )}
                     <td className={`px-3 py-1.5 text-right sticky right-0 z-[1] shadow-[-2px_0_4px_-1px_rgba(0,0,0,0.06)] ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>

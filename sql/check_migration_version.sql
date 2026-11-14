@@ -174,7 +174,14 @@ WITH checks(seq, migration_file, note, ok) AS (
 
   (91, 'add_has_dormitory_flag.sql',
    'events.has_dormitory 欄位存在（寮號欄位改成依活動開關顯示，2026-08-30）',
-   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='has_dormitory'))
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='has_dormitory')),
+
+  (92, 'add_mountain_approval.sql',
+   'events.needs_mountain_approval／approval_rejected_text、registrations.approval_status／approval_updated_at／approval_updated_by 欄位存在，且 kiosk_get_registrations_for_student 有回傳 approval_status（山上審核，2026-11-14；❌ 時先跑 add_mountain_approval.sql 再重跑 rpc_kiosk_student.sql）',
+   (SELECT count(*) FROM information_schema.columns
+     WHERE (table_name='events' AND column_name IN ('needs_mountain_approval','approval_rejected_text'))
+        OR (table_name='registrations' AND column_name IN ('approval_status','approval_updated_at','approval_updated_by'))) = 5
+   AND pg_get_function_result('kiosk_get_registrations_for_student(text,uuid[])'::regprocedure) LIKE '%approval_status%')
 )
 SELECT
   seq AS "順序",

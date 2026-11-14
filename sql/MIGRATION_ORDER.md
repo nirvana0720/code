@@ -196,6 +196,12 @@
 |------|------|------|
 | 91 | `add_has_dormitory_flag.sql` | 新增 `events.has_dormitory`（此活動是否需要住宿安排，預設 false，跟既有 `show_dormitory_to_public` 獨立——後者控制學員/領隊端可見度，這個新欄位只控制後台「報名名單」／「編輯報名內容」要不要出現寮號欄位）。**含資料回填**：任何已經有寮號資料的活動自動打開此開關，避免既有已在使用寮號功能的活動升級後看不到欄位；尚未匯入安單資料但確定需要住宿的活動（例如已建立但還沒匯入的未來回山法會）不會被回填規則抓到，需要良師父自行到「活動設定」勾選 |
 
+## 第十六階段：山上審核（2026-11-14）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 92 | `add_mountain_approval.sql` | 新增 `events.needs_mountain_approval`（需山上審核開關，預設 false）／`events.approval_rejected_text`（未核准時學員頁文字），`registrations.approval_status`（registered／ctis_registered／approved／rejected，預設 registered，含 CHECK 限制）／`approval_updated_at`／`approval_updated_by`。只加欄位，不加觸發器、不加新表、不改權限；既有活動與報名零影響。**跑完這支後，既有環境要再重跑一次第 83 項 `rpc_kiosk_student.sql`**（主檔原地加回傳欄位 `approval_status`，學員頁才讀得到審核狀態；權限不變） |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、

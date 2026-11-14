@@ -11,6 +11,7 @@ import {
 } from '../../lib/supabase'
 import CameraScanner from '../../components/CameraScanner'
 import { printDonorTicket } from '../../lib/printAgent'
+import { isBlockedByApproval } from '../../lib/approvalApi'
 
 const IDLE_SECONDS = 5 // 成功/失敗畫面停留秒數
 
@@ -97,7 +98,7 @@ export default function CheckinPage() {
   const [sessions, setSessions]     = useState([])   // 多場次：場次清單
   const [currentSessionId, setCurrentSessionId] = useState(null) // 多場次：當前報到場次
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false)
-  const [status, setStatus] = useState('idle') // idle | loading | success | already | not_found | not_in_session | error
+  const [status, setStatus] = useState('idle') // idle | loading | success | already | not_found | not_in_session | not_approved | error
   const [result, setResult] = useState(null) // { name, checkedInAt, registrationId, regId }
   const [donor, setDonor]   = useState(null) // 功德主紀錄（紫色卡片）
   const [donorChoice, setDonorChoice] = useState(null) // 親友同名功德主待選：{ ticketName, candidates }
@@ -378,8 +379,8 @@ export default function CheckinPage() {
         return
       }
       if (res.state === 'not_registered') {
-        // 自由刷卡模式：直接自動記錄，不顯示紅卡
-        if (event?.walkin_mode) {
+        // 自由刷卡模式：直接自動記錄，不顯示紅卡（需山上審核的活動不走自動記錄）
+        if (event?.walkin_mode && !event?.needs_mountain_approval) {
           const stu = await getStudentById(scanned).catch(() => null)
           const name = stu?.student?.name || scanned
           const { success } = await walkinRegister(id, scanned, { isMulti: true, sessionId: currentSessionId, terminal: 'admin-checkin' })
@@ -403,6 +404,14 @@ export default function CheckinPage() {
           name: stu.student.name,
           studentId: scanned,
         } : null)
+        startCountdown()
+        return
+      }
+
+      // 山上審核：非核准者不寫入報到、不出單，直接紅卡
+      if (isBlockedByApproval(event, res.registration)) {
+        setStatus('not_approved')
+        setResult({ name: res.name })
         startCountdown()
         return
       }
@@ -465,8 +474,8 @@ export default function CheckinPage() {
 
     // 找不到學員報名 → 自由刷卡模式直接記錄，否則再試訪客報名 ID
     if (error === 'NOT_REGISTERED') {
-      // 自由刷卡模式：直接自動記錄，不需要查訪客報名
-      if (event?.walkin_mode) {
+      // 自由刷卡模式：直接自動記錄，不需要查訪客報名（需山上審核的活動不走自動記錄）
+      if (event?.walkin_mode && !event?.needs_mountain_approval) {
         const stu = await getStudentById(scanned).catch(() => null)
         const name = stu?.student?.name || scanned
         const { success } = await walkinRegister(id, scanned, { terminal: 'admin-checkin' })
@@ -517,6 +526,14 @@ export default function CheckinPage() {
           ? `${registration.answers?.guest_name ?? '訪客'}（${registration.answers.host_name} 親友）`
           : (registration.answers?.guest_name ?? '訪客'))
       : (registration.students?.name ?? scanned)
+
+    // 山上審核：非核准者不寫入報到、不出單，直接紅卡
+    if (isBlockedByApproval(event, registration)) {
+      setStatus('not_approved')
+      setResult({ name })
+      startCountdown()
+      return
+    }
 
     // 查功德主紀錄（學員型用 student_id；親友型用親友本人姓名，同名分不出來時跳選單）
     // 小單只印本人姓名，不含「（XX 親友）」
@@ -653,7 +670,7 @@ export default function CheckinPage() {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto divide-y">
-              {unregisteredDonors.length > 0 && (
+              {!event?.needs_mountain_approval && unregisteredDonors.length > 0 && (
                 <div className="bg-purple-50/60">
                   <div className="px-4 pt-2 pb-1 text-xs text-purple-700 font-semibold">功德主・尚未報名（點選後補報名、報到並出單）</div>
                   {unregisteredDonors.map(d => (
@@ -672,7 +689,7 @@ export default function CheckinPage() {
                   ))}
                 </div>
               )}
-              {unregisteredStudents.length > 0 && (
+              {!event?.needs_mountain_approval && unregisteredStudents.length > 0 && (
                 <div className="bg-rose-50/50">
                   <div className="px-4 pt-2 pb-1 text-xs text-rose-700 font-semibold">學員・尚未報名本活動（點選後現場報名並報到）</div>
                   {unregisteredStudents.map(st => (
@@ -943,13 +960,16 @@ export default function CheckinPage() {
                     （將補報此場次：{currentSession ? formatSessionLabel(currentSession) : '—'}）
                   </p>
                 )}
+                {event?.needs_mountain_approval && (
+                  <p className="text-sm text-gray-500 mt-2">此活動需山上審核，不開放現場報名，請洽師父</p>
+                )}
                 <div className="flex gap-3 justify-center mt-5 flex-wrap">
-                  <button
+                  {!event?.needs_mountain_approval && <button
                     onClick={handleWalkinRegister}
                     className="text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 px-5 py-2.5 rounded-lg transition-colors shadow-sm"
                   >
                     📝 現場報名{isMulti ? '此場次' : ''}（自動報到）
-                  </button>
+                  </button>}
                   <button
                     onClick={resetToIdle}
                     className="text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-lg transition-colors"
@@ -993,6 +1013,17 @@ export default function CheckinPage() {
                 返回（{countdown}s）
               </button>
             </div>
+          </div>
+        )}
+
+        {status === 'not_approved' && result && (
+          <div className="text-center">
+            <div className="text-8xl mb-6">⛔</div>
+            <p className="text-4xl font-bold text-red-700 mb-2">{result.name}</p>
+            <p className="text-2xl font-bold text-red-600">尚未核准，請洽師父</p>
+            <p className="text-sm text-gray-500 mt-1">（此活動需山上審核，未寫入報到）</p>
+            <p className="text-sm text-gray-400 mt-4">{countdown} 秒後自動重置</p>
+            <button onClick={resetToIdle} className="mt-2 text-xs text-gray-400 hover:text-gray-600 underline">立即重置</button>
           </div>
         )}
 

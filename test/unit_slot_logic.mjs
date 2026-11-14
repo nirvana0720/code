@@ -397,4 +397,5 @@ test('其他日期待處理切分：配不到司機的孤兒乘客／大車／�
 
 console.log('')
 console.log('=== 結果：' + pass + ' 過、' + fail + ' 沒過 ===')
-process.exit(fail > 0 ? 1 : 0)
+// 用 exitCode 不用 process.exit：run_unit.mjs 會接著跑下一支測試檔
+if (fail > 0) process.exitCode = 1

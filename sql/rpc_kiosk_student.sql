@@ -4,6 +4,7 @@
 -- 加回 dormitory_room 欄位（因為改了回傳欄位組成，CREATE OR REPLACE 做不到，必須先 DROP），
 -- 但兩支檔案都沒有標記彼此的關係，一直沒有固定主檔。這裡把加了 dormitory_room 的最終版本
 -- 原封不動搬過來，往後這支函式只在這支檔案改。
+-- 2026-11-14：回傳欄位加 approval_status（山上審核，搭配 add_mountain_approval.sql；學員頁要顯示審核狀態）。
 -- 可安全重跑：DROP FUNCTION IF EXISTS + CREATE（回傳欄位組成不能用 CREATE OR REPLACE 變更）。
 
 DROP FUNCTION IF EXISTS kiosk_get_registrations_for_student(TEXT, UUID[]);
@@ -21,7 +22,8 @@ RETURNS TABLE (
   is_driver       BOOLEAN,
   registered_at   TIMESTAMPTZ,
   updated_at      TIMESTAMPTZ,
-  dormitory_room  TEXT
+  dormitory_room  TEXT,
+  approval_status TEXT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -38,7 +40,8 @@ BEGIN
     r.is_driver,
     r.registered_at,
     r.updated_at,
-    r.dormitory_room
+    r.dormitory_room,
+    r.approval_status
   FROM registrations r
   WHERE r.event_id = ANY(p_event_ids)
     AND (

@@ -44,6 +44,12 @@ test('detectSectionHeader：不錄取優先於錄取', () => {
   assert.equal(detectSectionHeader('第一期護七錄取名單'), 'approved')
   assert.equal(detectSectionHeader('1 71-A0002 王小明'), null)
 })
+test('detectSectionHeader：說明文字裡的長句子（含逗號／句號或過長）不算標題', () => {
+  assert.equal(detectSectionHeader('1、本表為打七錄取名單，請各精舍通知學員。'), null)
+  assert.equal(detectSectionHeader('請各精舍於期限內依照錄取名單通知所有報名學員準時報到'), null)
+  assert.equal(detectSectionHeader('錄取名單：3 人'), 'approved')
+  assert.equal(detectSectionHeader('不錄取名單：2 人'), 'rejected')
+})
 
 // ── 打七表：沒有標題 ────────────────────────────────────────
 test('打七表（無標題）：全部歸 approved，訪客用 guest_name 比對', () => {

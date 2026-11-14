@@ -28,8 +28,13 @@ export function matchNameOf(reg) {
 }
 
 // 判斷段落標題；回傳 'rejected' | 'approved' | null
+// 只認「短的標題列」（例如「錄取名單：3 人」「第一期護七不錄取名單」）：
+// 含逗號／句號、或超過 HEADER_MAX_LEN 字的是說明文字裡的句子（例如「…請參閱打七錄取名單，…」），不算標題。
+// （2026-11-14 用打七 PDF 樣本整合驗證時發現說明文字被誤判成標題。）
+const HEADER_MAX_LEN = 20
 export function detectSectionHeader(line) {
   const n = normalizeName(line)
+  if (n.length > HEADER_MAX_LEN || /[，。,]/.test(n)) return null
   if (n.includes('不錄取名單') || n.includes('未錄取名單')) return 'rejected'
   if (n.includes('錄取名單')) return 'approved'
   return null

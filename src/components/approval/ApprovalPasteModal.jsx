@@ -3,9 +3,11 @@
  * 比對規則在 lib/approvalMatch.js；寫入用 lib/approvalApi.setApprovalStatus。
  * 預覽分四區：核准／未核准／需手動處理（同名或前後矛盾，逐一選擇）／找不到（只列出）。
  * 沒有段落標題的貼法（打七表）提供「其餘 CTIS已報名者標未核准」切換。
+ * 也可「上傳 PDF」：lib/approvalPdf.js 在瀏覽器本機讀出文字填入文字框（不上傳、不記 log），再按比對。
  */
 import { useState } from 'react'
 import { matchApprovalList } from '../../lib/approvalMatch'
+import { extractPdfText } from '../../lib/approvalPdf'
 import { setApprovalStatus } from '../../lib/approvalApi'
 import { APPROVAL_STATUS } from '../../lib/approvalConstants'
 import { getDisplayName } from '../../lib/eventDetailHelpers'
@@ -31,6 +33,27 @@ export default function ApprovalPasteModal({ registrations, onClose, onApplied }
   const [restRejected, setRestRejected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [pdfState, setPdfState] = useState({ loading: false, msg: '' })
+
+  // 上傳 PDF：本機讀出文字填入文字框，使用者可檢視／修改後再按「比對」
+  async function handlePdfFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // 同一個檔案可以再選一次
+    if (!file) return
+    setPdfState({ loading: true, msg: '' })
+    try {
+      const { text: pdfText, pageCount, hasText } = await extractPdfText(file)
+      if (!hasText) {
+        setPdfState({ loading: false, msg: '⚠️ 這份 PDF 沒有文字（可能是掃描圖片），請改用貼上，或在名單上手動勾選' })
+        return
+      }
+      setText(pdfText)
+      setPdfState({ loading: false, msg: `✅ 已讀出 ${pageCount} 頁文字，請確認內容後按「比對」` })
+    } catch {
+      // 不把錯誤物件印到 console（可能含檔案內容），只顯示通用訊息
+      setPdfState({ loading: false, msg: '❌ 讀取 PDF 失敗，檔案可能損毀或有密碼保護，請改用貼上' })
+    }
+  }
 
   function runMatch() {
     setResult(matchApprovalList(text, registrations, { displayNameOf: r => getDisplayName(r) }))
@@ -73,8 +96,16 @@ export default function ApprovalPasteModal({ registrations, onClose, onApplied }
         {!result ? (
           <>
             <p className="text-sm text-gray-500">
-              直接從 PDF 複製整張表貼上即可。有「錄取名單／不錄取名單」標題會分段判斷；沒有標題（打七表）就全部視為錄取。
+              直接從 PDF 複製整張表貼上，或按「上傳 PDF」自動讀出文字。有「錄取名單／不錄取名單」標題會分段判斷；沒有標題（打七表）就全部視為錄取。
+              <span className="block text-xs text-gray-400 mt-0.5">檔案只在本機讀取，不會上傳</span>
             </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className={`text-sm border border-indigo-300 text-indigo-700 px-3 py-1.5 rounded-lg ${pdfState.loading ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:bg-indigo-50'}`}>
+                {pdfState.loading ? '讀取中…' : '📄 上傳 PDF'}
+                <input type="file" accept=".pdf,application/pdf" className="hidden" disabled={pdfState.loading} onChange={handlePdfFile} />
+              </label>
+              {pdfState.msg && <span className="text-xs text-gray-600">{pdfState.msg}</span>}
+            </div>
             <textarea
               value={text}
               onChange={e => setText(e.target.value)}

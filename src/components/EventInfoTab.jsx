@@ -582,23 +582,17 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
 
     {/* 義工開放模式（鎖定時才顯示，隨儲存設定一起送出） */}
     {event.locked && (
-      <div style={{
-        marginTop: '8px',
-        marginLeft: '28px',
-        display: 'flex',
-        alignItems: 'flex-start',
-        gap: '8px',
-      }}>
+      <div className="mt-2 ml-7 flex items-start gap-2">
         <input
           type="checkbox"
           id="volunteer_open"
           checked={!!form.volunteer_open}
           onChange={e => setForm(f => ({ ...f, volunteer_open: e.target.checked }))}
-          style={{ marginTop: '3px', accentColor: '#16a34a' }}
+          className="w-4 h-4 mt-0.5 accent-green-600 cursor-pointer"
         />
-        <label htmlFor="volunteer_open" style={{ fontSize: '0.85rem', color: '#374151', cursor: 'pointer' }}>
-          開放義工繼續報名
-          <span style={{ display: 'block', fontSize: '0.75rem', color: '#9CA3AF', marginTop: '2px' }}>
+        <label htmlFor="volunteer_open" className="cursor-pointer">
+          <span className="block text-sm font-semibold text-gray-700">開放義工繼續報名</span>
+          <span className="block text-xs text-gray-500 mt-1">
             勾選後，刷卡頁仍可報名，但身分別固定為「義工」。勾選後請按頂部「💾 儲存設定」。
           </span>
         </label>

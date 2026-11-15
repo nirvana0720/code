@@ -56,6 +56,7 @@ import {
 } from '../../lib/eventDetailHelpers'
 import ImagePositionEditor from '../../components/ImagePositionEditor'
 import EventInfoTab from '../../components/EventInfoTab'
+import { isoToTaipeiInput, taipeiInputToIso, isTaipeiInputPast } from '../../lib/autoLockTime'
 import EventRegistrationsTab from '../../components/EventRegistrationsTab'
 import MountainDataTab from '../../components/MountainDataTab'
 
@@ -253,6 +254,7 @@ export default function EventDetailPage() {
       offline_registration: !!ev.offline_registration,
       needs_mountain_approval: !!ev.needs_mountain_approval,
       approval_rejected_text: ev.approval_rejected_text ?? '',
+      auto_lock_at: isoToTaipeiInput(ev.auto_lock_at), // datetime-local 值（台北時間）
       location_tag: ev.location_tag ?? 'zhongtai',
       cover_image_url: ev.cover_image_url ?? '',
       cover_image_position: ev.cover_image_position ?? '50% 50%',
@@ -387,6 +389,10 @@ export default function EventDetailPage() {
   // 儲存活動基本資料 + 義工存取設定（同一顆按鈕一次存）
   async function handleSaveInfo(e) {
     e.preventDefault()
+    if (isTaipeiInputPast(form.auto_lock_at)) {
+      window.alert('「自動停止異動時間」已經過了，請改成之後的時間或按「清除」後再儲存。\n（若活動剛被自動鎖定，請重新整理頁面）')
+      return
+    }
     setSaving(true)
     const [infoRes, volunteerRes] = await Promise.all([
       updateEvent(id, {
@@ -419,6 +425,7 @@ export default function EventDetailPage() {
         offline_registration: form.offline_registration,
         needs_mountain_approval: !!form.needs_mountain_approval,
         approval_rejected_text: (form.approval_rejected_text ?? '').trim() || null,
+        auto_lock_at: taipeiInputToIso(form.auto_lock_at),
         location_tag: form.location_tag,
         cover_image_url: form.cover_image_url || null,
         cover_image_position: form.cover_image_position || '50% 50%',

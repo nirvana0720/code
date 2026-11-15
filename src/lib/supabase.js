@@ -439,9 +439,10 @@ export async function deleteEvent(eventId) {
  * 切換活動鎖定狀態（停止／開放異動）
  */
 export async function toggleEventLock(eventId, locked) {
+  // 手動鎖定時一併清空「自動停止異動時間」，避免之後手動解除又被排程鎖回去
   const { error } = await supabase
     .from('events')
-    .update({ locked })
+    .update(locked ? { locked, auto_lock_at: null } : { locked })
     .eq('event_id', eventId)
 
   if (error) return { success: false, error: error.message }

@@ -4,6 +4,7 @@ import ImagePositionEditor from './ImagePositionEditor'
 import EventSessionFieldsPanel from './EventSessionFieldsPanel'
 import EventSessionsPanel from './EventSessionsPanel'
 import ApprovalSettings from './approval/ApprovalSettings'
+import AutoLockSetting from './AutoLockSetting'
 
 const UP_SLOT_CHOICES = ['上午', '中午', '下午']
 const DOWN_SLOT_CHOICES = ['上午', '中午', '下午', '晚上']
@@ -553,6 +554,7 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
             ? '前台學員只能查看報名資料，無法新增、修改或取消。如需調整請在此解鎖。'
             : '按下「停止異動」後，前台將顯示「如需異動請聯絡精舍」，學員無法自行新增或取消報名。'}
         </p>
+        <AutoLockSetting form={form} setForm={setForm} locked={event.locked} />
       </div>
       <button
         disabled={locking}
@@ -562,8 +564,9 @@ export default function EventInfoTab({ saving, handleSaveInfo, form, setForm, ev
           const { success, error: err } = await toggleEventLock(id, newLocked)
           setLocking(false)
           if (!success) { setSaveMsg(`❌ 操作失敗：${err}`); return }
-          setEvent(ev => ({ ...ev, locked: newLocked }))
+          setEvent(ev => ({ ...ev, locked: newLocked, ...(newLocked ? { auto_lock_at: null } : {}) }))
           if (!newLocked) setForm(f => ({ ...f, volunteer_open: false }))
+          if (newLocked) setForm(f => ({ ...f, auto_lock_at: '' })) // 手動鎖定時資料庫已清空自動鎖定時間
           setSaveMsg(newLocked ? '🔒 已停止異動' : '🔓 已開放異動')
           setTimeout(() => setSaveMsg(''), 3000)
         }}

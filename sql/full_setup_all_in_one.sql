@@ -5866,6 +5866,36 @@ BEGIN
 END;
 $$;
 
+-- ============================================================
+-- auto_lock_events()（2026-11-15 新增，自動停止異動）
+-- 由 add_event_auto_lock.sql 建立的 pg_cron 工作「auto_lock_events」每 5 分鐘呼叫。
+-- 把 auto_lock_at 已到時間的活動設為 locked=true，並清空 auto_lock_at（已經 locked 的也清空），
+-- 因此鎖定後手動解除不會被再次鎖回去。效果與後台手動按「🔒 停止異動」相同。
+-- 用 plpgsql：函式內容到執行時才檢查欄位，先跑本檔、再跑 add_event_auto_lock.sql 也能建立成功。
+-- 權限：只給 pg_cron（以資料庫擁有者身分執行）用，不開放前台／登入者透過 RPC 呼叫。
+-- ============================================================
+CREATE OR REPLACE FUNCTION auto_lock_events()
+RETURNS int
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  locked_cnt int;
+BEGIN
+  UPDATE events
+     SET locked = true,
+         auto_lock_at = NULL
+   WHERE auto_lock_at IS NOT NULL
+     AND auto_lock_at <= now();
+  GET DIAGNOSTICS locked_cnt = ROW_COUNT;
+  RETURN locked_cnt;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION auto_lock_events() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION auto_lock_events() FROM anon, authenticated;
+
 -- ------------------------------------------------------------
 -- [86/86] 第八階段收尾：確認第八階段函式已生效
 -- ------------------------------------------------------------
@@ -6091,3 +6121,32 @@ COMMENT ON COLUMN events.approval_rejected_text IS '未核准時學員頁顯示�
 COMMENT ON COLUMN registrations.approval_status IS '山上審核狀態：registered=已報名、ctis_registered=CTIS已報名、approved=核准、rejected=未核准';
 COMMENT ON COLUMN registrations.approval_updated_at IS '最後一次修改審核狀態的時間';
 COMMENT ON COLUMN registrations.approval_updated_by IS '最後一次修改審核狀態的後台帳號 email';
+
+-- ------------------------------------------------------------
+-- [96/96] add_event_auto_lock.sql（2026-11-15 追加，自動停止異動：events.auto_lock_at＋pg_cron 每 5 分鐘；auto_lock_events() 定義在上方 [85/86] rpc_events.sql 段落）
+-- ------------------------------------------------------------
+-- ============================================================
+-- add_event_auto_lock.sql（2026-11-15，自動停止異動）
+-- 職責：events 加 auto_lock_at，並排 pg_cron 工作每 5 分鐘呼叫 auto_lock_events()。
+-- ⚠️ 執行順序：先跑 rpc_events.sql（建立 auto_lock_events 函式），再跑本檔。
+-- 可重複執行：ADD COLUMN IF NOT EXISTS；排程先 unschedule 同名工作再 schedule。
+-- pg_cron：正式環境已啟用；全新環境在 full_setup_all_in_one.sql [47/81] 已
+--   CREATE EXTENSION IF NOT EXISTS pg_cron，本檔不重複。
+-- ============================================================
+
+ALTER TABLE events ADD COLUMN IF NOT EXISTS auto_lock_at TIMESTAMPTZ;
+COMMENT ON COLUMN events.auto_lock_at IS '自動停止異動時間（NULL=不自動鎖定）；到時間由 pg_cron 工作 auto_lock_events 設 locked=true 並清空本欄';
+
+DO $$
+BEGIN
+  PERFORM cron.unschedule('auto_lock_events');
+EXCEPTION WHEN OTHERS THEN
+  -- 第一次跑、還沒有這個工作會跳例外，直接略過
+  NULL;
+END $$;
+
+SELECT cron.schedule(
+  'auto_lock_events',
+  '*/5 * * * *',  -- 每 5 分鐘（與時區無關）
+  $$SELECT auto_lock_events();$$
+);

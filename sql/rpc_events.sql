@@ -4,6 +4,7 @@
 -- fix_recurring_fields_volunteers.sql（補上複製邏輯，是目前正確版本）兩支檔案，
 -- 用資料庫函式健檢工具比對才發現。這裡把正確版本原封不動搬過來，往後這支函式
 -- 只在這支檔案改。
+-- 2026-11-15：新增 auto_lock_events()（自動停止異動，見檔尾）。
 -- 可安全重跑：CREATE OR REPLACE。
 
 CREATE OR REPLACE FUNCTION create_recurring_events_in_range(
@@ -102,3 +103,33 @@ BEGIN
   RETURN created_cnt;
 END;
 $$;
+
+-- ============================================================
+-- auto_lock_events()（2026-11-15 新增，自動停止異動）
+-- 由 add_event_auto_lock.sql 建立的 pg_cron 工作「auto_lock_events」每 5 分鐘呼叫。
+-- 把 auto_lock_at 已到時間的活動設為 locked=true，並清空 auto_lock_at（已經 locked 的也清空），
+-- 因此鎖定後手動解除不會被再次鎖回去。效果與後台手動按「🔒 停止異動」相同。
+-- 用 plpgsql：函式內容到執行時才檢查欄位，先跑本檔、再跑 add_event_auto_lock.sql 也能建立成功。
+-- 權限：只給 pg_cron（以資料庫擁有者身分執行）用，不開放前台／登入者透過 RPC 呼叫。
+-- ============================================================
+CREATE OR REPLACE FUNCTION auto_lock_events()
+RETURNS int
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  locked_cnt int;
+BEGIN
+  UPDATE events
+     SET locked = true,
+         auto_lock_at = NULL
+   WHERE auto_lock_at IS NOT NULL
+     AND auto_lock_at <= now();
+  GET DIAGNOSTICS locked_cnt = ROW_COUNT;
+  RETURN locked_cnt;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION auto_lock_events() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION auto_lock_events() FROM anon, authenticated;

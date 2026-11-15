@@ -181,7 +181,13 @@ WITH checks(seq, migration_file, note, ok) AS (
    (SELECT count(*) FROM information_schema.columns
      WHERE (table_name='events' AND column_name IN ('needs_mountain_approval','approval_rejected_text'))
         OR (table_name='registrations' AND column_name IN ('approval_status','approval_updated_at','approval_updated_by'))) = 5
-   AND pg_get_function_result('kiosk_get_registrations_for_student(text,uuid[])'::regprocedure) LIKE '%approval_status%')
+   AND pg_get_function_result('kiosk_get_registrations_for_student(text,uuid[])'::regprocedure) LIKE '%approval_status%'),
+
+  (93, 'rpc_events.sql → add_event_auto_lock.sql',
+   'events.auto_lock_at 欄位存在、函式 auto_lock_events 存在、pg_cron 有 auto_lock_events 工作（自動停止異動，2026-11-15；❌ 時先跑 rpc_events.sql 再跑 add_event_auto_lock.sql）',
+   EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='events' AND column_name='auto_lock_at')
+   AND to_regproc('auto_lock_events') IS NOT NULL
+   AND EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'auto_lock_events'))
 )
 SELECT
   seq AS "順序",

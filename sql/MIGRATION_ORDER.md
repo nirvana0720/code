@@ -202,6 +202,12 @@
 |------|------|------|
 | 92 | `add_mountain_approval.sql` | 新增 `events.needs_mountain_approval`（需山上審核開關，預設 false）／`events.approval_rejected_text`（未核准時學員頁文字），`registrations.approval_status`（registered／ctis_registered／approved／rejected，預設 registered，含 CHECK 限制）／`approval_updated_at`／`approval_updated_by`。只加欄位，不加觸發器、不加新表、不改權限；既有活動與報名零影響。**跑完這支後，既有環境要再重跑一次第 83 項 `rpc_kiosk_student.sql`**（主檔原地加回傳欄位 `approval_status`，學員頁才讀得到審核狀態；權限不變） |
 
+## 第十七階段：自動停止異動（2026-11-15）
+
+| 順序 | 檔案 | 說明 |
+|------|------|------|
+| 93 | `rpc_events.sql` → `add_event_auto_lock.sql` | **執行順序：先重跑第 84 項 `rpc_events.sql`**（主檔原地新增 `auto_lock_events()`，SECURITY DEFINER，已 REVOKE PUBLIC／anon／authenticated），**再跑 `add_event_auto_lock.sql`**（新增 `events.auto_lock_at TIMESTAMPTZ`，可空；排 pg_cron 工作 `auto_lock_events` 每 5 分鐘執行一次）。到時間把活動設為 `locked=true` 並清空 `auto_lock_at`，手動解除後不會再被鎖回去。沒填時間的活動不受影響。⚠️ 前端「儲存設定」會送出 `auto_lock_at`，**必須先跑完這兩支 SQL 才能部署前端**，否則所有活動的儲存都會失敗 |
+
 ### 不需要執行的檔案（一次性測試／除錯用，已在正式環境清除）
 
 `debug_identity_values.sql`、`test_dormitory_chore_tabs.sql`、`test_dormitory_chore_tabs_cleanup.sql`、

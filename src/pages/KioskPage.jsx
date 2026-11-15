@@ -1738,8 +1738,8 @@ function OverviewScreen({
                     {event.date_end && event.date_end !== event.date_start ? ` ～ ${event.date_end}` : ''}
                     {event.location ? `　${event.location}` : ''}
                   </p>
-                  {/* 已報名則顯示報名資料摘要 */}
-                  {registered && !confirming && reg.answers && (() => {
+                  {/* 已報名則顯示報名資料摘要（山上審核未核准者不顯示） */}
+                  {registered && !confirming && !approvalRejected && reg.answers && (() => {
                     // 多場次模式：顯示場次 badge 清單
                     if (event.multi_session && Array.isArray(reg.answers.sessions)) {
                       const regSessions = reg.answers.sessions

@@ -1,0 +1,7 @@
+fix: nested volunteer fields (e.g. 欲發心組別) grouped under 義工相關 in registration list
+
+isVolunteerField now also treats a field as volunteer-related when its show_if
+points to another volunteer-only field.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WyNG4JEdyXhuhz2vDSqGPg

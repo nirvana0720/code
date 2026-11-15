@@ -119,10 +119,27 @@ export default function EventDetailPage() {
   )
   const identityKey = identityField?.field_key ?? null
 
-  // 義工專屬欄位：show_if 條件指向「身分別 = 義工」
+  // 義工專屬欄位：show_if 條件指向「身分別 = 義工」，
+  // 或條件指向另一個義工專屬欄位（巢狀，例如「欲發心組別」只在「義工組別＝其他」時出現）
+  const volunteerKeySet = useMemo(() => {
+    const keys = new Set()
+    if (!identityKey) return keys
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const f of fields) {
+        if (keys.has(f.field_key) || !f.show_if) continue
+        if (f.show_if[identityKey] === '義工' || Object.keys(f.show_if).some(k => keys.has(k))) {
+          keys.add(f.field_key)
+          changed = true
+        }
+      }
+    }
+    return keys
+  }, [fields, identityKey])
   const isVolunteerField = useCallback(
-    f => !!identityKey && f?.show_if?.[identityKey] === '義工',
-    [identityKey]
+    f => !!f && volunteerKeySet.has(f.field_key),
+    [volunteerKeySet]
   )
 
   // 上山／下山相關欄位：依 field_label 字串自動偵測（不依寫死的 field_key）
